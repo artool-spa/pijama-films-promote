@@ -1,0 +1,54 @@
+{
+  "skills": [
+    {
+      "name": "backend-dev-guidelines",
+      "triggers": {
+        "keywords": ["model", "prisma", "database", "api", "route", "server", "controller", "zod", "validation"],
+        "filePatterns": ["src/models/**", "src/app/api/**", "src/app/**/page.tsx"],
+        "intents": ["create model", "add api route", "server component", "database query"]
+      },
+      "priority": "high",
+      "autoActivate": true
+    },
+    {
+      "name": "frontend-dev-guidelines",
+      "triggers": {
+        "keywords": ["component", "mui", "client", "theme", "layout", "grid", "button", "form"],
+        "filePatterns": ["src/components/**", "src/app/**/client.tsx"],
+        "intents": ["create component", "add ui", "client component", "form handling"]
+      },
+      "priority": "high",
+      "autoActivate": true
+    },
+    {
+      "name": "film-platform-guidelines",
+      "triggers": {
+        "keywords": ["film", "película", "campaign", "campaña", "producer", "productor", "metrics", "métricas"],
+        "filePatterns": ["src/models/film.ts", "src/models/campaign.ts", "src/models/producer.ts"],
+        "intents": ["film feature", "campaign management", "producer workflow"]
+      },
+      "priority": "medium",
+      "autoActivate": true
+    },
+    {
+      "name": "database-guidelines",
+      "triggers": {
+        "keywords": ["schema", "migration", "prisma", "query", "transaction", "index"],
+        "filePatterns": ["prisma/schema.prisma"],
+        "intents": ["modify schema", "add migration", "optimize query"]
+      },
+      "priority": "high",
+      "autoActivate": true
+    },
+    {
+      "name": "testing-guidelines",
+      "triggers": {
+        "keywords": ["test", "vitest", "coverage", "mock", "testing"],
+        "filePatterns": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"],
+        "intents": ["write test", "add test coverage", "test component"]
+      },
+      "priority": "medium",
+      "autoActivate": false
+    }
+  ]
+}

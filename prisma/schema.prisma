@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum MetaEntityStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  PAUSED
+  ARCHIVED
+  ERROR
+}
+
+enum BudgetType {
+  DAILY
+  LIFETIME
+}
+
+enum CampaignObjective {
+  CONVERSIONS
+  LANDING_PAGE_VIEW
+}
+
+// ============================================================================
+// CORE MODELS
+// ============================================================================
+
+// Partner - Represents a film producer/partner from Pijama API
+// Personal data (email, name, etc.) is fetched from Pijama API using partnerId
+model Partner {
+  id                        String     @id @default(cuid())
+  partnerId                 String     @unique // External Pijama partner ID
+  name                      String // Display name for convenience
+  // Meta Campaign References (2 per partner)
+  metaConversionsCampaignId String? // Meta campaign ID for conversions
+  metaLandingPageCampaignId String? // Meta campaign ID for landing page views
+  createdAt                 DateTime   @default(now())
+  updatedAt                 DateTime   @updatedAt
+  campaigns                 Campaign[]
+}
+
+// ============================================================================
+// META ADS MODELS
+// ============================================================================
+
+// Campaign - Represents a promotion (budget, schedule, targeting)
+// Links to Partner and references film by MUVI UUID
+model Campaign {
+  id                   String           @id @default(cuid())
+  metaAdSetId          String?          @unique // Meta AdSet ID (their terminology)
+  name                 String
+  status               MetaEntityStatus @default(DRAFT)
+  objective            CampaignObjective // Which parent Meta campaign this belongs to
+
+  // Budget & Schedule
+  budget               Float
+  budgetType           BudgetType       @default(LIFETIME)
+  startDate            DateTime
+  endDate              DateTime?
+
+  // Targeting (simplified - audience built at sync time)
+  targetCountries      String[]         @default(["US"])
+  targetAgeMin         Int              @default(18)
+  targetAgeMax         Int              @default(65)
+  targetGenders        Int[]            @default([])
+  includeBaseAudiences Boolean          @default(true)
+  filmGenres           String[]         @default([]) // Maps to GÉNEROS CINEMATOGRÁFICOS
+  includeLgbtAudience  Boolean          @default(false)
+
+  // Pixel/Conversion
+  pixelId              String?
+  conversionEvent      String           @default("PURCHASE")
+
+  // Optimization
+  optimizationGoal     String           @default("OFFSITE_CONVERSIONS")
+  billingEvent         String           @default("IMPRESSIONS")
+  bidStrategy          String           @default("LOWEST_COST_WITHOUT_CAP")
+
+  // Film reference (MUVI UUID, not local FK)
+  filmMuviUuid         String
+
+  // Partner relation
+  partnerId            String
+  partner              Partner          @relation(fields: [partnerId], references: [id])
+
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  syncedAt             DateTime?
+  ads                  Ad[]
+
+  @@index([partnerId])
+  @@index([filmMuviUuid])
+  @@index([status])
+}
+
+// Ad - Creative with multiple variants for Meta's dynamic creative optimization
+// Arrays allow Meta to test different combinations automatically
+model Ad {
+  id           String           @id @default(cuid())
+  metaAdId     String?          @unique
+  name         String
+  status       MetaEntityStatus @default(DRAFT)
+
+  // Creative content - arrays for Meta dynamic creative testing
+  headlines    String[] // Multiple headlines to test (max 5)
+  bodies       String[]         @db.Text // Multiple primary text options (max 5)
+  descriptions String[] // Short descriptions (max 5)
+  callToAction String           @default("WATCH_MORE")
+  linkUrl      String
+
+  // Media relations (replace URL arrays)
+  images Image[] @relation("AdImages")
+  videos Video[] @relation("AdVideos")
+
+  // Relations
+  campaignId String
+  campaign   Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  syncedAt   DateTime?
+
+  @@index([campaignId])
+  @@index([status])
+}
+
+// ============================================================================
+// MEDIA ASSETS
+// ============================================================================
+
+// Image - Uploaded image assets linked to films
+model Image {
+  id           String   @id @default(cuid())
+  filmMuviUuid String // Links to MUVI film
+  name         String // Display name
+  originalUrl  String // Original filename if uploaded, or source URL
+  storageKey   String   @unique // GCS path (e.g., "images/uuid.jpg")
+  url          String // Public URL
+  mimeType     String // image/jpeg, image/png, etc.
+  size         Int // File size in bytes
+  width        Int? // Image dimensions (optional)
+  height       Int?
+  createdAt    DateTime @default(now())
+
+  // Relation to ads using this image
+  ads Ad[] @relation("AdImages")
+
+  @@index([filmMuviUuid])
+}
+
+// Video - Uploaded video assets linked to films
+model Video {
+  id           String   @id @default(cuid())
+  filmMuviUuid String // Links to MUVI film
+  name         String // Display name
+  originalUrl  String // Original filename if uploaded, or source URL
+  storageKey   String   @unique // GCS path (e.g., "videos/uuid.mp4")
+  url          String // Public URL
+  mimeType     String // video/mp4, video/webm, etc.
+  size         Int // File size in bytes
+  duration     Int? // Duration in seconds (optional)
+  thumbnailUrl String? // Thumbnail URL (optional)
+  metaVideoId  String? // Meta Ads video ID after upload to Meta
+  createdAt    DateTime @default(now())
+
+  // Relation to ads using this video
+  ads Ad[] @relation("AdVideos")
+
+  @@index([filmMuviUuid])
+}
+
+// ============================================================================
+// AI-GENERATED CONTENT
+// ============================================================================
+
+// Generated Copy - AI-generated marketing copies for films
+model GeneratedCopy {
+  id           String   @id @default(cuid())
+  filmId       String // MUVI film ID
+  language     String // es, en, pt
+  headline     String
+  primaryText  String   @db.Text
+  description  String
+  callToAction String
+  variant      String // A, B, C
+  createdAt    DateTime @default(now())
+
+  @@unique([filmId, language, variant])
+  @@index([filmId])
+  @@index([language])
+}

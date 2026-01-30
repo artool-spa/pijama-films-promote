@@ -1,0 +1,59 @@
+yarn run v1.22.22
+$ next dev
+   ▲ Next.js 16.0.3 (Turbopack)
+   - Local:         http://localhost:3000
+   - Network:       http://10.255.255.254:3000
+   - Environments: .env
+
+ ✓ Starting...
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ✓ Ready in 803ms
+ ○ Compiling /films/[id]/campaigns/new ...
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 8.3s (compile: 6.1s, render: 2.2s)
+ GET /films 200 in 2.6s (compile: 1424ms, render: 1133ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 842ms (compile: 39ms, render: 803ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 213ms (compile: 118ms, render: 94ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 46ms (compile: 5ms, render: 41ms)
+ GET /films 200 in 866ms (compile: 76ms, render: 790ms)
+ GET /films 200 in 948ms (compile: 4ms, render: 945ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 360ms (compile: 35ms, render: 325ms)
+ ✓ Compiled in 45ms
+ GET /films 200 in 575ms (compile: 69ms, render: 505ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 336ms (compile: 52ms, render: 284ms)
+ ✓ Compiled in 54ms
+ ✓ Compiled in 21ms
+ ✓ Compiled in 0ms
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 716ms (compile: 222ms, render: 494ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 108ms (compile: 10ms, render: 98ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 1484ms (compile: 4ms, render: 1479ms)
+ GET /films 200 in 927ms (compile: 82ms, render: 845ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 439ms (compile: 53ms, render: 386ms)
+ GET /films 200 in 484ms (compile: 5ms, render: 479ms)
+ ✓ Compiled in 673ms
+ GET /films 200 in 376ms (compile: 152ms, render: 224ms)
+ GET /films 200 in 526ms (compile: 4ms, render: 521ms)
+ ✓ Compiled in 15ms
+ GET /funds 200 in 1382ms (compile: 1335ms, render: 47ms)
+ GET /campaigns 200 in 2.2s (compile: 1411ms, render: 838ms)
+ GET /campaigns 200 in 641ms (compile: 4ms, render: 637ms)
+ GET /films 200 in 290ms (compile: 50ms, render: 240ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 505ms (compile: 120ms, render: 385ms)
+ GET /films 200 in 954ms (compile: 8ms, render: 945ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 880ms (compile: 48ms, render: 832ms)
+ GET /films 200 in 238ms (compile: 6ms, render: 233ms)
+ GET /films/7389004f422c43dab5306f0b0de0addb/campaigns/new 200 in 823ms (compile: 44ms, render: 778ms)
+ GET /films 200 in 239ms (compile: 5ms, render: 234ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 343ms (compile: 47ms, render: 297ms)
+ GET /films 200 in 300ms (compile: 5ms, render: 295ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 349ms (compile: 53ms, render: 297ms)
+ GET /films 200 in 347ms (compile: 14ms, render: 333ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 302ms (compile: 57ms, render: 245ms)
+ GET /films 200 in 327ms (compile: 4ms, render: 323ms)
+ GET /films/916ad317685b434facef6e0f39fc005a/campaigns/new 200 in 419ms (compile: 48ms, render: 371ms)
+ GET /campaigns 200 in 1476ms (compile: 20ms, render: 1456ms)
+ GET /funds 200 in 43ms (compile: 12ms, render: 31ms)
+ GET /campaigns 200 in 250ms (compile: 8ms, render: 242ms)
+ GET /films 200 in 702ms (compile: 6ms, render: 696ms)
+ GET /campaigns 200 in 243ms (compile: 4ms, render: 239ms)
+ GET /funds 200 in 29ms (compile: 4ms, render: 25ms)
+ GET /films 200 in 303ms (compile: 3ms, render: 300ms)
