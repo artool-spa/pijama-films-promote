@@ -52,6 +52,9 @@ import {
   Instagram as InstagramIcon,
   Warning as WarningIcon,
   Refresh as RefreshIcon,
+  Image as ImageIcon,
+  TextFields as TextFieldsIcon,
+  HourglassEmpty as HourglassIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 
@@ -195,8 +198,11 @@ const FILM_GENRES: { label: string; value: string }[] = [
 type MetaAdPreviewFormat =
   | 'DESKTOP_FEED_STANDARD'
   | 'MOBILE_FEED_STANDARD'
+  | 'FACEBOOK_STORY_MOBILE'
+  | 'FACEBOOK_REELS_MOBILE'
   | 'INSTAGRAM_STANDARD'
-  | 'INSTAGRAM_STORY';
+  | 'INSTAGRAM_STORY'
+  | 'INSTAGRAM_REELS';
 
 /**
  * Maps platform and ad style to Meta's preview format
@@ -204,13 +210,13 @@ type MetaAdPreviewFormat =
 function getMetaFormat(platform: string, style: string): MetaAdPreviewFormat {
   if (platform === 'facebook') {
     if (style === 'Feed') return 'MOBILE_FEED_STANDARD';
-    if (style === 'Stories') return 'MOBILE_FEED_STANDARD';
-    if (style === 'Reels') return 'MOBILE_FEED_STANDARD';
+    if (style === 'Stories') return 'FACEBOOK_STORY_MOBILE';
+    if (style === 'Reels') return 'FACEBOOK_REELS_MOBILE';
   }
   if (platform === 'instagram') {
     if (style === 'Feed') return 'INSTAGRAM_STANDARD';
     if (style === 'Stories') return 'INSTAGRAM_STORY';
-    if (style === 'Reels') return 'INSTAGRAM_STANDARD';
+    if (style === 'Reels') return 'INSTAGRAM_REELS';
   }
   return 'MOBILE_FEED_STANDARD';
 }
@@ -380,9 +386,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
         const error = await response.json();
         // If video not ready, show a friendly message
         if (error.code === 'VIDEO_NOT_READY') {
-          setPreviewError('El video aún se está procesando. La vista previa estará disponible pronto.');
+          setPreviewError('The video is still being processed. Preview will be available soon.');
         } else {
-          throw new Error(error.details || error.error || 'Error al generar vista previa');
+          throw new Error(error.details || error.error || 'Error generating preview');
         }
         setPreviewHtml(null);
         return;
@@ -853,7 +859,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       name: `${film.title} - ${selectedLanguage.toUpperCase()}`,
       language: selectedLanguage,
       headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
-      bodies: bodies.length > 0 ? bodies : [film.description || `Una película que no te puedes perder`],
+      bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
       descriptions: [],
       callToAction: 'LEARN_MORE',
       linkUrl: film.trailerUrl || `https://pijama.film/films/${film.id}`,
@@ -893,7 +899,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       // Validate we have at least one ad with media
       const hasMedia = payload.ads.some(ad => ad.imageIds.length > 0 || ad.videoIds.length > 0);
       if (!hasMedia) {
-        throw new Error('Selecciona al menos una imagen o video para tu campaña');
+        throw new Error('Select at least one image or video for your campaign');
       }
 
       const response = await fetch('/api/meta/campaigns/create-and-sync', {
@@ -904,7 +910,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error al crear la campaña');
+        throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
       }
 
       const result = await response.json();
@@ -922,7 +928,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       router.push(`/films/${film.id}/campaigns/${result.campaign.id}`);
     } catch (error) {
       console.error('Error creating campaign:', error);
-      setSubmitError(error instanceof Error ? error.message : 'Error al crear la campaña');
+      setSubmitError(error instanceof Error ? error.message : 'Error creating campaign');
     } finally {
       setSubmitting(false);
     }
@@ -1742,7 +1748,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                 >
                   <CircularProgress />
                   <Typography color="text.secondary">
-                    Generando vista previa...
+                    Generating preview...
                   </Typography>
                 </Box>
               ) : previewError ? (
@@ -1765,7 +1771,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                     {previewError}
                   </Typography>
                   <Button variant="outlined" size="small" onClick={fetchPreview}>
-                    Reintentar
+                    Retry
                   </Button>
                 </Box>
               ) : previewHtml ? (
@@ -1788,42 +1794,164 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                   }}
                 />
               ) : (
-                <Card sx={{ bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-                  <CardMedia
-                    component="img"
-                    height="300"
-                    image={film.posterUrl || 'https://picsum.photos/seed/preview/400/300'}
-                    alt={film.title}
-                    sx={{ objectFit: 'cover' }}
-                  />
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <Chip
-                        label={currentPlatform.name}
-                        size="small"
-                        color="primary"
+                (() => {
+                  // Determine the reason for empty preview
+                  const hasMedia = selectedAssets.length > 0;
+                  const hasCopy = copies[previewVariant]?.headline;
+                  const currentAsset = previewableAssets[previewAssetIndex];
+                  const isVideoWithoutMetaId = currentAsset?.type === 'video' && !currentAsset.metaVideoId;
+
+                  // No media selected
+                  if (!hasMedia) {
+                    return (
+                      <Box
+                        sx={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'column',
+                          gap: 2,
+                          bgcolor: 'background.default',
+                          border: '1px dashed',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          p: 4,
+                          minHeight: 300,
+                        }}
+                      >
+                        <ImageIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+                        <Typography color="text.secondary" align="center">
+                          Select at least one image or video to see the preview
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => setLeftTab(2)}
+                        >
+                          Go to Media
+                        </Button>
+                      </Box>
+                    );
+                  }
+
+                  // No copy text
+                  if (!hasCopy) {
+                    return (
+                      <Box
+                        sx={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'column',
+                          gap: 2,
+                          bgcolor: 'background.default',
+                          border: '1px dashed',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          p: 4,
+                          minHeight: 300,
+                        }}
+                      >
+                        <TextFieldsIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+                        <Typography color="text.secondary" align="center">
+                          Add ad text to generate the preview
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => setLeftTab(1)}
+                        >
+                          Go to Ad Copy
+                        </Button>
+                      </Box>
+                    );
+                  }
+
+                  // Video not ready (no metaVideoId)
+                  if (isVideoWithoutMetaId) {
+                    return (
+                      <Box
+                        sx={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'column',
+                          gap: 2,
+                          bgcolor: 'background.default',
+                          border: '1px dashed',
+                          borderColor: 'warning.main',
+                          borderRadius: 1,
+                          p: 4,
+                          minHeight: 300,
+                        }}
+                      >
+                        <HourglassIcon sx={{ fontSize: 48, color: 'warning.main' }} />
+                        <Typography color="text.secondary" align="center">
+                          The video is being processed by Meta.
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" align="center">
+                          Meanwhile, you can preview with an image or wait for processing to complete.
+                        </Typography>
+                        {selectedImages.length > 0 && (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => {
+                              // Find first image index in previewable assets
+                              const imageIndex = previewableAssets.findIndex(a => a.type === 'image');
+                              if (imageIndex >= 0) setPreviewAssetIndex(imageIndex);
+                            }}
+                          >
+                            Preview with Image
+                          </Button>
+                        )}
+                      </Box>
+                    );
+                  }
+
+                  // Default fallback - show basic card preview
+                  return (
+                    <Card sx={{ bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                      <CardMedia
+                        component="img"
+                        height="300"
+                        image={film.posterUrl || 'https://picsum.photos/seed/preview/400/300'}
+                        alt={film.title}
+                        sx={{ objectFit: 'cover' }}
                       />
-                      <Chip
-                        label={selectedAdStyle}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </Box>
-                    <Typography variant="h6" gutterBottom>
-                      {copies[previewVariant]?.headline || 'Título del anuncio'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {copies[previewVariant]?.description || 'Selecciona un medio y agrega texto para ver la vista previa'}
-                    </Typography>
-                  </CardContent>
-                </Card>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <Chip
+                            label={currentPlatform.name}
+                            size="small"
+                            color="primary"
+                          />
+                          <Chip
+                            label={selectedAdStyle}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Box>
+                        <Typography variant="h6" gutterBottom>
+                          {copies[previewVariant]?.headline || 'Ad title'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {copies[previewVariant]?.description || 'Preview will appear here'}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  );
+                })()
               )}
             </Box>
 
             <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
               {previewHtml
-                ? 'Vista previa generada por Meta. La apariencia final puede variar.'
-                : 'Vista previa aproximada. La apariencia final puede variar por plataforma.'}
+                ? 'Preview generated by Meta. Final appearance may vary.'
+                : 'Approximate preview. Final appearance may vary by platform.'}
             </Typography>
           </Paper>
         </Grid>

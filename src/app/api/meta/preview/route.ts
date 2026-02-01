@@ -21,8 +21,11 @@ const PreviewRequestSchema = z.object({
   format: z.enum([
     'DESKTOP_FEED_STANDARD',
     'MOBILE_FEED_STANDARD',
+    'FACEBOOK_STORY_MOBILE',
+    'FACEBOOK_REELS_MOBILE',
     'INSTAGRAM_STANDARD',
     'INSTAGRAM_STORY',
+    'INSTAGRAM_REELS',
   ]).default('MOBILE_FEED_STANDARD'),
 });
 
@@ -34,13 +37,13 @@ const PreviewRequestSchema = z.object({
 export async function POST(req: NextRequest) {
   const partner = await getPartnerFromRequest(req);
   if (!partner) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   // Check if we have Page ID configured
   if (!meta.pageId) {
     return NextResponse.json(
-      { error: 'META_PAGE_ID no está configurado. Se requiere para generar vistas previas.' },
+      { error: 'META_PAGE_ID is not configured. Required to generate previews.' },
       { status: 400 }
     );
   }
@@ -52,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (!validationResult.success) {
       return NextResponse.json(
         {
-          error: 'Datos de solicitud inválidos',
+          error: 'Invalid request data',
           details: validationResult.error.issues,
         },
         { status: 400 }
@@ -66,8 +69,8 @@ export async function POST(req: NextRequest) {
     if (mediaType === 'VIDEO' && !metaVideoId) {
       return NextResponse.json(
         {
-          error: 'Video no disponible para vista previa',
-          details: 'El video aún se está procesando. Intenta de nuevo en unos momentos o selecciona una imagen.',
+          error: 'Video not available for preview',
+          details: 'The video is still being processed. Try again in a few moments or select an image.',
           code: 'VIDEO_NOT_READY',
         },
         { status: 400 }
@@ -102,7 +105,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof MetaApiError) {
       return NextResponse.json(
         {
-          error: 'Error al generar vista previa',
+          error: 'Error generating preview',
           details: error.message,
           code: error.errorCode,
         },
@@ -113,7 +116,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          error: 'Datos de solicitud inválidos',
+          error: 'Invalid request data',
           details: error.issues,
         },
         { status: 400 }
@@ -122,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: 'Error al generar vista previa del anuncio', details: errorMessage },
+      { error: 'Error generating ad preview', details: errorMessage },
       { status: 500 }
     );
   }

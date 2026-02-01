@@ -297,8 +297,11 @@ export type MetaInsightsResponse = z.infer<typeof MetaInsightsResponseSchema>;
 export const MetaAdPreviewFormatSchema = z.enum([
   'DESKTOP_FEED_STANDARD',
   'MOBILE_FEED_STANDARD',
+  'FACEBOOK_STORY_MOBILE',
+  'FACEBOOK_REELS_MOBILE',
   'INSTAGRAM_STANDARD',
   'INSTAGRAM_STORY',
+  'INSTAGRAM_REELS',
 ]);
 
 export type MetaAdPreviewFormat = z.infer<typeof MetaAdPreviewFormatSchema>;
