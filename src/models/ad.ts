@@ -8,6 +8,7 @@ import { z } from 'zod';
 const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
+const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -52,6 +53,9 @@ export const AdUpdateSchema = z
 export const AdBulkCreateSchema = z
   .object({
     name: z.string().min(1).max(255),
+    // adSetType is auto-detected based on media: IMAGE if has images, VIDEO if has videos
+    // If both provided, caller must specify which type this ad is for
+    adSetType: AdSetTypeSchema.optional(),
     headlines: z.array(z.string().min(1).max(255)).min(1).max(5),
     bodies: z.array(z.string().min(1).max(2200)).min(1).max(5),
     descriptions: z.array(z.string().max(30)).max(5).default([]),
@@ -108,6 +112,7 @@ export const AdSchema = z.object({
   metaAdId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
+  adSetType: AdSetTypeSchema,
   headlines: z.array(z.string()),
   bodies: z.array(z.string()),
   descriptions: z.array(z.string()),
@@ -125,15 +130,16 @@ export const PartnerSchema = z.object({
   id: z.string().cuid(),
   partnerId: z.string(),
   name: z.string(),
-  metaConversionsCampaignId: z.string().nullable(),
-  metaLandingPageCampaignId: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
 
 export const CampaignSchema = z.object({
   id: z.string().cuid(),
-  metaAdSetId: z.string().nullable(),
+  // CBO Meta IDs
+  metaCampaignId: z.string().nullable(),
+  imageAdSetId: z.string().nullable(),
+  videoAdSetId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -141,6 +147,7 @@ export const CampaignSchema = z.object({
   budgetType: BudgetTypeSchema,
   startDate: z.coerce.date(),
   endDate: z.coerce.date().nullable(),
+  language: z.string(),
   targetCountries: z.array(z.string()),
   targetAgeMin: z.number().int(),
   targetAgeMax: z.number().int(),
@@ -328,6 +335,7 @@ export async function deleteAd(id: string) {
 
 /**
  * Bulk create ads for a campaign
+ * Auto-detects adSetType based on media: VIDEO if has videos, IMAGE otherwise
  */
 export async function createAdsForCampaign(
   campaignId: string,
@@ -337,10 +345,14 @@ export async function createAdsForCampaign(
   const validatedAds = z.array(AdBulkCreateSchema).parse(adsData);
 
   const results = await prisma.$transaction(
-    validatedAds.map(({ imageIds, videoIds, ...adData }) =>
-      prisma.ad.create({
+    validatedAds.map(({ imageIds, videoIds, adSetType, ...adData }) => {
+      // Auto-detect adSetType: VIDEO if has videos, IMAGE otherwise
+      const detectedType = adSetType || (videoIds.length > 0 ? 'VIDEO' : 'IMAGE');
+
+      return prisma.ad.create({
         data: {
           ...adData,
+          adSetType: detectedType,
           campaignId: validCampaignId,
           status: 'DRAFT',
           images: imageIds.length > 0 ? { connect: imageIds.map((id) => ({ id })) } : undefined,
@@ -350,8 +362,8 @@ export async function createAdsForCampaign(
           images: true,
           videos: true,
         },
-      })
-    )
+      });
+    })
   );
 
   return z.array(AdSchema).parse(results);

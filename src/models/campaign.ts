@@ -22,6 +22,8 @@ export const CampaignCreateSchema = z
     budgetType: BudgetTypeSchema.default('LIFETIME'),
     startDate: z.coerce.date(),
     endDate: z.coerce.date().optional(),
+    // Language (single per campaign)
+    language: z.string().min(2).max(10).default('es'),
     // Targeting
     targetCountries: z.array(z.string()).default(['US']),
     targetAgeMin: z.number().int().min(13).max(65).default(18),
@@ -46,6 +48,7 @@ export const CampaignUpdateSchema = z
     status: MetaEntityStatusSchema.optional(),
     budget: z.number().positive().optional(),
     endDate: z.coerce.date().optional(),
+    language: z.string().min(2).max(10).optional(),
     targetCountries: z.array(z.string()).optional(),
     targetAgeMin: z.number().int().optional(),
     targetAgeMax: z.number().int().optional(),
@@ -53,7 +56,10 @@ export const CampaignUpdateSchema = z
     includeBaseAudiences: z.boolean().optional(),
     filmGenres: z.array(z.string()).optional(),
     includeLgbtAudience: z.boolean().optional(),
-    metaAdSetId: z.string().optional(),
+    // CBO Meta IDs
+    metaCampaignId: z.string().optional(),
+    imageAdSetId: z.string().optional(),
+    videoAdSetId: z.string().optional(),
   })
   .strict();
 
@@ -93,11 +99,14 @@ const VideoSchema = z.object({
   createdAt: z.coerce.date(),
 });
 
+const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
+
 export const AdSchema = z.object({
   id: z.string().cuid(),
   metaAdId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
+  adSetType: AdSetTypeSchema,
   headlines: z.array(z.string()),
   bodies: z.array(z.string()),
   descriptions: z.array(z.string()),
@@ -115,15 +124,16 @@ export const PartnerSchema = z.object({
   id: z.string().cuid(),
   partnerId: z.string(),
   name: z.string(),
-  metaConversionsCampaignId: z.string().nullable(),
-  metaLandingPageCampaignId: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
 
 export const CampaignSchema = z.object({
   id: z.string().cuid(),
-  metaAdSetId: z.string().nullable(),
+  // CBO Meta IDs (dedicated campaign per local campaign)
+  metaCampaignId: z.string().nullable(),
+  imageAdSetId: z.string().nullable(),
+  videoAdSetId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -131,6 +141,7 @@ export const CampaignSchema = z.object({
   budgetType: BudgetTypeSchema,
   startDate: z.coerce.date(),
   endDate: z.coerce.date().nullable(),
+  language: z.string(),
   targetCountries: z.array(z.string()),
   targetAgeMin: z.number().int(),
   targetAgeMax: z.number().int(),
@@ -277,25 +288,30 @@ export async function getActiveCampaigns() {
   const results = await prisma.campaign.findMany({
     where: {
       status: 'ACTIVE',
-      metaAdSetId: { not: null },
+      metaCampaignId: { not: null },
     },
     select: {
       id: true,
-      metaAdSetId: true,
+      metaCampaignId: true,
+      imageAdSetId: true,
+      videoAdSetId: true,
       ads: {
         where: { metaAdId: { not: null } },
-        select: { id: true, metaAdId: true },
+        select: { id: true, metaAdId: true, adSetType: true },
       },
     },
   });
 
   const ActiveCampaignSchema = z.object({
     id: z.string().cuid(),
-    metaAdSetId: z.string(),
+    metaCampaignId: z.string(),
+    imageAdSetId: z.string().nullable(),
+    videoAdSetId: z.string().nullable(),
     ads: z.array(
       z.object({
         id: z.string().cuid(),
         metaAdId: z.string(),
+        adSetType: z.enum(['IMAGE', 'VIDEO']),
       })
     ),
   });
@@ -333,11 +349,14 @@ export async function updateCampaign(id: string, data: CampaignUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = CampaignUpdateSchema.parse(data);
 
+  // Determine if any Meta IDs are being set (indicates sync)
+  const isSyncing = validated.metaCampaignId || validated.imageAdSetId || validated.videoAdSetId;
+
   const result = await prisma.campaign.update({
     where: { id: validId },
     data: {
       ...validated,
-      syncedAt: validated.metaAdSetId ? new Date() : undefined,
+      syncedAt: isSyncing ? new Date() : undefined,
     },
   });
 
@@ -369,16 +388,29 @@ export async function deleteCampaign(id: string) {
 }
 
 /**
- * Mark campaign as synced with Meta API
+ * Mark campaign as synced with Meta API using CBO structure
+ * @param id - Local campaign ID
+ * @param metaCampaignId - Meta Campaign ID (with CBO enabled)
+ * @param imageAdSetId - Optional Meta AdSet ID for image ads
+ * @param videoAdSetId - Optional Meta AdSet ID for video ads
  */
-export async function markCampaignSynced(id: string, metaAdSetId: string) {
+export async function markCampaignSynced(
+  id: string,
+  metaCampaignId: string,
+  imageAdSetId?: string,
+  videoAdSetId?: string
+) {
   const validId = IdSchema.parse(id);
-  const validMetaAdSetId = z.string().min(1).parse(metaAdSetId);
+  const validMetaCampaignId = z.string().min(1).parse(metaCampaignId);
+  const validImageAdSetId = imageAdSetId ? z.string().min(1).parse(imageAdSetId) : undefined;
+  const validVideoAdSetId = videoAdSetId ? z.string().min(1).parse(videoAdSetId) : undefined;
 
   const result = await prisma.campaign.update({
     where: { id: validId },
     data: {
-      metaAdSetId: validMetaAdSetId,
+      metaCampaignId: validMetaCampaignId,
+      imageAdSetId: validImageAdSetId,
+      videoAdSetId: validVideoAdSetId,
       status: 'PENDING',
       syncedAt: new Date(),
     },

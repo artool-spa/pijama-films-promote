@@ -17,16 +17,12 @@ export const PartnerCreateSchema = z
   .object({
     partnerId: z.string().min(1),
     name: z.string().min(1).max(255),
-    metaConversionsCampaignId: z.string().optional(),
-    metaLandingPageCampaignId: z.string().optional(),
   })
   .strict();
 
 export const PartnerUpdateSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
-    metaConversionsCampaignId: z.string().nullable().optional(),
-    metaLandingPageCampaignId: z.string().nullable().optional(),
   })
   .strict();
 
@@ -41,8 +37,6 @@ export const PartnerSchema = z.object({
   id: z.string().cuid(),
   partnerId: z.string(),
   name: z.string(),
-  metaConversionsCampaignId: z.string().nullable(),
-  metaLandingPageCampaignId: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
@@ -82,11 +76,14 @@ const VideoSchema = z.object({
   createdAt: z.coerce.date(),
 });
 
+const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
+
 const AdSchema = z.object({
   id: z.string().cuid(),
   metaAdId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
+  adSetType: AdSetTypeSchema,
   headlines: z.array(z.string()),
   bodies: z.array(z.string()),
   descriptions: z.array(z.string()),
@@ -102,7 +99,10 @@ const AdSchema = z.object({
 
 const CampaignSchema = z.object({
   id: z.string().cuid(),
-  metaAdSetId: z.string().nullable(),
+  // CBO Meta IDs
+  metaCampaignId: z.string().nullable(),
+  imageAdSetId: z.string().nullable(),
+  videoAdSetId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -110,6 +110,7 @@ const CampaignSchema = z.object({
   budgetType: BudgetTypeSchema,
   startDate: z.coerce.date(),
   endDate: z.coerce.date().nullable(),
+  language: z.string(),
   targetCountries: z.array(z.string()),
   targetAgeMin: z.number().int(),
   targetAgeMax: z.number().int(),
@@ -262,49 +263,6 @@ export async function getOrCreatePartner(partnerId: string, name: string) {
   if (existing) return PartnerSchema.parse(existing);
 
   return await createPartner({ partnerId: validPartnerId, name: validName });
-}
-
-/**
- * Set Meta campaign IDs for a partner
- */
-export async function setPartnerMetaCampaigns(
-  id: string,
-  conversionsCampaignId?: string | null,
-  landingPageCampaignId?: string | null
-) {
-  const validId = IdSchema.parse(id);
-  const validConversionsId = z.string().nullable().optional().parse(conversionsCampaignId);
-  const validLandingPageId = z.string().nullable().optional().parse(landingPageCampaignId);
-
-  const result = await prisma.partner.update({
-    where: { id: validId },
-    data: {
-      metaConversionsCampaignId: validConversionsId,
-      metaLandingPageCampaignId: validLandingPageId,
-    },
-  });
-
-  return PartnerSchema.parse(result);
-}
-
-/**
- * Get the Meta campaign ID for a partner based on objective
- */
-export function getPartnerMetaCampaignId(
-  partner: { metaConversionsCampaignId: string | null; metaLandingPageCampaignId: string | null },
-  objective: 'CONVERSIONS' | 'LANDING_PAGE_VIEW'
-): string | null {
-  const validPartner = z
-    .object({
-      metaConversionsCampaignId: z.string().nullable(),
-      metaLandingPageCampaignId: z.string().nullable(),
-    })
-    .parse(partner);
-  const validObjective = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']).parse(objective);
-
-  return validObjective === 'CONVERSIONS'
-    ? validPartner.metaConversionsCampaignId
-    : validPartner.metaLandingPageCampaignId;
 }
 
 /**

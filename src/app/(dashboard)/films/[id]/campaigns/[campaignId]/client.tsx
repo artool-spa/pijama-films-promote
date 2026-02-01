@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Box,
@@ -55,8 +55,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
   // Fetch insights from Meta API
-  const fetchInsights = async () => {
-    if (!campaign.metaAdSetId) return;
+  const fetchInsights = useCallback(async () => {
+    if (!campaign.metaCampaignId) return;
 
     setInsightsLoading(true);
     setInsightsError(null);
@@ -76,14 +76,14 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     } finally {
       setInsightsLoading(false);
     }
-  };
+  }, [campaign.metaCampaignId, campaign.id]);
 
   // Fetch insights on mount if campaign is synced
   useEffect(() => {
-    if (campaign.metaAdSetId) {
+    if (campaign.metaCampaignId) {
       fetchInsights();
     }
-  }, [campaign.metaAdSetId, campaign.id]);
+  }, [campaign.metaCampaignId, fetchInsights]);
 
   const getStatusColor = (status: CampaignStatus) => {
     switch (status) {
@@ -149,7 +149,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             {new Date(campaign.startDate).toLocaleDateString('en-US')}
             {campaign.endDate && ` - ${new Date(campaign.endDate).toLocaleDateString('en-US')}`}
           </Typography>
-          {!campaign.metaAdSetId && (
+          {!campaign.metaCampaignId && (
             <Chip label="Not synced to Meta" variant="outlined" size="small" />
           )}
         </Box>
@@ -189,7 +189,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">Campaign Metrics</Typography>
-            {campaign.metaAdSetId && (
+            {campaign.metaCampaignId && (
               <Button
                 size="small"
                 startIcon={insightsLoading ? <CircularProgress size={16} /> : <RefreshIcon />}

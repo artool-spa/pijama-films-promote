@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdById, markAdSynced, markAdError } from '@/models/ad';
 import { getCampaignById, markCampaignSynced } from '@/models/campaign';
-import { setPartnerMetaCampaigns, getPartnerMetaCampaignId } from '@/models/partner';
 import {
   meta,
-  createCampaign as createMetaCampaign,
-  createAdSet as createMetaAdSet,
+  createCBOCampaignWithAdSets,
   uploadAdVideo,
   createAdCreative,
   createAd as createMetaAd,
@@ -21,6 +19,8 @@ type RouteParams = { params: Promise<{ id: string }> };
 /**
  * GET /api/meta/ads/[id]/preview
  * Generate an ad preview from Meta
+ *
+ * If the campaign/ad isn't synced, creates the CBO structure first.
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const partner = await getPartnerFromRequest(req);
@@ -66,45 +66,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         );
       }
 
-      // Get the Meta campaign ID based on objective
-      let metaCampaignId = getPartnerMetaCampaignId(campaign.partner, campaign.objective);
+      // Ensure campaign has CBO structure in Meta
+      let metaCampaignId = campaign.metaCampaignId;
+      let imageAdSetId = campaign.imageAdSetId;
+      let videoAdSetId = campaign.videoAdSetId;
 
-      // If no Meta campaign exists for this objective, create it
       if (!metaCampaignId) {
-        const objective = campaign.objective === 'CONVERSIONS'
-          ? 'OUTCOME_SALES'
-          : 'OUTCOME_TRAFFIC';
+        // Check what media types we have
+        const hasImages = campaign.ads.some(a => a.images.length > 0);
+        const hasVideos = campaign.ads.some(a => a.videos.length > 0);
 
-        const metaCampaignName = `${campaign.partner.name} - ${campaign.objective === 'CONVERSIONS' ? 'Conversiones' : 'Landing Page Views'}`;
-
-        const newMetaCampaign = await createMetaCampaign(meta, {
-          name: metaCampaignName,
-          objective,
-          status: 'PAUSED',
-        });
-
-        // Update the partner with the new Meta campaign ID
-        if (campaign.objective === 'CONVERSIONS') {
-          await setPartnerMetaCampaigns(
-            campaign.partner.id,
-            newMetaCampaign.id,
-            campaign.partner.metaLandingPageCampaignId
-          );
-        } else {
-          await setPartnerMetaCampaigns(
-            campaign.partner.id,
-            campaign.partner.metaConversionsCampaignId,
-            newMetaCampaign.id
+        if (!hasImages && !hasVideos) {
+          return NextResponse.json(
+            { error: 'La campaña necesita al menos un anuncio con imagen o video' },
+            { status: 400 }
           );
         }
 
-        metaCampaignId = newMetaCampaign.id;
-      }
-
-      // Ensure campaign is synced to Meta (as AdSet)
-      let metaAdSetId = campaign.metaAdSetId;
-      if (!metaAdSetId) {
-        // Build targeting using audience configuration
+        // Build targeting
         const targeting = await buildTargeting(meta, {
           countries: campaign.targetCountries,
           ageMin: campaign.targetAgeMin,
@@ -117,21 +96,50 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           },
         });
 
-        const metaAdSet = await createMetaAdSet(meta, {
+        const metaObjective = campaign.objective === 'CONVERSIONS'
+          ? 'OUTCOME_SALES'
+          : 'OUTCOME_TRAFFIC';
+
+        const optimizationGoal = campaign.objective === 'CONVERSIONS'
+          ? 'OFFSITE_CONVERSIONS'
+          : 'LANDING_PAGE_VIEWS';
+
+        // Create CBO Campaign with AdSets
+        const cboResult = await createCBOCampaignWithAdSets(meta, {
           name: campaign.name,
-          campaign_id: metaCampaignId,
-          status: 'PAUSED',
-          daily_budget: campaign.budgetType === 'DAILY' ? Math.round(campaign.budget * 100) : undefined,
-          lifetime_budget: campaign.budgetType === 'LIFETIME' ? Math.round(campaign.budget * 100) : undefined,
-          start_time: campaign.startDate.toISOString(),
-          end_time: campaign.endDate?.toISOString(),
-          billing_event: 'IMPRESSIONS',
-          optimization_goal: 'OFFSITE_CONVERSIONS',
-          bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+          objective: metaObjective,
+          budget: Math.round(campaign.budget * 100),
+          budgetType: campaign.budgetType.toLowerCase() as 'daily' | 'lifetime',
+          startTime: campaign.startDate.toISOString(),
+          endTime: campaign.endDate?.toISOString(),
           targeting,
+          promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
+            ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
+            : undefined,
+          hasImages,
+          hasVideos,
+          optimizationGoal,
         });
-        await markCampaignSynced(campaign.id, metaAdSet.id);
-        metaAdSetId = metaAdSet.id;
+
+        metaCampaignId = cboResult.campaignId;
+        imageAdSetId = cboResult.imageAdSetId || null;
+        videoAdSetId = cboResult.videoAdSetId || null;
+
+        await markCampaignSynced(
+          campaign.id,
+          metaCampaignId,
+          imageAdSetId || undefined,
+          videoAdSetId || undefined
+        );
+      }
+
+      // Determine which AdSet to use based on ad type
+      const adSetId = ad.adSetType === 'VIDEO' ? videoAdSetId : imageAdSetId;
+      if (!adSetId) {
+        return NextResponse.json(
+          { error: `No hay AdSet disponible para anuncios de tipo ${ad.adSetType}` },
+          { status: 400 }
+        );
       }
 
       // Upload media and create creative
@@ -142,7 +150,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         const body = ad.bodies[0] || '';
         const description = ad.descriptions[0];
 
-        if (ad.videos.length > 0) {
+        if (ad.adSetType === 'VIDEO' && ad.videos.length > 0) {
           const videoUrl = ad.videos[0].url;
           const { video_id } = await uploadAdVideo(meta, videoUrl, ad.name);
           const { creative_id } = await createAdCreative(meta, {
@@ -180,7 +188,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         // Create ad in Meta
         const metaAd = await createMetaAd(meta, {
           name: ad.name,
-          adset_id: metaAdSetId,
+          adset_id: adSetId,
           creative: { creative_id: creativeId },
           status: 'PAUSED',
         });

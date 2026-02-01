@@ -5,13 +5,8 @@ import {
   markCampaignError,
 } from '@/models/campaign';
 import {
-  setPartnerMetaCampaigns,
-  getPartnerMetaCampaignId,
-} from '@/models/partner';
-import {
   meta,
-  createCampaign as createMetaCampaign,
-  createAdSet as createMetaAdSet,
+  createCBOCampaignWithAdSets,
   buildTargeting,
   MetaApiError,
 } from '#meta';
@@ -21,7 +16,11 @@ type RouteParams = { params: Promise<{ id: string }> };
 
 /**
  * POST /api/meta/campaigns/[id]/sync
- * Sync a campaign to Meta Ads API (creates Meta AdSet)
+ * Sync a campaign to Meta Ads API using CBO structure
+ *
+ * Creates:
+ * - 1 Meta Campaign with budget at campaign level (CBO)
+ * - 1-2 AdSets (one for images, one for videos) - no individual budgets
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const partner = await getPartnerFromRequest(req);
@@ -49,48 +48,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // If already synced, return the existing Meta ID
-    if (campaign.metaAdSetId) {
+    // If already synced, return the existing Meta IDs
+    if (campaign.metaCampaignId) {
       return NextResponse.json({
         success: true,
-        metaAdSetId: campaign.metaAdSetId,
+        metaCampaignId: campaign.metaCampaignId,
+        imageAdSetId: campaign.imageAdSetId,
+        videoAdSetId: campaign.videoAdSetId,
         message: 'La campaña ya está sincronizada con Meta',
       });
     }
 
-    // Get the Meta campaign ID based on objective
-    let metaCampaignId = getPartnerMetaCampaignId(campaign.partner, campaign.objective);
+    // Check what media types we have in the campaign's ads
+    const hasImages = campaign.ads.some(ad => ad.images.length > 0);
+    const hasVideos = campaign.ads.some(ad => ad.videos.length > 0);
 
-    // If no Meta campaign exists for this objective, create it
-    if (!metaCampaignId) {
-      const objective = campaign.objective === 'CONVERSIONS'
-        ? 'OUTCOME_SALES'
-        : 'OUTCOME_TRAFFIC';
-
-      const metaCampaignName = `${campaign.partner.name} - ${campaign.objective === 'CONVERSIONS' ? 'Conversiones' : 'Landing Page Views'}`;
-
-      const newMetaCampaign = await createMetaCampaign(meta, {
-        name: metaCampaignName,
-        objective,
-        status: 'PAUSED',
-      });
-
-      // Update the partner with the new Meta campaign ID
-      if (campaign.objective === 'CONVERSIONS') {
-        await setPartnerMetaCampaigns(
-          campaign.partner.id,
-          newMetaCampaign.id,
-          campaign.partner.metaLandingPageCampaignId
-        );
-      } else {
-        await setPartnerMetaCampaigns(
-          campaign.partner.id,
-          campaign.partner.metaConversionsCampaignId,
-          newMetaCampaign.id
-        );
-      }
-
-      metaCampaignId = newMetaCampaign.id;
+    if (!hasImages && !hasVideos) {
+      return NextResponse.json(
+        { error: 'La campaña necesita al menos un anuncio con imagen o video' },
+        { status: 400 }
+      );
     }
 
     // Build targeting using audience configuration
@@ -106,33 +83,45 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       },
     });
 
-    // Create AdSet in Meta (our Campaign maps to Meta's AdSet)
-    const metaAdSet = await createMetaAdSet(meta, {
+    // Map objective to Meta objective and optimization goal
+    const metaObjective = campaign.objective === 'CONVERSIONS'
+      ? 'OUTCOME_SALES'
+      : 'OUTCOME_TRAFFIC';
+
+    const optimizationGoal = campaign.objective === 'CONVERSIONS'
+      ? 'OFFSITE_CONVERSIONS'
+      : 'LANDING_PAGE_VIEWS';
+
+    // Create CBO Campaign with AdSets in Meta
+    const cboResult = await createCBOCampaignWithAdSets(meta, {
       name: campaign.name,
-      campaign_id: metaCampaignId,
-      status: 'PAUSED',
-      daily_budget: campaign.budgetType === 'DAILY' ? Math.round(campaign.budget * 100) : undefined,
-      lifetime_budget: campaign.budgetType === 'LIFETIME' ? Math.round(campaign.budget * 100) : undefined,
-      start_time: campaign.startDate.toISOString(),
-      end_time: campaign.endDate?.toISOString(),
-      billing_event: campaign.billingEvent as 'IMPRESSIONS' | 'LINK_CLICKS' | 'APP_INSTALLS',
-      optimization_goal: campaign.optimizationGoal as 'OFFSITE_CONVERSIONS' | 'LANDING_PAGE_VIEWS' | 'LINK_CLICKS' | 'REACH',
-      bid_strategy: campaign.bidStrategy as 'LOWEST_COST_WITHOUT_CAP' | 'LOWEST_COST_WITH_BID_CAP' | 'COST_CAP',
+      objective: metaObjective,
+      budget: Math.round(campaign.budget * 100), // Convert to cents
+      budgetType: campaign.budgetType.toLowerCase() as 'daily' | 'lifetime',
+      startTime: campaign.startDate.toISOString(),
+      endTime: campaign.endDate?.toISOString(),
       targeting,
-      promoted_object: meta.pixelId
-        ? {
-            pixel_id: meta.pixelId,
-            custom_event_type: campaign.conversionEvent as 'PURCHASE' | 'ADD_TO_CART' | 'VIEW_CONTENT' | 'LEAD',
-          }
+      promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
+        ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
         : undefined,
+      hasImages,
+      hasVideos,
+      optimizationGoal,
     });
 
-    // Update local record with Meta AdSet ID
-    const updated = await markCampaignSynced(id, metaAdSet.id);
+    // Update local record with CBO Meta IDs
+    const updated = await markCampaignSynced(
+      id,
+      cboResult.campaignId,
+      cboResult.imageAdSetId,
+      cboResult.videoAdSetId
+    );
 
     return NextResponse.json({
       success: true,
-      metaAdSetId: metaAdSet.id,
+      metaCampaignId: cboResult.campaignId,
+      imageAdSetId: cboResult.imageAdSetId,
+      videoAdSetId: cboResult.videoAdSetId,
       campaign: updated,
     });
   } catch (error) {

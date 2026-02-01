@@ -3,8 +3,8 @@
  *
  * GET /api/meta/campaigns/[id]/insights
  *
- * Fetches real-time metrics from Meta Ads Insights API for a campaign.
- * Returns impressions, clicks, spend, conversions, and other metrics.
+ * Fetches real-time metrics from Meta Ads Insights API for a CBO campaign.
+ * With CBO, we fetch insights at the campaign level which aggregates all AdSets.
  *
  * Caching:
  * - Active campaigns: 1-hour cache
@@ -80,7 +80,9 @@ export async function GET(
       where: { id },
       select: {
         id: true,
-        metaAdSetId: true,
+        metaCampaignId: true, // CBO campaign ID
+        imageAdSetId: true,
+        videoAdSetId: true,
         status: true,
         startDate: true,
         endDate: true,
@@ -92,7 +94,7 @@ export async function GET(
     }
 
     // If campaign hasn't been synced to Meta, return empty metrics
-    if (!campaign.metaAdSetId) {
+    if (!campaign.metaCampaignId) {
       return NextResponse.json({
         synced: false,
         message: 'Campaign has not been synced to Meta Ads',
@@ -110,15 +112,15 @@ export async function GET(
       });
     }
 
-    // Fetch insights from Meta API
+    // Fetch insights from Meta API at campaign level (aggregates all AdSets)
     const isActive = campaign.status === 'ACTIVE';
     const dateRange = {
       since: campaign.startDate.toISOString().split('T')[0],
       until: campaign.endDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
     };
 
-    const metaInsights = await getInsights(meta, campaign.metaAdSetId, {
-      level: 'adset',
+    const metaInsights = await getInsights(meta, campaign.metaCampaignId, {
+      level: 'campaign',
       time_range: dateRange,
       fields: [
         'impressions',

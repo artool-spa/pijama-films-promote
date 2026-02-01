@@ -45,8 +45,17 @@ export const MetaCampaignCreateSchema = z.object({
     .default('OUTCOME_SALES'),
   status: z.enum(['ACTIVE', 'PAUSED']).optional().default('PAUSED'),
   special_ad_categories: z.array(z.string()).optional().default([]),
-  // Required in v24.0 when not using campaign budget optimization
-  is_adset_budget_sharing_enabled: z.boolean().optional().default(false),
+  // Campaign Budget Optimization (CBO) - budget at campaign level
+  // When using CBO, AdSets don't have individual budgets
+  daily_budget: z.number().int().positive().optional(), // In cents
+  lifetime_budget: z.number().int().positive().optional(), // In cents
+  // Bid strategy for CBO campaigns
+  bid_strategy: z
+    .enum(['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP'])
+    .optional(),
+  // Start/end times for lifetime budget campaigns
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
 });
 
 export const MetaCampaignResponseSchema = z.object({
@@ -379,3 +388,32 @@ export const MetaImageUploadResponseSchema = z.object({
 
 export type MetaVideoUploadResponse = z.infer<typeof MetaVideoUploadResponseSchema>;
 export type MetaImageUploadResponse = z.infer<typeof MetaImageUploadResponseSchema>;
+
+// ============================================================================
+// MULTI-LANGUAGE ADS
+// ============================================================================
+
+/**
+ * Language-specific ad copy for multi-language ads
+ */
+export interface LanguageCopies {
+  headlines: string[];
+  bodies: string[];
+  descriptions?: string[];
+  linkUrl?: string;
+}
+
+/**
+ * Data structure for creating a multi-language ad with asset_customization_rules
+ */
+export interface MultiLanguageAdData {
+  name: string;
+  adsetId: string;
+  pageId: string;
+  defaultLanguage: string;
+  languageCopies: Record<string, LanguageCopies>;
+  imageUrls?: string[];
+  videoIds?: string[];
+  callToAction: string;
+  linkUrl: string; // Fallback URL if not specified per language
+}

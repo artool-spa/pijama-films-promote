@@ -25,6 +25,11 @@ enum BudgetType {
   LIFETIME
 }
 
+enum AdSetType {
+  IMAGE
+  VIDEO
+}
+
 enum CampaignObjective {
   CONVERSIONS
   LANDING_PAGE_VIEW
@@ -37,15 +42,12 @@ enum CampaignObjective {
 // Partner - Represents a film producer/partner from Pijama API
 // Personal data (email, name, etc.) is fetched from Pijama API using partnerId
 model Partner {
-  id                        String     @id @default(cuid())
-  partnerId                 String     @unique // External Pijama partner ID
-  name                      String // Display name for convenience
-  // Meta Campaign References (2 per partner)
-  metaConversionsCampaignId String? // Meta campaign ID for conversions
-  metaLandingPageCampaignId String? // Meta campaign ID for landing page views
-  createdAt                 DateTime   @default(now())
-  updatedAt                 DateTime   @updatedAt
-  campaigns                 Campaign[]
+  id        String     @id @default(cuid())
+  partnerId String     @unique // External Pijama partner ID
+  name      String // Display name for convenience
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  campaigns Campaign[]
 }
 
 // ============================================================================
@@ -54,48 +56,55 @@ model Partner {
 
 // Campaign - Represents a promotion (budget, schedule, targeting)
 // Links to Partner and references film by MUVI UUID
+// Each Campaign creates a dedicated Meta Campaign with CBO (Campaign Budget Optimization)
 model Campaign {
-  id                   String           @id @default(cuid())
-  metaAdSetId          String?          @unique // Meta AdSet ID (their terminology)
-  name                 String
-  status               MetaEntityStatus @default(DRAFT)
-  objective            CampaignObjective // Which parent Meta campaign this belongs to
+  id             String            @id @default(cuid())
+  // Meta Campaign with CBO (dedicated per local campaign)
+  metaCampaignId String?           @unique // Meta Campaign ID with CBO enabled
+  imageAdSetId   String?           @unique // Meta AdSet ID for image ads
+  videoAdSetId   String?           @unique // Meta AdSet ID for video ads
+  name           String
+  status         MetaEntityStatus  @default(DRAFT)
+  objective      CampaignObjective // CONVERSIONS or LANDING_PAGE_VIEW
 
-  // Budget & Schedule
-  budget               Float
-  budgetType           BudgetType       @default(LIFETIME)
-  startDate            DateTime
-  endDate              DateTime?
+  // Budget & Schedule (budget at Campaign level with CBO)
+  budget         Float
+  budgetType     BudgetType        @default(LIFETIME)
+  startDate      DateTime
+  endDate        DateTime?
+
+  // Language (single language per campaign, enforced)
+  language       String            @default("es") // ISO 639-1 code
 
   // Targeting (simplified - audience built at sync time)
-  targetCountries      String[]         @default(["US"])
-  targetAgeMin         Int              @default(18)
-  targetAgeMax         Int              @default(65)
-  targetGenders        Int[]            @default([])
-  includeBaseAudiences Boolean          @default(true)
-  filmGenres           String[]         @default([]) // Maps to GÉNEROS CINEMATOGRÁFICOS
-  includeLgbtAudience  Boolean          @default(false)
+  targetCountries      String[]   @default(["US"])
+  targetAgeMin         Int        @default(18)
+  targetAgeMax         Int        @default(65)
+  targetGenders        Int[]      @default([])
+  includeBaseAudiences Boolean    @default(true)
+  filmGenres           String[]   @default([]) // Maps to GÉNEROS CINEMATOGRÁFICOS
+  includeLgbtAudience  Boolean    @default(false)
 
   // Pixel/Conversion
-  pixelId              String?
-  conversionEvent      String           @default("PURCHASE")
+  pixelId        String?
+  conversionEvent String          @default("PURCHASE")
 
   // Optimization
-  optimizationGoal     String           @default("OFFSITE_CONVERSIONS")
-  billingEvent         String           @default("IMPRESSIONS")
-  bidStrategy          String           @default("LOWEST_COST_WITHOUT_CAP")
+  optimizationGoal String         @default("OFFSITE_CONVERSIONS")
+  billingEvent   String           @default("IMPRESSIONS")
+  bidStrategy    String           @default("LOWEST_COST_WITHOUT_CAP")
 
   // Film reference (MUVI UUID, not local FK)
-  filmMuviUuid         String
+  filmMuviUuid   String
 
   // Partner relation
-  partnerId            String
-  partner              Partner          @relation(fields: [partnerId], references: [id])
+  partnerId      String
+  partner        Partner          @relation(fields: [partnerId], references: [id])
 
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  syncedAt             DateTime?
-  ads                  Ad[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  syncedAt       DateTime?
+  ads            Ad[]
 
   @@index([partnerId])
   @@index([filmMuviUuid])
@@ -104,11 +113,13 @@ model Campaign {
 
 // Ad - Creative with multiple variants for Meta's dynamic creative optimization
 // Arrays allow Meta to test different combinations automatically
+// AdSetType determines which AdSet (image or video) this ad belongs to
 model Ad {
   id           String           @id @default(cuid())
   metaAdId     String?          @unique
   name         String
   status       MetaEntityStatus @default(DRAFT)
+  adSetType    AdSetType        @default(IMAGE) // IMAGE or VIDEO - determines target AdSet
 
   // Creative content - arrays for Meta dynamic creative testing
   headlines    String[] // Multiple headlines to test (max 5)

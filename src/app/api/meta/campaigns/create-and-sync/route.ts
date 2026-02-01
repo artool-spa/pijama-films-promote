@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createCampaign, markCampaignSynced, markCampaignError } from '@/models/campaign';
 import { createAdsForCampaign, markAdSynced, markAdError } from '@/models/ad';
-import { getPartnerById, setPartnerMetaCampaigns, getPartnerMetaCampaignId } from '@/models/partner';
+import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
 import {
   meta,
-  createCampaign as createMetaCampaign,
-  createAdSet as createMetaAdSet,
+  createCBOCampaignWithAdSets,
   createDynamicCreativeAd,
   uploadAdVideo,
   buildTargeting,
@@ -15,9 +14,9 @@ import {
 } from '#meta';
 
 // Schema for ads included in campaign creation
+// adSetType is auto-detected based on media (IMAGE if has images, VIDEO if has videos)
 const AdInputSchema = z.object({
   name: z.string().min(1).max(255),
-  language: z.string().optional(),
   headlines: z.array(z.string().min(1).max(255)).min(1).max(5),
   bodies: z.array(z.string().min(1).max(2200)).min(1).max(5),
   descriptions: z.array(z.string().max(30)).max(5).default([]),
@@ -28,6 +27,7 @@ const AdInputSchema = z.object({
 });
 
 // Combined schema for campaign + ads + auto-sync
+// Each campaign has a single language (no multi-language)
 const CampaignWithAdsCreateSchema = z.object({
   // Campaign fields
   name: z.string().min(1).max(255),
@@ -36,6 +36,9 @@ const CampaignWithAdsCreateSchema = z.object({
   budgetType: z.enum(['DAILY', 'LIFETIME']).default('LIFETIME'),
   startDate: z.coerce.date(),
   endDate: z.coerce.date().optional(),
+  // Language (single per campaign - required)
+  language: z.string().min(2).max(10).default('es'),
+  // Targeting
   targetCountries: z.array(z.string()).default(['US']),
   targetAgeMin: z.number().int().min(13).max(65).default(18),
   targetAgeMax: z.number().int().min(13).max(65).default(65),
@@ -54,7 +57,12 @@ type CampaignWithAdsCreate = z.infer<typeof CampaignWithAdsCreateSchema>;
 
 /**
  * POST /api/meta/campaigns/create-and-sync
- * Create a campaign with ads and automatically sync to Meta
+ * Create a campaign with ads and automatically sync to Meta using CBO
+ *
+ * CBO (Campaign Budget Optimization) Structure:
+ * - 1 Meta Campaign with budget at campaign level
+ * - 1-2 AdSets (one for images, one for videos) - no individual budgets
+ * - 1 dynamic creative ad per AdSet with all media/copy variants
  */
 export async function POST(req: NextRequest) {
   const partner = await getPartnerFromRequest(req);
@@ -90,6 +98,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Step 2: Create ads locally (DRAFT status)
+    // adSetType is auto-detected: VIDEO if has videos, IMAGE otherwise
     const adsToCreate = adsData
       .filter(ad => ad.imageIds.length > 0 || ad.videoIds.length > 0)
       .map(ad => ({
@@ -101,6 +110,7 @@ export async function POST(req: NextRequest) {
         linkUrl: ad.linkUrl,
         imageIds: ad.imageIds,
         videoIds: ad.videoIds,
+        // adSetType auto-detected by createAdsForCampaign
       }));
 
     if (adsToCreate.length === 0) {
@@ -133,43 +143,64 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    // Step 3: Sync campaign to Meta (create AdSet)
-    let metaAdSetId: string;
-    try {
-      // Get or create Meta campaign for the objective
-      let metaCampaignId = getPartnerMetaCampaignId(targetPartner, campaign.objective);
+    // Step 3: Determine what media types we have
+    const hasImages = ads.some(ad => ad.images.length > 0);
+    const hasVideos = ads.some(ad => ad.videos.length > 0);
 
-      if (!metaCampaignId) {
-        const objective = campaign.objective === 'CONVERSIONS'
-          ? 'OUTCOME_SALES'
-          : 'OUTCOME_TRAFFIC';
+    // Collect all media
+    const allImageUrls: string[] = [];
+    const allVideoIds: string[] = [];
+    const videoUploadErrors: string[] = [];
 
-        const metaCampaignName = `${targetPartner.name} - ${campaign.objective === 'CONVERSIONS' ? 'Conversiones' : 'Landing Page Views'}`;
-
-        const newMetaCampaign = await createMetaCampaign(meta, {
-          name: metaCampaignName,
-          objective,
-          status: 'PAUSED',
-        });
-
-        // Update partner with new Meta campaign ID
-        if (campaign.objective === 'CONVERSIONS') {
-          await setPartnerMetaCampaigns(
-            targetPartner.id,
-            newMetaCampaign.id,
-            targetPartner.metaLandingPageCampaignId
-          );
-        } else {
-          await setPartnerMetaCampaigns(
-            targetPartner.id,
-            targetPartner.metaConversionsCampaignId,
-            newMetaCampaign.id
-          );
+    for (const ad of ads) {
+      // Collect image URLs
+      for (const image of ad.images) {
+        if (!allImageUrls.includes(image.url)) {
+          allImageUrls.push(image.url);
         }
-
-        metaCampaignId = newMetaCampaign.id;
       }
 
+      // Upload videos (or use existing metaVideoId)
+      for (const video of ad.videos) {
+        try {
+          let videoId: string;
+          if (video.metaVideoId) {
+            videoId = video.metaVideoId;
+          } else {
+            const uploaded = await uploadAdVideo(meta, video.url, video.name);
+            videoId = uploaded.video_id;
+          }
+          if (!allVideoIds.includes(videoId)) {
+            allVideoIds.push(videoId);
+          }
+        } catch (err) {
+          console.error(`Failed to upload video ${video.id}:`, err);
+          videoUploadErrors.push(video.id);
+        }
+      }
+    }
+
+    // Check if we have any media to work with
+    const effectiveHasImages = allImageUrls.length > 0;
+    const effectiveHasVideos = allVideoIds.length > 0;
+
+    if (!effectiveHasImages && !effectiveHasVideos) {
+      return NextResponse.json({
+        success: true,
+        campaign,
+        ads,
+        synced: false,
+        syncError: 'No se pudo procesar ningún medio',
+        videoUploadErrors: videoUploadErrors.length > 0 ? videoUploadErrors : undefined,
+      }, { status: 201 });
+    }
+
+    // Step 4: Create CBO Campaign with AdSets in Meta
+    let metaCampaignId: string;
+    let imageAdSetId: string | undefined;
+    let videoAdSetId: string | undefined;
+
+    try {
       // Build targeting
       const targeting = await buildTargeting(meta, {
         countries: campaign.targetCountries,
@@ -183,35 +214,45 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Log targeting for debugging
       console.log('[Meta] Built targeting:', JSON.stringify(targeting, null, 2));
 
-      // Create AdSet in Meta with dynamic creative enabled
-      const metaAdSet = await createMetaAdSet(meta, {
+      // Map objective to Meta objective
+      const metaObjective = campaign.objective === 'CONVERSIONS'
+        ? 'OUTCOME_SALES'
+        : 'OUTCOME_TRAFFIC';
+
+      // Map objective to optimization goal
+      const optimizationGoal = campaign.objective === 'CONVERSIONS'
+        ? 'OFFSITE_CONVERSIONS'
+        : 'LANDING_PAGE_VIEWS';
+
+      // Create CBO Campaign with AdSets
+      const cboResult = await createCBOCampaignWithAdSets(meta, {
         name: campaign.name,
-        campaign_id: metaCampaignId,
-        status: 'PAUSED',
-        daily_budget: campaign.budgetType === 'DAILY' ? Math.round(campaign.budget * 100) : undefined,
-        lifetime_budget: campaign.budgetType === 'LIFETIME' ? Math.round(campaign.budget * 100) : undefined,
-        start_time: campaign.startDate.toISOString(),
-        end_time: campaign.endDate?.toISOString(),
-        billing_event: 'IMPRESSIONS',
-        optimization_goal: campaign.objective === 'CONVERSIONS' ? 'OFFSITE_CONVERSIONS' : 'LANDING_PAGE_VIEWS',
-        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        objective: metaObjective,
+        budget: Math.round(campaign.budget * 100), // Convert to cents
+        budgetType: campaign.budgetType.toLowerCase() as 'daily' | 'lifetime',
+        startTime: campaign.startDate.toISOString(),
+        endTime: campaign.endDate?.toISOString(),
         targeting,
-        promoted_object: campaign.objective === 'CONVERSIONS' && meta.pixelId
+        promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
           ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
           : undefined,
-        is_dynamic_creative: true, // Enable dynamic creative optimization
+        hasImages: effectiveHasImages,
+        hasVideos: effectiveHasVideos,
+        optimizationGoal,
       });
 
-      metaAdSetId = metaAdSet.id;
-      await markCampaignSynced(campaign.id, metaAdSetId);
+      metaCampaignId = cboResult.campaignId;
+      imageAdSetId = cboResult.imageAdSetId;
+      videoAdSetId = cboResult.videoAdSetId;
+
+      // Mark campaign as synced with CBO IDs
+      await markCampaignSynced(campaign.id, metaCampaignId, imageAdSetId, videoAdSetId);
     } catch (error) {
       console.error('Error syncing campaign to Meta:', error);
       await markCampaignError(campaign.id).catch(() => {});
 
-      // Get detailed error info
       let syncError = 'Error al sincronizar con Meta';
       let syncErrorDetails: unknown = undefined;
       if (error instanceof MetaApiError) {
@@ -223,7 +264,6 @@ export async function POST(req: NextRequest) {
         };
       }
 
-      // Return partial success - campaign and ads created locally
       return NextResponse.json({
         success: true,
         campaign,
@@ -234,78 +274,122 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    // Step 4: Sync ads to Meta using Dynamic Creative
-    const syncedAds = [];
-    const adErrors = [];
+    // Step 5: Create dynamic creative ads in Meta (one per AdSet)
+    const syncedAds: typeof ads = [];
+    const adErrors: Array<{ adId: string; error: string }> = [];
+
+    // Consolidate all copy from ads (single language per campaign)
+    const allHeadlines: string[] = [];
+    const allBodies: string[] = [];
+    const allDescriptions: string[] = [];
+    let linkUrl = ads[0]?.linkUrl || '';
+    let callToAction = ads[0]?.callToAction || 'LEARN_MORE';
 
     for (const ad of ads) {
-      try {
-        // Collect image URLs directly (no upload needed)
-        const imageUrls: string[] = ad.images.map((image) => image.url);
+      allHeadlines.push(...ad.headlines);
+      allBodies.push(...ad.bodies);
+      if (ad.descriptions) {
+        allDescriptions.push(...ad.descriptions);
+      }
+    }
 
-        // Upload videos (or use existing metaVideoId) - videos still need upload
-        const videoIds: string[] = [];
-        for (const video of ad.videos) {
-          try {
-            if (video.metaVideoId) {
-              videoIds.push(video.metaVideoId);
-            } else {
-              const uploaded = await uploadAdVideo(meta, video.url, video.name);
-              videoIds.push(uploaded.video_id);
-            }
-          } catch (err) {
-            console.error(`Failed to upload video ${video.id}:`, err);
-          }
-        }
+    const uniqueHeadlines = [...new Set(allHeadlines)].slice(0, 5); // Max 5
+    const uniqueBodies = [...new Set(allBodies)].slice(0, 5); // Max 5
+    const uniqueDescriptions = [...new Set(allDescriptions)].slice(0, 5); // Max 5
 
-        if (imageUrls.length === 0 && videoIds.length === 0) {
-          throw new Error('No se pudo procesar ningún medio');
-        }
+    const metaAdIds: string[] = [];
 
-        console.log('[Meta] Creating dynamic creative ad with:', {
-          headlines: ad.headlines,
-          bodies: ad.bodies,
-          imageUrls,
-          videoIds,
+    try {
+      // Create image ad (if we have images and imageAdSetId)
+      if (effectiveHasImages && imageAdSetId) {
+        console.log('[Meta] Creating dynamic creative ad for images:', {
+          adSetId: imageAdSetId,
+          imageCount: allImageUrls.length,
+          headlines: uniqueHeadlines.length,
         });
 
-        // Create dynamic creative ad using image URLs directly
-        const metaAd = await createDynamicCreativeAd(meta, {
-          name: ad.name,
-          adsetId: metaAdSetId,
+        const imageAd = await createDynamicCreativeAd(meta, {
+          name: `${campaign.name} - Images`,
+          adsetId: imageAdSetId,
           pageId: meta.pageId!,
-          linkUrl: ad.linkUrl,
-          headlines: ad.headlines,
-          bodies: ad.bodies,
-          descriptions: ad.descriptions,
-          callToAction: ad.callToAction,
-          imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
-          videoIds: videoIds.length > 0 ? videoIds : undefined,
+          linkUrl,
+          headlines: uniqueHeadlines,
+          bodies: uniqueBodies,
+          descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
+          callToAction,
+          imageUrls: allImageUrls,
         });
 
-        if (!metaAd.ad_id) {
-          throw new Error('Meta no devolvió un ID de anuncio');
+        if (imageAd.ad_id) {
+          metaAdIds.push(imageAd.ad_id);
+          console.log('[Meta] Image ad created:', imageAd.ad_id);
         }
+      }
 
-        // Update local ad with Meta ID
-        await markAdSynced(ad.id, metaAd.ad_id);
-        syncedAds.push({ ...ad, metaAdId: metaAd.ad_id });
-      } catch (error) {
-        console.error(`Error syncing ad ${ad.id} to Meta:`, error);
+      // Create video ad (if we have videos and videoAdSetId)
+      if (effectiveHasVideos && videoAdSetId) {
+        console.log('[Meta] Creating dynamic creative ad for videos:', {
+          adSetId: videoAdSetId,
+          videoCount: allVideoIds.length,
+          headlines: uniqueHeadlines.length,
+        });
+
+        const videoAd = await createDynamicCreativeAd(meta, {
+          name: `${campaign.name} - Videos`,
+          adsetId: videoAdSetId,
+          pageId: meta.pageId!,
+          linkUrl,
+          headlines: uniqueHeadlines,
+          bodies: uniqueBodies,
+          descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
+          callToAction,
+          videoIds: allVideoIds,
+        });
+
+        if (videoAd.ad_id) {
+          metaAdIds.push(videoAd.ad_id);
+          console.log('[Meta] Video ad created:', videoAd.ad_id);
+        }
+      }
+
+      if (metaAdIds.length === 0) {
+        throw new Error('No se pudo crear ningún anuncio en Meta');
+      }
+
+      // Mark all local ads as synced
+      // Associate each ad with the appropriate Meta ad ID based on its type
+      for (const ad of ads) {
+        const metaAdId = ad.adSetType === 'VIDEO' && metaAdIds.length > 1
+          ? metaAdIds[1] // Video ad ID (second)
+          : metaAdIds[0]; // Image ad ID (first) or only ad
+
+        await markAdSynced(ad.id, metaAdId);
+        syncedAds.push({ ...ad, metaAdId });
+      }
+    } catch (error) {
+      console.error('Error creating Meta ads:', error);
+
+      for (const ad of ads) {
         await markAdError(ad.id).catch(() => {});
         adErrors.push({
           adId: ad.id,
-          error: error instanceof MetaApiError ? error.message : 'Error al sincronizar anuncio',
+          error: error instanceof MetaApiError ? error.message : 'Error al crear anuncio en Meta',
         });
       }
     }
 
     return NextResponse.json({
       success: true,
-      campaign: { ...campaign, metaAdSetId },
-      ads: syncedAds,
-      synced: true,
+      campaign: {
+        ...campaign,
+        metaCampaignId,
+        imageAdSetId,
+        videoAdSetId,
+      },
+      ads: syncedAds.length > 0 ? syncedAds : ads,
+      synced: syncedAds.length > 0,
       adErrors: adErrors.length > 0 ? adErrors : undefined,
+      videoUploadErrors: videoUploadErrors.length > 0 ? videoUploadErrors : undefined,
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating campaign:', error);

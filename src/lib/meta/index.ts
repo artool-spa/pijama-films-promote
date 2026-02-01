@@ -77,6 +77,8 @@ export {
   uploadAdImage,
   createAdCreative,
   createDynamicCreativeAd,
+  createMultiLanguageAd,
+  createCBOCampaignWithAdSets,
   getInsights,
   getDailyInsights,
   getAdPreview,
@@ -84,6 +86,12 @@ export {
   getSavedAudiences,
   getSavedAudience,
   getAllSavedAudiences,
+} from './api';
+
+// Re-export CBO types
+export type {
+  CBOCampaignConfig,
+  CBOCampaignResult,
 } from './api';
 
 // Re-export types
@@ -102,6 +110,8 @@ export type {
   MetaAdPreviewFormat,
   MetaSavedAudience,
   MetaSavedAudiencesResponse,
+  LanguageCopies,
+  MultiLanguageAdData,
 } from './types';
 
 // Re-export error classes
@@ -148,3 +158,15 @@ export type {
   MetaLocation,
   MetaLocationType,
 } from './locations';
+
+// Re-export locale functions
+export {
+  getLocaleIdsForLanguage,
+  getSupportedLanguages,
+  isLanguageSupported,
+  searchLocales,
+  clearLocaleCache,
+} from './locales';
+
+// Re-export locale types
+export type { MetaLocale } from './locales';

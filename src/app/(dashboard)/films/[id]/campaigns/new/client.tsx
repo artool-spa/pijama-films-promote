@@ -194,11 +194,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   const router = useRouter();
 
-  // Form state - Copies (empty by default, generated via API)
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [activeLanguage, setActiveLanguage] = useState('');
+  // Form state - Copies (single language, generated via API)
+  const [selectedLanguage, setSelectedLanguage] = useState('es');
   const [loadingLanguage, setLoadingLanguage] = useState<string | null>(null);
-  const [copies, setCopies] = useState<Record<string, Record<string, { headline: string; description: string }>>>({});
+  const [copies, setCopies] = useState<Record<string, { headline: string; description: string }>>({});
 
   // Form state - Media Assets (start with all local DB assets selected)
   const [selectedAssets, setSelectedAssets] = useState<string[]>(() => [
@@ -254,9 +253,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   // Available variants for current language
   const availableVariants = useMemo(() => {
-    const langCopies = copies[activeLanguage] || {};
-    return (['A', 'B', 'C'] as const).filter(v => langCopies[v]?.headline);
-  }, [copies, activeLanguage]);
+    return (['A', 'B', 'C'] as const).filter(v => copies[v]?.headline);
+  }, [copies]);
 
   // Fetch preview from Meta API
   const fetchPreview = useCallback(async () => {
@@ -269,7 +267,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     }
 
     // Get copy for preview using current variant
-    const copy = copies[activeLanguage]?.[previewVariant];
+    const copy = copies[previewVariant];
     if (!copy?.headline) {
       setPreviewHtml(null);
       setPreviewError(null);
@@ -324,7 +322,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     } finally {
       setPreviewLoading(false);
     }
-  }, [rightTab, selectedAdStyle, previewableAssets, previewAssetIndex, activeLanguage, copies, previewVariant, film.trailerUrl]);
+  }, [rightTab, selectedAdStyle, previewableAssets, previewAssetIndex, copies, previewVariant, film.trailerUrl]);
 
   // SSE listener for background asset sync notifications
   useEffect(() => {
@@ -411,12 +409,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   // Auto-fetch preview when relevant data changes
   useEffect(() => {
     // Only fetch if we have selected media and copy for current variant
-    if (previewableAssets.length > 0 && copies[activeLanguage]?.[previewVariant]?.headline) {
+    if (previewableAssets.length > 0 && copies[previewVariant]?.headline) {
       // Debounce the fetch to avoid too many API calls
       const timeoutId = setTimeout(fetchPreview, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [fetchPreview, previewableAssets.length, copies, activeLanguage, previewVariant]);
+  }, [fetchPreview, previewableAssets.length, copies, previewVariant]);
 
   // Reset preview asset index when selected assets change
   useEffect(() => {
@@ -525,70 +523,57 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const handleCopyChange = (variant: 'A' | 'B' | 'C', field: string, value: string) => {
     setCopies(prev => ({
       ...prev,
-      [activeLanguage]: {
-        ...prev[activeLanguage],
-        [variant]: { ...prev[activeLanguage][variant], [field]: value },
-      },
+      [variant]: { ...prev[variant], [field]: value },
     }));
   };
 
-  const handleAddLanguage = async (langCode: string) => {
-    if (!selectedLanguages.includes(langCode)) {
-      setSelectedLanguages([...selectedLanguages, langCode]);
-      setActiveLanguage(langCode);
-      setLoadingLanguage(langCode);
+  const handleLanguageChange = async (langCode: string) => {
+    setSelectedLanguage(langCode);
+    setLoadingLanguage(langCode);
 
-      const emptyCopies = {
-        A: { headline: '', description: '' },
-        B: { headline: '', description: '' },
-        C: { headline: '', description: '' },
-      };
+    const emptyCopies = {
+      A: { headline: '', description: '' },
+      B: { headline: '', description: '' },
+      C: { headline: '', description: '' },
+    };
 
-      try {
-        const response = await fetch('/api/copies/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filmId: film.id, languages: [langCode] }),
-        });
+    try {
+      const response = await fetch('/api/copies/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filmId: film.id, languages: [langCode] }),
+      });
 
-        if (!response.ok) {
-          throw new Error('Failed to generate copies');
-        }
-
-        const { copies: generatedCopies } = await response.json();
-        const langCopies = generatedCopies[langCode];
-
-        // Transform API response to UI format
-        const formattedCopies = langCopies?.reduce(
-          (acc: Record<string, { headline: string; description: string }>, copy: { headline: string; primaryText: string; variant: string }) => ({
-            ...acc,
-            [copy.variant]: { headline: copy.headline, description: copy.primaryText },
-          }),
-          {}
-        ) || emptyCopies;
-
-        setCopies(prev => ({ ...prev, [langCode]: formattedCopies }));
-      } catch (error) {
-        console.error('Error generating copies:', error);
-        // Fallback to empty copies on error
-        setCopies(prev => ({
-          ...prev,
-          [langCode]: emptyCopies,
-        }));
+      if (!response.ok) {
+        throw new Error('Failed to generate copies');
       }
 
-      setLoadingLanguage(null);
+      const { copies: generatedCopies } = await response.json();
+      const langCopies = generatedCopies[langCode];
+
+      // Transform API response to UI format
+      const formattedCopies = langCopies?.reduce(
+        (acc: Record<string, { headline: string; description: string }>, copy: { headline: string; primaryText: string; variant: string }) => ({
+          ...acc,
+          [copy.variant]: { headline: copy.headline, description: copy.primaryText },
+        }),
+        {}
+      ) || emptyCopies;
+
+      setCopies(formattedCopies);
+    } catch (error) {
+      console.error('Error generating copies:', error);
+      // Fallback to empty copies on error
+      setCopies(emptyCopies);
     }
+
+    setLoadingLanguage(null);
   };
 
   const handleDeleteVariant = (variant: 'A' | 'B' | 'C') => {
     setCopies(prev => {
       const newCopies = { ...prev };
-      if (newCopies[activeLanguage]) {
-        const langCopies = { ...newCopies[activeLanguage] };
-        delete langCopies[variant];
-        newCopies[activeLanguage] = langCopies;
-      }
+      delete newCopies[variant];
       return newCopies;
     });
   };
@@ -596,28 +581,13 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const handleAddVariant = (variant: 'A' | 'B' | 'C') => {
     setCopies(prev => ({
       ...prev,
-      [activeLanguage]: {
-        ...prev[activeLanguage],
-        [variant]: { headline: '', description: '' },
-      },
+      [variant]: { headline: '', description: '' },
     }));
   };
 
   const getAvailableVariants = () => {
-    const existingVariants = Object.keys(copies[activeLanguage] || {});
+    const existingVariants = Object.keys(copies);
     return (['A', 'B', 'C'] as const).filter(v => !existingVariants.includes(v));
-  };
-
-  const handleRemoveLanguage = (langCode: string) => {
-    if (selectedLanguages.length > 1) {
-      setSelectedLanguages(selectedLanguages.filter(l => l !== langCode));
-      const newCopies = { ...copies };
-      delete newCopies[langCode];
-      setCopies(newCopies);
-      if (activeLanguage === langCode) {
-        setActiveLanguage(selectedLanguages.filter(l => l !== langCode)[0]);
-      }
-    }
   };
 
   const handleFileUpload = async (files: FileList) => {
@@ -684,61 +654,39 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   // Map form state to API schema including ads
   const mapFormToAPI = () => {
-    // Build ads from copies and selected assets
-    const ads = Object.entries(copies).map(([language, variants]) => {
-      const headlines = Object.values(variants)
-        .map(v => v.headline)
-        .filter(Boolean);
-      const bodies = Object.values(variants)
-        .map(v => v.description)
-        .filter(Boolean);
+    // Get headlines and bodies from all variants
+    const headlines = Object.values(copies)
+      .map(v => v.headline)
+      .filter(Boolean);
+    const bodies = Object.values(copies)
+      .map(v => v.description)
+      .filter(Boolean);
 
-      // Get selected image and video IDs
-      const imageIds = selectedAssets.filter(id =>
-        allImages.some(img => img.id === id)
-      );
-      const videoIds = selectedAssets.filter(id =>
-        allVideos.some(vid => vid.id === id)
-      );
+    // Get selected image and video IDs
+    const imageIds = selectedAssets.filter(id =>
+      allImages.some(img => img.id === id)
+    );
+    const videoIds = selectedAssets.filter(id =>
+      allVideos.some(vid => vid.id === id)
+    );
 
-      return {
-        name: `${film.title} - ${language.toUpperCase()}`,
-        language,
-        headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
-        bodies: bodies.length > 0 ? bodies : [film.description || `Una película que no te puedes perder`],
-        descriptions: [],
-        callToAction: 'LEARN_MORE',
-        linkUrl: film.trailerUrl || `https://pijama.film/films/${film.id}`,
-        imageIds,
-        videoIds,
-      };
-    });
-
-    // If no copies were created, create a default ad with selected media
-    if (ads.length === 0) {
-      const imageIds = selectedAssets.filter(id =>
-        allImages.some(img => img.id === id)
-      );
-      const videoIds = selectedAssets.filter(id =>
-        allVideos.some(vid => vid.id === id)
-      );
-
-      ads.push({
-        name: `${film.title} - Default`,
-        language: 'es',
-        headlines: [`Descubre ${film.title}`],
-        bodies: [film.description || `Una película que no te puedes perder`],
-        descriptions: [],
-        callToAction: 'LEARN_MORE',
-        linkUrl: film.trailerUrl || `https://pijama.film/films/${film.id}`,
-        imageIds,
-        videoIds,
-      });
-    }
+    // Create single ad with all copy variants
+    const ad = {
+      name: `${film.title} - ${selectedLanguage.toUpperCase()}`,
+      language: selectedLanguage,
+      headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
+      bodies: bodies.length > 0 ? bodies : [film.description || `Una película que no te puedes perder`],
+      descriptions: [],
+      callToAction: 'LEARN_MORE',
+      linkUrl: film.trailerUrl || `https://pijama.film/films/${film.id}`,
+      imageIds,
+      videoIds,
+    };
 
     return {
       name: `${film.title} - Campaign`,
       objective: 'LANDING_PAGE_VIEW' as const,
+      language: selectedLanguage,
       budget: Number(budget),
       budgetType: 'LIFETIME' as const,
       startDate: new Date(startDate),
@@ -751,7 +699,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       filmGenres: selectedGenres,
       includeLgbtAudience: gender === 'LGBTQ',
       filmMuviUuid: film.id,
-      ads,
+      ads: [ad],
       autoSync: true,
     };
   };
@@ -1053,47 +1001,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
             {/* Tab 2: Creatives */}
             {leftTab === 1 && (
               <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {selectedLanguages.map((langCode) => {
-                      const lang = LANGUAGES.find(l => l.code === langCode);
-                      return (
-                        <Chip
-                          key={langCode}
-                          label={loadingLanguage === langCode ? `${lang?.name || langCode}...` : lang?.name || langCode}
-                          onClick={() => setActiveLanguage(langCode)}
-                          onDelete={selectedLanguages.length > 1 ? () => handleRemoveLanguage(langCode) : undefined}
-                          color={activeLanguage === langCode ? 'primary' : 'default'}
-                          variant={activeLanguage === langCode ? 'filled' : 'outlined'}
-                          disabled={loadingLanguage === langCode}
-                        />
-                      );
-                    })}
-                  </Box>
+                <FormControl fullWidth sx={{ mb: 3 }}>
+                  <InputLabel>Language</InputLabel>
                   <Select
-                    size="small"
-                    value=""
-                    displayEmpty
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddLanguage(e.target.value);
-                      }
-                    }}
-                    sx={{ minWidth: 150 }}
+                    value={selectedLanguage}
+                    onChange={(e) => handleLanguageChange(e.target.value)}
+                    label="Language"
                     disabled={loadingLanguage !== null}
                   >
-                    <MenuItem value="" disabled>
-                      + Add language
-                    </MenuItem>
-                    {LANGUAGES.filter(lang => !selectedLanguages.includes(lang.code)).map(lang => (
+                    {LANGUAGES.map(lang => (
                       <MenuItem key={lang.code} value={lang.code}>
                         {lang.name}
                       </MenuItem>
                     ))}
                   </Select>
-                </Box>
+                </FormControl>
 
-                {loadingLanguage === activeLanguage ? (
+                {loadingLanguage === selectedLanguage ? (
                   <Box sx={{ textAlign: 'center', py: 4 }}>
                     <Typography color="text.secondary">
                       Generating texts with AI...
@@ -1102,10 +1026,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                 ) : (
                   <>
                     {(['A', 'B', 'C'] as const).map((variant) => {
-                      // Only render if this variant exists for the active language
-                      if (!copies[activeLanguage]?.[variant]) return null;
+                      // Only render if this variant exists
+                      if (!copies[variant]) return null;
 
-                      const existingVariants = Object.keys(copies[activeLanguage] || {});
+                      const existingVariants = Object.keys(copies);
                       const isLastVariant = existingVariants.indexOf(variant) === existingVariants.length - 1;
 
                       return (
@@ -1127,10 +1051,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                               <TextField
                                 fullWidth
                                 label="Title"
-                                value={copies[activeLanguage]?.[variant]?.headline || ''}
+                                value={copies[variant]?.headline || ''}
                                 onChange={(e) => handleCopyChange(variant, 'headline', e.target.value)}
                                 inputProps={{ maxLength: 100 }}
-                                helperText={`${(copies[activeLanguage]?.[variant]?.headline || '').length}/100`}
+                                helperText={`${(copies[variant]?.headline || '').length}/100`}
                               />
                             </Grid>
                             <Grid size={{ xs: 12 }}>
@@ -1139,10 +1063,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                                 label="Description"
                                 multiline
                                 rows={3}
-                                value={copies[activeLanguage]?.[variant]?.description || ''}
+                                value={copies[variant]?.description || ''}
                                 onChange={(e) => handleCopyChange(variant, 'description', e.target.value)}
                                 inputProps={{ maxLength: 500 }}
-                                helperText={`${(copies[activeLanguage]?.[variant]?.description || '').length}/500`}
+                                helperText={`${(copies[variant]?.description || '').length}/500`}
                               />
                             </Grid>
                           </Grid>
@@ -1150,7 +1074,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                         </Box>
                       );
                     })}
-                    {Object.keys(copies[activeLanguage] || {}).length === 0 && (
+                    {Object.keys(copies).length === 0 && (
                       <Box sx={{ textAlign: 'center', py: 4 }}>
                         <Typography color="text.secondary">
                           No variants. All have been deleted.
@@ -1552,10 +1476,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                       />
                     </Box>
                     <Typography variant="h6" gutterBottom>
-                      {copies[activeLanguage]?.[previewVariant]?.headline || 'Título del anuncio'}
+                      {copies[previewVariant]?.headline || 'Título del anuncio'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {copies[activeLanguage]?.[previewVariant]?.description || 'Selecciona un medio y agrega texto para ver la vista previa'}
+                      {copies[previewVariant]?.description || 'Selecciona un medio y agrega texto para ver la vista previa'}
                     </Typography>
                   </CardContent>
                 </Card>
