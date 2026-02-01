@@ -38,6 +38,7 @@ import {
   CircularProgress,
   LinearProgress,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -47,8 +48,15 @@ import {
   ChevronRight as ChevronRightIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
+  Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
+  Warning as WarningIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
+
+// Asset status type
+type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
 
 // Type for local database assets passed from server
 type LocalAsset = {
@@ -59,7 +67,43 @@ type LocalAsset = {
   thumbnailUrl: string;
   storageKey: string;
   metaVideoId?: string | null; // For videos uploaded to Meta
+  // Validation fields
+  status: AssetStatus;
+  validationError?: string | null;
+  aspectRatio?: string | null;
+  facebookEligible: boolean;
+  instagramEligible: boolean;
+  eligibilityError?: string | null;
 };
+
+// Status labels and colors
+const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
+  PENDING: 'Pending',
+  VALIDATING: 'Validating...',
+  READY: 'Ready',
+  INVALID: 'Invalid',
+  ERROR: 'Error',
+};
+
+const ASSET_STATUS_COLORS: Record<AssetStatus, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
+  PENDING: 'default',
+  VALIDATING: 'info',
+  READY: 'success',
+  INVALID: 'warning',
+  ERROR: 'error',
+};
+
+// Custom styles for status chips (default color doesn't have fill)
+const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
+  PENDING: { bgcolor: 'grey.400', color: 'white' },
+  VALIDATING: {},
+  READY: {},
+  INVALID: {},
+  ERROR: {},
+};
+
+// Filter type for assets
+type AssetFilter = 'all' | 'ready' | 'validating' | 'invalid';
 
 type CreateCampaignClientProps = {
   film: Film;
@@ -76,6 +120,13 @@ type UploadedAsset = {
   thumbnailUrl: string;
   storageKey: string;
   metaVideoId?: string | null; // For videos uploaded to Meta
+  // Validation fields
+  status: AssetStatus;
+  validationError?: string | null;
+  aspectRatio?: string | null;
+  facebookEligible: boolean;
+  instagramEligible: boolean;
+  eligibilityError?: string | null;
 };
 
 // Platform configurations with ad styles (META platforms only)
@@ -199,6 +250,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const [loadingLanguage, setLoadingLanguage] = useState<string | null>(null);
   const [copies, setCopies] = useState<Record<string, { headline: string; description: string }>>({});
 
+  // Local assets state (initialized from server, updated via SSE)
+  const [localImageAssets, setLocalImageAssets] = useState<LocalAsset[]>(localImages);
+  const [localVideoAssets, setLocalVideoAssets] = useState<LocalAsset[]>(localVideos);
+
   // Form state - Media Assets (start with all local DB assets selected)
   const [selectedAssets, setSelectedAssets] = useState<string[]>(() => [
     ...localImages.map((asset) => asset.id),
@@ -211,6 +266,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const [uploadedAssets, setUploadedAssets] = useState<UploadedAsset[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Asset filter state
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>('all');
 
   // Preview state
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -226,14 +284,31 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   // Compute merged assets (local DB assets + newly uploaded)
   const allVideos = useMemo(
-    () => [...localVideos, ...uploadedAssets.filter((a) => a.type === 'video')],
-    [localVideos, uploadedAssets]
+    () => [...localVideoAssets, ...uploadedAssets.filter((a) => a.type === 'video')],
+    [localVideoAssets, uploadedAssets]
   );
 
   const allImages = useMemo(
-    () => [...localImages, ...uploadedAssets.filter((a) => a.type === 'image')],
-    [localImages, uploadedAssets]
+    () => [...localImageAssets, ...uploadedAssets.filter((a) => a.type === 'image')],
+    [localImageAssets, uploadedAssets]
   );
+
+  // Filter assets by status
+  const filterAsset = useCallback((asset: LocalAsset | UploadedAsset) => {
+    switch (assetFilter) {
+      case 'ready':
+        return asset.status === 'READY';
+      case 'validating':
+        return asset.status === 'VALIDATING' || asset.status === 'PENDING';
+      case 'invalid':
+        return asset.status === 'INVALID' || asset.status === 'ERROR';
+      default:
+        return true;
+    }
+  }, [assetFilter]);
+
+  const filteredVideos = useMemo(() => allVideos.filter(filterAsset), [allVideos, filterAsset]);
+  const filteredImages = useMemo(() => allImages.filter(filterAsset), [allImages, filterAsset]);
 
   // Get selected media assets by type (memoized to prevent infinite loops in useCallback/useEffect)
   const selectedVideos = useMemo(() =>
@@ -345,6 +420,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                 url: data.url,
                 thumbnailUrl: data.url,
                 storageKey: '', // Not needed for display
+                status: 'PENDING' as AssetStatus,
+                facebookEligible: false,
+                instagramEligible: false,
               },
             ];
           });
@@ -368,6 +446,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                 url: data.url,
                 thumbnailUrl: data.thumbnailUrl || data.url,
                 storageKey: '', // Not needed for display
+                status: 'PENDING' as AssetStatus,
+                facebookEligible: false,
+                instagramEligible: false,
               },
             ];
           });
@@ -390,6 +471,78 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
         if (data.type === 'asset_sync_complete') {
           console.log(`[SSE] Asset sync complete: ${data.imagesCount} images, ${data.videosCount} videos`);
+        }
+
+        // Handle image validation events
+        if (data.type === 'image_validated') {
+          console.log(`[SSE] Image ${data.imageId} validated: ${data.status}`);
+          const updateImage = (a: LocalAsset | UploadedAsset) =>
+            a.id === data.imageId
+              ? {
+                  ...a,
+                  status: data.status as AssetStatus,
+                  validationError: data.errors?.join('; ') || null,
+                  aspectRatio: data.aspectRatio,
+                }
+              : a;
+          setLocalImageAssets((prev) => prev.map(updateImage));
+          setUploadedAssets((prev) => prev.map(updateImage));
+          // Uncheck if invalid
+          if (data.status === 'INVALID' || data.status === 'ERROR') {
+            setSelectedAssets((prev) => prev.filter((id) => id !== data.imageId));
+          }
+        }
+
+        // Handle video validation events
+        if (data.type === 'video_validated') {
+          console.log(`[SSE] Video ${data.videoId} validated: ${data.status}`);
+          const updateVideo = (a: LocalAsset | UploadedAsset) =>
+            a.id === data.videoId
+              ? {
+                  ...a,
+                  status: data.status as AssetStatus,
+                  validationError: data.errors?.join('; ') || null,
+                  aspectRatio: data.aspectRatio,
+                }
+              : a;
+          setLocalVideoAssets((prev) => prev.map(updateVideo));
+          setUploadedAssets((prev) => prev.map(updateVideo));
+          // Uncheck if invalid
+          if (data.status === 'INVALID' || data.status === 'ERROR') {
+            setSelectedAssets((prev) => prev.filter((id) => id !== data.videoId));
+          }
+        }
+
+        // Handle image eligibility events
+        if (data.type === 'image_eligibility_checked') {
+          console.log(`[SSE] Image ${data.imageId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}`);
+          const updateImage = (a: LocalAsset | UploadedAsset) =>
+            a.id === data.imageId
+              ? {
+                  ...a,
+                  facebookEligible: data.facebookEligible,
+                  instagramEligible: data.instagramEligible,
+                  eligibilityError: data.error,
+                }
+              : a;
+          setLocalImageAssets((prev) => prev.map(updateImage));
+          setUploadedAssets((prev) => prev.map(updateImage));
+        }
+
+        // Handle video eligibility events
+        if (data.type === 'video_eligibility_checked') {
+          console.log(`[SSE] Video ${data.videoId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}`);
+          const updateVideo = (a: LocalAsset | UploadedAsset) =>
+            a.id === data.videoId
+              ? {
+                  ...a,
+                  facebookEligible: data.facebookEligible,
+                  instagramEligible: data.instagramEligible,
+                  eligibilityError: data.error,
+                }
+              : a;
+          setLocalVideoAssets((prev) => prev.map(updateVideo));
+          setUploadedAssets((prev) => prev.map(updateVideo));
         }
       } catch (error) {
         console.error('[SSE] Error parsing event:', error);
@@ -590,6 +743,25 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     return (['A', 'B', 'C'] as const).filter(v => !existingVariants.includes(v));
   };
 
+  // Handle revalidation request
+  const handleRevalidate = async (assetId: string, assetType: 'image' | 'video') => {
+    try {
+      const response = await fetch(`/api/assets/${assetId}/revalidate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: assetType, filmMuviUuid: film.id }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to trigger revalidation');
+      }
+
+      console.log(`Revalidation triggered for ${assetType} ${assetId}`);
+    } catch (error) {
+      console.error('Error triggering revalidation:', error);
+    }
+  };
+
   const handleFileUpload = async (files: FileList) => {
     setUploading(true);
     setUploadError(null);
@@ -629,6 +801,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
           thumbnailUrl: result.thumbnailUrl || result.url,
           storageKey: result.storageKey,
           metaVideoId: result.metaVideoId,
+          status: result.status || 'PENDING',
+          facebookEligible: result.facebookEligible || false,
+          instagramEligible: result.instagramEligible || false,
+          validationError: result.validationError,
+          aspectRatio: result.aspectRatio,
+          eligibilityError: result.eligibilityError,
         };
 
         setUploadedAssets(prev => [...prev, newAsset]);
@@ -1141,21 +1319,41 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                   </Alert>
                 )}
 
+                {/* Filter Controls */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Filter by Status
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={assetFilter}
+                    exclusive
+                    onChange={(_, value) => value && setAssetFilter(value)}
+                    size="small"
+                  >
+                    <ToggleButton value="all">All</ToggleButton>
+                    <ToggleButton value="ready">Ready</ToggleButton>
+                    <ToggleButton value="validating">Validating</ToggleButton>
+                    <ToggleButton value="invalid">Invalid</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+
                 <Typography variant="h6" gutterBottom>
-                  Videos
+                  Videos ({filteredVideos.length})
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                  {allVideos.map((asset) => (
+                  {filteredVideos.map((asset) => (
                     <Card
                       key={asset.id}
                       sx={{
-                        width: 120,
+                        width: 140,
                         position: 'relative',
                         border: selectedAssets.includes(asset.id) ? '2px solid' : '1px solid',
                         borderColor: selectedAssets.includes(asset.id) ? 'primary.main' : 'divider',
+                        opacity: asset.status === 'INVALID' || asset.status === 'ERROR' ? 0.7 : 1,
                       }}
                     >
-                      <Box sx={{ position: 'absolute', top: 2, left: 2, zIndex: 1 }}>
+                      {/* Checkbox */}
+                      <Box sx={{ position: 'absolute', top: 2, left: 2, zIndex: 2 }}>
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
@@ -1174,14 +1372,43 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                           }}
                         />
                       </Box>
-                      {uploadedAssets.some(a => a.id === asset.id) && (
-                        <Chip
-                          label="New"
-                          size="small"
-                          color="primary"
-                          sx={{ position: 'absolute', top: 2, right: 2, fontSize: '0.6rem', height: 18, zIndex: 1 }}
-                        />
+
+                      {/* Status chip */}
+                      <Chip
+                        label={ASSET_STATUS_LABELS[asset.status]}
+                        size="small"
+                        color={ASSET_STATUS_COLORS[asset.status]}
+                        sx={{
+                          position: 'absolute',
+                          top: 2,
+                          right: 2,
+                          fontSize: '0.6rem',
+                          height: 18,
+                          zIndex: 1,
+                          ...ASSET_STATUS_STYLES[asset.status],
+                        }}
+                      />
+
+                      {/* Validating overlay */}
+                      {asset.status === 'VALIDATING' && (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            bgcolor: 'rgba(255,255,255,0.7)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1,
+                          }}
+                        >
+                          <CircularProgress size={24} />
+                        </Box>
                       )}
+
                       <CardMedia
                         component="img"
                         height="75"
@@ -1194,27 +1421,67 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                         sx={{ cursor: 'pointer' }}
                       />
                       <CardContent sx={{ p: 0.5 }}>
-                        <Typography variant="caption" noWrap sx={{ fontSize: '0.7rem' }}>{asset.name}</Typography>
+                        <Typography variant="caption" noWrap sx={{ fontSize: '0.7rem', display: 'block' }}>
+                          {asset.name}
+                        </Typography>
+                        {/* Platform eligibility icons */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                          {asset.status === 'READY' && (
+                            <>
+                              {asset.facebookEligible && (
+                                <Tooltip title="Facebook eligible">
+                                  <FacebookIcon sx={{ fontSize: 14, color: '#1877F2' }} />
+                                </Tooltip>
+                              )}
+                              {asset.instagramEligible && (
+                                <Tooltip title="Instagram eligible">
+                                  <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
+                                </Tooltip>
+                              )}
+                            </>
+                          )}
+                          {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
+                            <Tooltip title={asset.validationError || asset.eligibilityError || 'Validation failed'}>
+                              <WarningIcon sx={{ fontSize: 14, color: 'warning.main' }} />
+                            </Tooltip>
+                          )}
+                          {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
+                            <Tooltip title="Retry validation">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRevalidate(asset.id, 'video');
+                                }}
+                                sx={{ p: 0.25 }}
+                              >
+                                <RefreshIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
                       </CardContent>
                     </Card>
                   ))}
                 </Box>
 
                 <Typography variant="h6" gutterBottom>
-                  Images
+                  Images ({filteredImages.length})
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  {allImages.map((asset) => (
+                  {filteredImages.map((asset) => (
                     <Card
                       key={asset.id}
                       sx={{
-                        width: 120,
+                        width: 140,
                         position: 'relative',
                         border: selectedAssets.includes(asset.id) ? '2px solid' : '1px solid',
                         borderColor: selectedAssets.includes(asset.id) ? 'primary.main' : 'divider',
+                        opacity: asset.status === 'INVALID' || asset.status === 'ERROR' ? 0.7 : 1,
                       }}
                     >
-                      <Box sx={{ position: 'absolute', top: 2, left: 2, zIndex: 1 }}>
+                      {/* Checkbox */}
+                      <Box sx={{ position: 'absolute', top: 2, left: 2, zIndex: 2 }}>
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
@@ -1233,14 +1500,43 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                           }}
                         />
                       </Box>
-                      {uploadedAssets.some(a => a.id === asset.id) && (
-                        <Chip
-                          label="New"
-                          size="small"
-                          color="primary"
-                          sx={{ position: 'absolute', top: 2, right: 2, fontSize: '0.6rem', height: 18, zIndex: 1 }}
-                        />
+
+                      {/* Status chip */}
+                      <Chip
+                        label={ASSET_STATUS_LABELS[asset.status]}
+                        size="small"
+                        color={ASSET_STATUS_COLORS[asset.status]}
+                        sx={{
+                          position: 'absolute',
+                          top: 2,
+                          right: 2,
+                          fontSize: '0.6rem',
+                          height: 18,
+                          zIndex: 1,
+                          ...ASSET_STATUS_STYLES[asset.status],
+                        }}
+                      />
+
+                      {/* Validating overlay */}
+                      {asset.status === 'VALIDATING' && (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            bgcolor: 'rgba(255,255,255,0.7)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1,
+                          }}
+                        >
+                          <CircularProgress size={24} />
+                        </Box>
                       )}
+
                       <CardMedia
                         component="img"
                         height="75"
@@ -1253,7 +1549,45 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                         sx={{ cursor: 'pointer' }}
                       />
                       <CardContent sx={{ p: 0.5 }}>
-                        <Typography variant="caption" noWrap sx={{ fontSize: '0.7rem' }}>{asset.name}</Typography>
+                        <Typography variant="caption" noWrap sx={{ fontSize: '0.7rem', display: 'block' }}>
+                          {asset.name}
+                        </Typography>
+                        {/* Platform eligibility icons */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                          {asset.status === 'READY' && (
+                            <>
+                              {asset.facebookEligible && (
+                                <Tooltip title="Facebook eligible">
+                                  <FacebookIcon sx={{ fontSize: 14, color: '#1877F2' }} />
+                                </Tooltip>
+                              )}
+                              {asset.instagramEligible && (
+                                <Tooltip title="Instagram eligible">
+                                  <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
+                                </Tooltip>
+                              )}
+                            </>
+                          )}
+                          {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
+                            <Tooltip title={asset.validationError || asset.eligibilityError || 'Validation failed'}>
+                              <WarningIcon sx={{ fontSize: 14, color: 'warning.main' }} />
+                            </Tooltip>
+                          )}
+                          {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
+                            <Tooltip title="Retry validation">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRevalidate(asset.id, 'image');
+                                }}
+                                sx={{ p: 0.25 }}
+                              >
+                                <RefreshIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
                       </CardContent>
                     </Card>
                   ))}

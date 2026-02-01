@@ -1,4 +1,5 @@
 import prisma from '#prisma';
+import { AssetStatus } from '@prisma/client';
 import { z } from 'zod';
 
 // ============================================================================
@@ -34,6 +35,9 @@ export type ImageUpdateInput = z.infer<typeof ImageUpdateSchema>;
 // VALIDATION SCHEMAS - OUTPUT (validate database results)
 // ============================================================================
 
+// Zod schema for AssetStatus enum
+const AssetStatusSchema = z.enum(['PENDING', 'VALIDATING', 'READY', 'INVALID', 'ERROR']);
+
 export const ImageSchema = z.object({
   id: z.string().cuid(),
   filmMuviUuid: z.string(),
@@ -46,6 +50,16 @@ export const ImageSchema = z.object({
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
   createdAt: z.coerce.date(),
+  // Validation fields
+  status: AssetStatusSchema,
+  validatedAt: z.coerce.date().nullable(),
+  validationError: z.string().nullable(),
+  aspectRatio: z.string().nullable(),
+  metaImageHash: z.string().nullable(),
+  // Platform eligibility
+  facebookEligible: z.boolean(),
+  instagramEligible: z.boolean(),
+  eligibilityError: z.string().nullable(),
 });
 
 export type Image = z.infer<typeof ImageSchema>;
@@ -167,15 +181,119 @@ export async function deleteImage(id: string) {
   });
 
   if (!image) {
-    throw new Error('Imagen no encontrada');
+    throw new Error('Image not found');
   }
 
   if (image._count.ads > 0) {
-    throw new Error('No se puede eliminar una imagen que está siendo usada por anuncios');
+    throw new Error('Cannot delete an image that is being used by ads');
   }
 
   const result = await prisma.image.delete({
     where: { id: validId },
+  });
+
+  return ImageSchema.parse(result);
+}
+
+// ============================================================================
+// VALIDATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Input schema for validation update
+ */
+const ImageValidationUpdateSchema = z.object({
+  status: AssetStatusSchema,
+  validatedAt: z.date().optional(),
+  validationError: z.string().nullable().optional(),
+  aspectRatio: z.string().nullable().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+
+export type ImageValidationUpdate = z.infer<typeof ImageValidationUpdateSchema>;
+
+/**
+ * Input schema for eligibility update
+ */
+const ImageEligibilityUpdateSchema = z.object({
+  facebookEligible: z.boolean(),
+  instagramEligible: z.boolean(),
+  eligibilityError: z.string().nullable().optional(),
+  metaImageHash: z.string().nullable().optional(),
+});
+
+export type ImageEligibilityUpdate = z.infer<typeof ImageEligibilityUpdateSchema>;
+
+/**
+ * Get images by film MUVI UUID with optional status filter
+ */
+export async function getImagesByFilmMuviUuidWithStatus(
+  filmMuviUuid: string,
+  status?: AssetStatus
+) {
+  const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
+
+  const results = await prisma.image.findMany({
+    where: {
+      filmMuviUuid: validFilmMuviUuid,
+      ...(status && { status }),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return z.array(ImageSchema).parse(results);
+}
+
+/**
+ * Get only READY images for a film
+ */
+export async function getReadyImagesByFilmMuviUuid(filmMuviUuid: string) {
+  return getImagesByFilmMuviUuidWithStatus(filmMuviUuid, 'READY');
+}
+
+/**
+ * Update image validation status and metadata
+ */
+export async function updateImageValidation(id: string, data: ImageValidationUpdate) {
+  const validId = IdSchema.parse(id);
+  const validated = ImageValidationUpdateSchema.parse(data);
+
+  const result = await prisma.image.update({
+    where: { id: validId },
+    data: {
+      ...validated,
+      validatedAt: validated.validatedAt || new Date(),
+    },
+  });
+
+  return ImageSchema.parse(result);
+}
+
+/**
+ * Update image platform eligibility
+ */
+export async function updateImageEligibility(id: string, data: ImageEligibilityUpdate) {
+  const validId = IdSchema.parse(id);
+  const validated = ImageEligibilityUpdateSchema.parse(data);
+
+  const result = await prisma.image.update({
+    where: { id: validId },
+    data: validated,
+  });
+
+  return ImageSchema.parse(result);
+}
+
+/**
+ * Set image status to VALIDATING
+ */
+export async function setImageValidating(id: string) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.image.update({
+    where: { id: validId },
+    data: { status: 'VALIDATING' },
   });
 
   return ImageSchema.parse(result);

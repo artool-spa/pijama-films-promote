@@ -1,4 +1,5 @@
 import prisma from '#prisma';
+import { AssetStatus } from '@prisma/client';
 import { z } from 'zod';
 
 // ============================================================================
@@ -35,6 +36,9 @@ export type VideoUpdateInput = z.infer<typeof VideoUpdateSchema>;
 // VALIDATION SCHEMAS - OUTPUT (validate database results)
 // ============================================================================
 
+// Zod schema for AssetStatus enum
+const AssetStatusSchema = z.enum(['PENDING', 'VALIDATING', 'READY', 'INVALID', 'ERROR']);
+
 export const VideoSchema = z.object({
   id: z.string().cuid(),
   filmMuviUuid: z.string(),
@@ -48,6 +52,17 @@ export const VideoSchema = z.object({
   thumbnailUrl: z.string().nullable(),
   metaVideoId: z.string().nullable(),
   createdAt: z.coerce.date(),
+  // Validation fields
+  status: AssetStatusSchema,
+  validatedAt: z.coerce.date().nullable(),
+  validationError: z.string().nullable(),
+  width: z.number().int().nullable(),
+  height: z.number().int().nullable(),
+  aspectRatio: z.string().nullable(),
+  // Platform eligibility
+  facebookEligible: z.boolean(),
+  instagramEligible: z.boolean(),
+  eligibilityError: z.string().nullable(),
 });
 
 export type Video = z.infer<typeof VideoSchema>;
@@ -169,11 +184,11 @@ export async function deleteVideo(id: string) {
   });
 
   if (!video) {
-    throw new Error('Video no encontrado');
+    throw new Error('Video not found');
   }
 
   if (video._count.ads > 0) {
-    throw new Error('No se puede eliminar un video que está siendo usado por anuncios');
+    throw new Error('Cannot delete a video that is being used by ads');
   }
 
   const result = await prisma.video.delete({
@@ -193,6 +208,110 @@ export async function setMetaVideoId(id: string, metaVideoId: string) {
   const result = await prisma.video.update({
     where: { id: validId },
     data: { metaVideoId: validMetaVideoId },
+  });
+
+  return VideoSchema.parse(result);
+}
+
+// ============================================================================
+// VALIDATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Input schema for validation update
+ */
+const VideoValidationUpdateSchema = z.object({
+  status: AssetStatusSchema,
+  validatedAt: z.date().optional(),
+  validationError: z.string().nullable().optional(),
+  aspectRatio: z.string().nullable().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  duration: z.number().int().positive().optional(),
+});
+
+export type VideoValidationUpdate = z.infer<typeof VideoValidationUpdateSchema>;
+
+/**
+ * Input schema for eligibility update
+ */
+const VideoEligibilityUpdateSchema = z.object({
+  facebookEligible: z.boolean(),
+  instagramEligible: z.boolean(),
+  eligibilityError: z.string().nullable().optional(),
+});
+
+export type VideoEligibilityUpdate = z.infer<typeof VideoEligibilityUpdateSchema>;
+
+/**
+ * Get videos by film MUVI UUID with optional status filter
+ */
+export async function getVideosByFilmMuviUuidWithStatus(
+  filmMuviUuid: string,
+  status?: AssetStatus
+) {
+  const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
+
+  const results = await prisma.video.findMany({
+    where: {
+      filmMuviUuid: validFilmMuviUuid,
+      ...(status && { status }),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return z.array(VideoSchema).parse(results);
+}
+
+/**
+ * Get only READY videos for a film
+ */
+export async function getReadyVideosByFilmMuviUuid(filmMuviUuid: string) {
+  return getVideosByFilmMuviUuidWithStatus(filmMuviUuid, 'READY');
+}
+
+/**
+ * Update video validation status and metadata
+ */
+export async function updateVideoValidation(id: string, data: VideoValidationUpdate) {
+  const validId = IdSchema.parse(id);
+  const validated = VideoValidationUpdateSchema.parse(data);
+
+  const result = await prisma.video.update({
+    where: { id: validId },
+    data: {
+      ...validated,
+      validatedAt: validated.validatedAt || new Date(),
+    },
+  });
+
+  return VideoSchema.parse(result);
+}
+
+/**
+ * Update video platform eligibility
+ */
+export async function updateVideoEligibility(id: string, data: VideoEligibilityUpdate) {
+  const validId = IdSchema.parse(id);
+  const validated = VideoEligibilityUpdateSchema.parse(data);
+
+  const result = await prisma.video.update({
+    where: { id: validId },
+    data: validated,
+  });
+
+  return VideoSchema.parse(result);
+}
+
+/**
+ * Set video status to VALIDATING
+ */
+export async function setVideoValidating(id: string) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.video.update({
+    where: { id: validId },
+    data: { status: 'VALIDATING' },
   });
 
   return VideoSchema.parse(result);

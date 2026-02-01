@@ -1,5 +1,7 @@
 export { broadcaster } from './broadcaster';
 
+import type { AssetStatus } from '@prisma/client';
+
 /**
  * Event types for SSE notifications
  */
@@ -9,7 +11,12 @@ export type SSEEventType =
   | 'video_ready'
   | 'video_error'
   | 'image_ready'
-  | 'asset_sync_complete';
+  | 'video_synced'
+  | 'asset_sync_complete'
+  | 'image_validated'
+  | 'video_validated'
+  | 'image_eligibility_checked'
+  | 'video_eligibility_checked';
 
 export interface SSEConnectedEvent {
   type: 'connected';
@@ -52,6 +59,42 @@ export interface SSEVideoSyncedEvent {
   thumbnailUrl: string;
 }
 
+// New validation events
+export interface SSEImageValidatedEvent {
+  type: 'image_validated';
+  imageId: string;
+  status: AssetStatus;
+  errors: string[];
+  aspectRatio: string | null;
+}
+
+export interface SSEVideoValidatedEvent {
+  type: 'video_validated';
+  videoId: string;
+  status: AssetStatus;
+  errors: string[];
+  aspectRatio: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+}
+
+export interface SSEImageEligibilityCheckedEvent {
+  type: 'image_eligibility_checked';
+  imageId: string;
+  facebookEligible: boolean;
+  instagramEligible: boolean;
+  error: string | null;
+}
+
+export interface SSEVideoEligibilityCheckedEvent {
+  type: 'video_eligibility_checked';
+  videoId: string;
+  facebookEligible: boolean;
+  instagramEligible: boolean;
+  error: string | null;
+}
+
 export type SSEEvent =
   | SSEConnectedEvent
   | SSEHeartbeatEvent
@@ -59,4 +102,8 @@ export type SSEEvent =
   | SSEVideoErrorEvent
   | SSEImageReadyEvent
   | SSEAssetSyncCompleteEvent
-  | SSEVideoSyncedEvent;
+  | SSEVideoSyncedEvent
+  | SSEImageValidatedEvent
+  | SSEVideoValidatedEvent
+  | SSEImageEligibilityCheckedEvent
+  | SSEVideoEligibilityCheckedEvent;

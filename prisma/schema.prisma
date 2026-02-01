@@ -35,6 +35,14 @@ enum CampaignObjective {
   LANDING_PAGE_VIEW
 }
 
+enum AssetStatus {
+  PENDING    // Awaiting validation
+  VALIDATING // Validation in progress
+  READY      // Valid and ready
+  INVALID    // Does not meet requirements
+  ERROR      // System error
+}
+
 // ============================================================================
 // CORE MODELS
 // ============================================================================
@@ -161,10 +169,23 @@ model Image {
   height       Int?
   createdAt    DateTime @default(now())
 
+  // Validation status
+  status          AssetStatus @default(PENDING)
+  validatedAt     DateTime?
+  validationError String?
+  aspectRatio     String? // "1:1", "4:5", "1.91:1"
+  metaImageHash   String? // Hash from Meta upload
+
+  // Platform eligibility
+  facebookEligible  Boolean @default(false)
+  instagramEligible Boolean @default(false)
+  eligibilityError  String?
+
   // Relation to ads using this image
   ads Ad[] @relation("AdImages")
 
   @@index([filmMuviUuid])
+  @@index([status])
 }
 
 // Video - Uploaded video assets linked to films
@@ -182,10 +203,24 @@ model Video {
   metaVideoId  String? // Meta Ads video ID after upload to Meta
   createdAt    DateTime @default(now())
 
+  // Validation status
+  status          AssetStatus @default(PENDING)
+  validatedAt     DateTime?
+  validationError String?
+  width           Int? // Video dimensions
+  height          Int?
+  aspectRatio     String? // "1:1", "4:5", "1.91:1", "9:16"
+
+  // Platform eligibility
+  facebookEligible  Boolean @default(false)
+  instagramEligible Boolean @default(false)
+  eligibilityError  String?
+
   // Relation to ads using this video
   ads Ad[] @relation("AdVideos")
 
   @@index([filmMuviUuid])
+  @@index([status])
 }
 
 // ============================================================================
