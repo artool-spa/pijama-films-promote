@@ -102,6 +102,36 @@ export async function GET(
       });
     }
 
+    // Check if campaign start date is in the future
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const startDateStr = campaign.startDate.toISOString().split('T')[0];
+
+    if (campaign.startDate > now) {
+      // Campaign hasn't started yet - no insights available
+      const scheduledResponse: InsightsResponse = {
+        impressions: 0,
+        clicks: 0,
+        spend: 0,
+        reach: 0,
+        frequency: 0,
+        conversions: 0,
+        costPerConversion: 0,
+        ctr: 0,
+        cpm: 0,
+        cpc: 0,
+        dateStart: startDateStr,
+        dateEnd: campaign.endDate?.toISOString().split('T')[0] || startDateStr,
+      };
+
+      return NextResponse.json({
+        synced: true,
+        scheduled: true,
+        message: 'Campaign has not started yet',
+        data: scheduledResponse,
+      });
+    }
+
     // Check cache first
     const cached = getCachedInsights(id);
     if (cached) {
@@ -114,9 +144,11 @@ export async function GET(
 
     // Fetch insights from Meta API at campaign level (aggregates all AdSets)
     const isActive = campaign.status === 'ACTIVE';
+    const endDateStr = campaign.endDate?.toISOString().split('T')[0] || today;
     const dateRange = {
-      since: campaign.startDate.toISOString().split('T')[0],
-      until: campaign.endDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
+      since: startDateStr,
+      // Don't request future dates - use today if end date is in the future
+      until: endDateStr > today ? today : endDateStr,
     };
 
     const metaInsights = await getInsights(meta, campaign.metaCampaignId, {

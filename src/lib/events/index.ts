@@ -16,7 +16,10 @@ export type SSEEventType =
   | 'image_validated'
   | 'video_validated'
   | 'image_eligibility_checked'
-  | 'video_eligibility_checked';
+  | 'video_eligibility_checked'
+  | 'campaign_progress'
+  | 'campaign_complete'
+  | 'campaign_error';
 
 export interface SSEConnectedEvent {
   type: 'connected';
@@ -95,6 +98,25 @@ export interface SSEVideoEligibilityCheckedEvent {
   error: string | null;
 }
 
+export interface SSECampaignProgressEvent {
+  type: 'campaign_progress';
+  campaignId: string;
+  step: string;
+  progress: number;
+  message: string;
+}
+
+export interface SSECampaignCompleteEvent {
+  type: 'campaign_complete';
+  campaignId: string;
+}
+
+export interface SSECampaignErrorEvent {
+  type: 'campaign_error';
+  campaignId: string;
+  error: string;
+}
+
 export type SSEEvent =
   | SSEConnectedEvent
   | SSEHeartbeatEvent
@@ -106,4 +128,7 @@ export type SSEEvent =
   | SSEImageValidatedEvent
   | SSEVideoValidatedEvent
   | SSEImageEligibilityCheckedEvent
-  | SSEVideoEligibilityCheckedEvent;
+  | SSEVideoEligibilityCheckedEvent
+  | SSECampaignProgressEvent
+  | SSECampaignCompleteEvent
+  | SSECampaignErrorEvent;

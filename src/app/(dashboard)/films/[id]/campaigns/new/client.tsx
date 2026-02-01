@@ -134,8 +134,8 @@ type UploadedAsset = {
 
 // Platform configurations with ad styles (META platforms only)
 const PLATFORMS = [
-  { id: 'facebook', name: 'Facebook', adStyles: ['Feed', 'Stories', 'Reels'] },
-  { id: 'instagram', name: 'Instagram', adStyles: ['Feed', 'Stories', 'Reels'] },
+  { id: 'facebook', name: 'Facebook', adStyles: ['Feed', 'Stories'] },
+  { id: 'instagram', name: 'Instagram', adStyles: ['Feed', 'Stories'] },
 ];
 
 // Location type from Meta API
@@ -199,10 +199,8 @@ type MetaAdPreviewFormat =
   | 'DESKTOP_FEED_STANDARD'
   | 'MOBILE_FEED_STANDARD'
   | 'FACEBOOK_STORY_MOBILE'
-  | 'FACEBOOK_REELS_MOBILE'
   | 'INSTAGRAM_STANDARD'
-  | 'INSTAGRAM_STORY'
-  | 'INSTAGRAM_REELS';
+  | 'INSTAGRAM_STORY';
 
 /**
  * Maps platform and ad style to Meta's preview format
@@ -211,12 +209,10 @@ function getMetaFormat(platform: string, style: string): MetaAdPreviewFormat {
   if (platform === 'facebook') {
     if (style === 'Feed') return 'MOBILE_FEED_STANDARD';
     if (style === 'Stories') return 'FACEBOOK_STORY_MOBILE';
-    if (style === 'Reels') return 'FACEBOOK_REELS_MOBILE';
   }
   if (platform === 'instagram') {
     if (style === 'Feed') return 'INSTAGRAM_STANDARD';
     if (style === 'Stories') return 'INSTAGRAM_STORY';
-    if (style === 'Reels') return 'INSTAGRAM_REELS';
   }
   return 'MOBILE_FEED_STANDARD';
 }
@@ -228,7 +224,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   // Platform and ad style
   const [selectedAdStyle, setSelectedAdStyle] = useState('Feed');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['facebook']);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['facebook', 'instagram']);
 
   // Form state - Demographics & Budget
   const [ageMin, setAgeMin] = useState(18);
@@ -245,6 +241,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(film.genre || []);
 
+  // Date validation state
+  const [dateError, setDateError] = useState<string | null>(null);
+
   // Submission state
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -255,6 +254,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const [selectedLanguage, setSelectedLanguage] = useState('es');
   const [loadingLanguage, setLoadingLanguage] = useState<string | null>(null);
   const [copies, setCopies] = useState<Record<string, { headline: string; description: string }>>({});
+  const [initialCopiesGenerated, setInitialCopiesGenerated] = useState(false);
+
+  // Campaign name state (editable in summary tab)
+  const [campaignName, setCampaignName] = useState(`${film.title} - Campaign`);
 
   // Local assets state (initialized from server, updated via SSE)
   const [localImageAssets, setLocalImageAssets] = useState<LocalAsset[]>(localImages);
@@ -280,6 +283,16 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [iframeLoading, setIframeLoading] = useState(false);
+  const [iframeRetryCount, setIframeRetryCount] = useState(0);
+
+  // Campaign progress state for SSE
+  const [campaignProgress, setCampaignProgress] = useState<{
+    step: string;
+    progress: number;
+    message: string;
+    error: string;
+  }>({ step: '', progress: 0, message: '', error: '' });
 
   // Preview navigation state
   const [previewAssetIndex, setPreviewAssetIndex] = useState(0);
@@ -336,6 +349,21 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   const availableVariants = useMemo(() => {
     return (['A', 'B', 'C'] as const).filter(v => copies[v]?.headline);
   }, [copies]);
+
+  // Tab validation memos
+  const isScheduleValid = useMemo(() => {
+    return selectedPlatforms.length > 0 &&
+      budget !== '' && Number(budget) > 0 &&
+      startDate !== '' && endDate !== '' &&
+      !dateError && selectedLocations.length > 0;
+  }, [selectedPlatforms, budget, startDate, endDate, dateError, selectedLocations]);
+
+  const isCopiesValid = useMemo(() => {
+    return Object.keys(copies).length > 0 &&
+      Object.values(copies).some(c => c.headline && c.description);
+  }, [copies]);
+
+  const isMediaValid = useMemo(() => selectedAssets.length > 0, [selectedAssets]);
 
   // Fetch preview from Meta API
   const fetchPreview = useCallback(async () => {
@@ -550,6 +578,26 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
           setLocalVideoAssets((prev) => prev.map(updateVideo));
           setUploadedAssets((prev) => prev.map(updateVideo));
         }
+
+        // Handle campaign progress events
+        if (data.type === 'campaign_progress') {
+          console.log(`[SSE] Campaign progress: ${data.step} - ${data.progress}%`);
+          setCampaignProgress({
+            step: data.step,
+            progress: data.progress,
+            message: data.message,
+            error: '',
+          });
+        }
+
+        // Handle campaign error events
+        if (data.type === 'campaign_error') {
+          console.error(`[SSE] Campaign error: ${data.error}`);
+          setCampaignProgress((prev) => ({
+            ...prev,
+            error: data.error,
+          }));
+        }
       } catch (error) {
         console.error('[SSE] Error parsing event:', error);
       }
@@ -586,6 +634,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       setPreviewVariant(availableVariants[0]);
     }
   }, [availableVariants, previewVariant]);
+
+  // Auto-generate copies when entering copies tab for the first time
+  useEffect(() => {
+    if (leftTab === 1 && !initialCopiesGenerated && Object.keys(copies).length === 0) {
+      handleLanguageChange(selectedLanguage);
+      setInitialCopiesGenerated(true);
+    }
+  }, [leftTab, initialCopiesGenerated, copies, selectedLanguage]);
 
   // Keyboard navigation for preview
   useEffect(() => {
@@ -635,6 +691,15 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [previewableAssets.length, availableVariants]);
+
+  // Date validation effect
+  useEffect(() => {
+    if (startDate && endDate && new Date(endDate) <= new Date(startDate)) {
+      setDateError('End date must be after start date');
+    } else {
+      setDateError(null);
+    }
+  }, [startDate, endDate]);
 
   // Debounced location search
   useEffect(() => {
@@ -868,7 +933,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     };
 
     return {
-      name: `${film.title} - Campaign`,
+      name: campaignName,
       objective: 'LANDING_PAGE_VIEW' as const,
       language: selectedLanguage,
       budget: Number(budget),
@@ -953,8 +1018,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
           <Paper sx={{ p: 3 }}>
             <Tabs value={leftTab} onChange={(e, v) => setLeftTab(v)} sx={{ mb: 3 }}>
               <Tab label="Schedule" />
-              <Tab label="Ad Copy" />
-              <Tab label="Media" />
+              <Tab label="Ad Copy" disabled={!isScheduleValid} />
+              <Tab label="Media" disabled={!isScheduleValid || !isCopiesValid} />
+              <Tab label="Summary" disabled={!isScheduleValid || !isCopiesValid || !isMediaValid} />
             </Tabs>
 
             {/* Tab 1: Programming */}
@@ -1023,7 +1089,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                         <FormControlLabel value="ALL" control={<Radio />} label="All" />
                         <FormControlLabel value="MALE" control={<Radio />} label="Male" />
                         <FormControlLabel value="FEMALE" control={<Radio />} label="Female" />
-                        <FormControlLabel value="LGBTQ" control={<Radio />} label="LGBTQ+" />
+                        {/* Hidden temporarily - <FormControlLabel value="LGBTQ" control={<Radio />} label="LGBTQ+" /> */}
                       </RadioGroup>
                     </FormControl>
                   </Grid>
@@ -1110,6 +1176,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
                       InputLabelProps={{ shrink: true }}
+                      inputProps={{ min: startDate || undefined }}
+                      error={!!dateError}
+                      helperText={dateError}
                       required
                     />
                   </Grid>
@@ -1601,6 +1670,103 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
               </Box>
             )}
 
+            {/* Tab 4: Summary */}
+            {leftTab === 3 && (
+              <Box>
+                {/* Editable Campaign Name */}
+                <TextField
+                  fullWidth
+                  label="Campaign Name"
+                  value={campaignName}
+                  onChange={(e) => setCampaignName(e.target.value)}
+                  sx={{ mb: 4 }}
+                />
+
+                {/* Summary Cards */}
+                <Grid container spacing={2}>
+                  {/* Schedule Summary */}
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Schedule
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Start:</strong> {startDate || 'Not set'}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>End:</strong> {endDate || 'Not set'}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Budget:</strong> ${budget || '0'}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+
+                  {/* Targeting Summary */}
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Targeting
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Platforms:</strong> {selectedPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(', ') || 'None'}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Age:</strong> {ageMin} - {ageMax}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Countries:</strong> {selectedLocations.map(l => l.name).join(', ') || 'None'}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+
+                  {/* Media Summary */}
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Media
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Images:</strong> {selectedImages.length}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Videos:</strong> {selectedVideos.length}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+
+                  {/* Copy Summary */}
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Ad Copy
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Language:</strong> {LANGUAGES.find(l => l.code === selectedLanguage)?.name || selectedLanguage}
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Variants:</strong> {Object.keys(copies).join(', ') || 'None'}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Progress Bar during submission */}
+                {submitting && (
+                  <Box sx={{ mt: 4 }}>
+                    <LinearProgress
+                      variant={campaignProgress.progress > 0 ? 'determinate' : 'indeterminate'}
+                      value={campaignProgress.progress}
+                      sx={{ mb: 1 }}
+                    />
+                    <Typography variant="body2" color="text.secondary" align="center">
+                      {campaignProgress.message || 'Creating campaign...'}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
+
             {/* Error Display */}
             {submitError && (
               <Alert severity="error" sx={{ mt: 3 }} onClose={() => setSubmitError(null)}>
@@ -1621,15 +1787,24 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                 <Button variant="outlined">
                   Save Draft
                 </Button>
-                {leftTab < 2 ? (
-                  <Button variant="contained" size="large" onClick={() => setLeftTab(leftTab + 1)}>
+                {leftTab < 3 ? (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={() => setLeftTab(leftTab + 1)}
+                    disabled={
+                      (leftTab === 0 && !isScheduleValid) ||
+                      (leftTab === 1 && !isCopiesValid) ||
+                      (leftTab === 2 && !isMediaValid)
+                    }
+                  >
                     Next
                   </Button>
                 ) : (
                   <Button
                     variant="contained"
                     size="large"
-                    disabled={budgetAmount === 0 || !startDate || submitting}
+                    disabled={!isScheduleValid || !isCopiesValid || !isMediaValid || submitting}
                     onClick={handleSubmit}
                   >
                     {submitting ? <CircularProgress size={24} color="inherit" /> : 'Promote'}

@@ -4,6 +4,7 @@ import { createCampaign, markCampaignSynced, markCampaignError } from '@/models/
 import { createAdsForCampaign, markAdSynced, markAdError } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { broadcaster } from '@/lib/events';
 import {
   meta,
   createCBOCampaignWithAdSets,
@@ -12,6 +13,17 @@ import {
   buildTargeting,
   MetaApiError,
 } from '#meta';
+
+// Helper to broadcast campaign progress
+function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
+  broadcaster.broadcast(`film:${filmId}`, {
+    type: 'campaign_progress',
+    campaignId,
+    step,
+    progress,
+    message,
+  });
+}
 
 // Schema for ads included in campaign creation
 // adSetType is auto-detected based on media (IMAGE if has images, VIDEO if has videos)
@@ -97,6 +109,8 @@ export async function POST(req: NextRequest) {
       conversionEvent: 'VIEW_CONTENT', // Default for landing page views
     });
 
+    emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campaign saved locally');
+
     // Step 2: Create ads locally (DRAFT status)
     // adSetType is auto-detected: VIDEO if has videos, IMAGE otherwise
     const adsToCreate = adsData
@@ -122,6 +136,8 @@ export async function POST(req: NextRequest) {
 
     const ads = await createAdsForCampaign(campaign.id, adsToCreate);
 
+    emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Ads saved locally');
+
     // If autoSync is disabled, return the draft campaign and ads
     if (!autoSync) {
       return NextResponse.json({
@@ -142,6 +158,8 @@ export async function POST(req: NextRequest) {
         syncError: 'META_PAGE_ID no está configurado. La campaña se guardó como borrador.',
       }, { status: 201 });
     }
+
+    emitProgress(data.filmMuviUuid, campaign.id, 'media', 30, 'Processing media assets...');
 
     // Step 3: Determine what media types we have
     const hasImages = ads.some(ad => ad.images.length > 0);
@@ -195,6 +213,8 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
+    emitProgress(data.filmMuviUuid, campaign.id, 'meta_campaign', 40, 'Creating Meta campaign...');
+
     // Step 4: Create CBO Campaign with AdSets in Meta
     let metaCampaignId: string;
     let imageAdSetId: string | undefined;
@@ -246,6 +266,8 @@ export async function POST(req: NextRequest) {
       metaCampaignId = cboResult.campaignId;
       imageAdSetId = cboResult.imageAdSetId;
       videoAdSetId = cboResult.videoAdSetId;
+
+      emitProgress(data.filmMuviUuid, campaign.id, 'meta_adsets', 60, 'Campaign and ad sets created in Meta');
 
       // Mark campaign as synced with CBO IDs
       await markCampaignSynced(campaign.id, metaCampaignId, imageAdSetId, videoAdSetId);
@@ -302,6 +324,7 @@ export async function POST(req: NextRequest) {
     try {
       // Create image ad (if we have images and imageAdSetId)
       if (effectiveHasImages && imageAdSetId) {
+        emitProgress(data.filmMuviUuid, campaign.id, 'image_ad', 70, 'Creating image ad...');
         console.log('[Meta] Creating dynamic creative ad for images:', {
           adSetId: imageAdSetId,
           imageCount: allImageUrls.length,
@@ -328,6 +351,7 @@ export async function POST(req: NextRequest) {
 
       // Create video ad (if we have videos and videoAdSetId)
       if (effectiveHasVideos && videoAdSetId) {
+        emitProgress(data.filmMuviUuid, campaign.id, 'video_ad', 85, 'Creating video ad...');
         console.log('[Meta] Creating dynamic creative ad for videos:', {
           adSetId: videoAdSetId,
           videoCount: allVideoIds.length,
@@ -356,6 +380,8 @@ export async function POST(req: NextRequest) {
         throw new Error('No se pudo crear ningún anuncio en Meta');
       }
 
+      emitProgress(data.filmMuviUuid, campaign.id, 'syncing', 95, 'Syncing ad data...');
+
       // Mark all local ads as synced
       // Associate each ad with the appropriate Meta ad ID based on its type
       for (const ad of ads) {
@@ -366,14 +392,23 @@ export async function POST(req: NextRequest) {
         await markAdSynced(ad.id, metaAdId);
         syncedAds.push({ ...ad, metaAdId });
       }
+
+      emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campaign created successfully!');
     } catch (error) {
       console.error('Error creating Meta ads:', error);
+
+      const errorMessage = error instanceof MetaApiError ? error.message : 'Error creating ad in Meta';
+      broadcaster.broadcast(`film:${data.filmMuviUuid}`, {
+        type: 'campaign_error',
+        campaignId: campaign.id,
+        error: errorMessage,
+      });
 
       for (const ad of ads) {
         await markAdError(ad.id).catch(() => {});
         adErrors.push({
           adId: ad.id,
-          error: error instanceof MetaApiError ? error.message : 'Error al crear anuncio en Meta',
+          error: errorMessage,
         });
       }
     }
