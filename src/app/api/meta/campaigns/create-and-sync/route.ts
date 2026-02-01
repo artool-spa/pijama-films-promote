@@ -247,8 +247,10 @@ export async function POST(req: NextRequest) {
         : 'LANDING_PAGE_VIEWS';
 
       // Create CBO Campaign with AdSets
+      // Prefix campaign name with partner for easier identification in Meta Ads Manager
+      const metaCampaignName = `camp_${targetPartner.name}_${campaign.name}`;
       const cboResult = await createCBOCampaignWithAdSets(meta, {
-        name: campaign.name,
+        name: metaCampaignName,
         objective: metaObjective,
         budget: Math.round(campaign.budget * 100), // Convert to cents
         budgetType: campaign.budgetType.toLowerCase() as 'daily' | 'lifetime',
@@ -319,11 +321,15 @@ export async function POST(req: NextRequest) {
     const uniqueBodies = [...new Set(allBodies)].slice(0, 5); // Max 5
     const uniqueDescriptions = [...new Set(allDescriptions)].slice(0, 5); // Max 5
 
-    const metaAdIds: string[] = [];
+    // Track ad creation results independently for graceful partial failure
+    let imageAdId: string | undefined;
+    let videoAdId: string | undefined;
+    let imageAdError: string | undefined;
+    let videoAdError: string | undefined;
 
-    try {
-      // Create image ad (if we have images and imageAdSetId)
-      if (effectiveHasImages && imageAdSetId) {
+    // Create image ad (independent try/catch for partial success)
+    if (effectiveHasImages && imageAdSetId) {
+      try {
         emitProgress(data.filmMuviUuid, campaign.id, 'image_ad', 70, 'Creating image ad...');
         console.log('[Meta] Creating dynamic creative ad for images:', {
           adSetId: imageAdSetId,
@@ -344,13 +350,18 @@ export async function POST(req: NextRequest) {
         });
 
         if (imageAd.ad_id) {
-          metaAdIds.push(imageAd.ad_id);
+          imageAdId = imageAd.ad_id;
           console.log('[Meta] Image ad created:', imageAd.ad_id);
         }
+      } catch (error) {
+        imageAdError = error instanceof MetaApiError ? error.message : 'Error creating image ad';
+        console.error('Image ad creation failed:', error);
       }
+    }
 
-      // Create video ad (if we have videos and videoAdSetId)
-      if (effectiveHasVideos && videoAdSetId) {
+    // Create video ad (independent try/catch for partial success)
+    if (effectiveHasVideos && videoAdSetId) {
+      try {
         emitProgress(data.filmMuviUuid, campaign.id, 'video_ad', 85, 'Creating video ad...');
         console.log('[Meta] Creating dynamic creative ad for videos:', {
           adSetId: videoAdSetId,
@@ -371,33 +382,21 @@ export async function POST(req: NextRequest) {
         });
 
         if (videoAd.ad_id) {
-          metaAdIds.push(videoAd.ad_id);
+          videoAdId = videoAd.ad_id;
           console.log('[Meta] Video ad created:', videoAd.ad_id);
         }
+      } catch (error) {
+        videoAdError = error instanceof MetaApiError ? error.message : 'Error creating video ad';
+        console.error('Video ad creation failed:', error);
       }
+    }
 
-      if (metaAdIds.length === 0) {
-        throw new Error('No se pudo crear ningún anuncio en Meta');
-      }
+    // Check if at least one ad was created (partial success is OK)
+    const hasCreatedAds = imageAdId || videoAdId;
 
-      emitProgress(data.filmMuviUuid, campaign.id, 'syncing', 95, 'Syncing ad data...');
-
-      // Mark all local ads as synced
-      // Associate each ad with the appropriate Meta ad ID based on its type
-      for (const ad of ads) {
-        const metaAdId = ad.adSetType === 'VIDEO' && metaAdIds.length > 1
-          ? metaAdIds[1] // Video ad ID (second)
-          : metaAdIds[0]; // Image ad ID (first) or only ad
-
-        await markAdSynced(ad.id, metaAdId);
-        syncedAds.push({ ...ad, metaAdId });
-      }
-
-      emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campaign created successfully!');
-    } catch (error) {
-      console.error('Error creating Meta ads:', error);
-
-      const errorMessage = error instanceof MetaApiError ? error.message : 'Error creating ad in Meta';
+    if (!hasCreatedAds) {
+      // Total failure - mark all ads as error
+      const errorMessage = imageAdError || videoAdError || 'Failed to create any ads in Meta';
       broadcaster.broadcast(`film:${data.filmMuviUuid}`, {
         type: 'campaign_error',
         campaignId: campaign.id,
@@ -411,6 +410,69 @@ export async function POST(req: NextRequest) {
           error: errorMessage,
         });
       }
+    } else {
+      // At least one ad succeeded - mark ads based on their type
+      emitProgress(data.filmMuviUuid, campaign.id, 'syncing', 95, 'Syncing ad data...');
+
+      for (const ad of ads) {
+        if (ad.adSetType === 'VIDEO') {
+          if (videoAdId) {
+            await markAdSynced(ad.id, videoAdId);
+            syncedAds.push({ ...ad, metaAdId: videoAdId });
+          } else {
+            await markAdError(ad.id).catch(() => {});
+            adErrors.push({ adId: ad.id, error: videoAdError || 'Video ad creation failed' });
+          }
+        } else {
+          // IMAGE type
+          if (imageAdId) {
+            await markAdSynced(ad.id, imageAdId);
+            syncedAds.push({ ...ad, metaAdId: imageAdId });
+          } else {
+            await markAdError(ad.id).catch(() => {});
+            adErrors.push({ adId: ad.id, error: imageAdError || 'Image ad creation failed' });
+          }
+        }
+      }
+
+      emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campaign created successfully!');
+    }
+
+    // Build structured issues object for user notification
+    const issues: {
+      videoUploads?: { count: number; videoIds: string[]; message: string };
+      imageAd?: { error: string; message: string };
+      videoAd?: { error: string; message: string };
+      summary?: string;
+    } = {};
+
+    if (videoUploadErrors.length > 0) {
+      issues.videoUploads = {
+        count: videoUploadErrors.length,
+        videoIds: videoUploadErrors,
+        message: `${videoUploadErrors.length} video(s) could not be uploaded and were skipped`,
+      };
+    }
+
+    if (imageAdError) {
+      issues.imageAd = {
+        error: imageAdError,
+        message: `Image ad could not be created: ${imageAdError}`,
+      };
+    }
+
+    if (videoAdError) {
+      issues.videoAd = {
+        error: videoAdError,
+        message: `Video ad could not be created: ${videoAdError}`,
+      };
+    }
+
+    // Add summary message for partial success
+    if (hasCreatedAds && (imageAdError || videoAdError)) {
+      const successCount = (imageAdId ? 1 : 0) + (videoAdId ? 1 : 0);
+      const totalCount = (effectiveHasImages ? 1 : 0) + (effectiveHasVideos ? 1 : 0);
+      issues.summary = `Campaign created partially. ${successCount} of ${totalCount} ad(s) created.`;
     }
 
     return NextResponse.json({
@@ -425,6 +487,7 @@ export async function POST(req: NextRequest) {
       synced: syncedAds.length > 0,
       adErrors: adErrors.length > 0 ? adErrors : undefined,
       videoUploadErrors: videoUploadErrors.length > 0 ? videoUploadErrors : undefined,
+      issues: Object.keys(issues).length > 0 ? issues : undefined,
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating campaign:', error);
