@@ -57,6 +57,20 @@ enum GoogleEntityStatus {
   ERROR
 }
 
+enum TransactionType {
+  DEPOSIT
+  CAMPAIGN_CHARGE
+  CAMPAIGN_REFUND
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum YouTubeAdFormat {
   IN_STREAM_SKIPPABLE
   IN_STREAM_NON_SKIPPABLE
@@ -78,6 +92,7 @@ model Partner {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   campaigns Campaign[]
+  account   Account?
 }
 
 // ============================================================================
@@ -143,6 +158,7 @@ model Campaign {
   updatedAt      DateTime         @updatedAt
   syncedAt       DateTime?
   ads            Ad[]
+  transactions   AccountTransaction[]
 
   @@index([partnerId])
   @@index([filmMuviUuid])
@@ -277,4 +293,45 @@ model GeneratedCopy {
   @@unique([filmId, language, variant])
   @@index([filmId])
   @@index([language])
+}
+
+// ============================================================================
+// ACCOUNT & BILLING
+// ============================================================================
+
+// Account - Debit account for campaign budget prepayment (one per Partner)
+model Account {
+  id               String               @id @default(cuid())
+  partnerId        String               @unique
+  partner          Partner              @relation(fields: [partnerId], references: [id])
+  balance          Float                @default(0)
+  currency         String               @default("usd")
+  stripeCustomerId String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  transactions     AccountTransaction[]
+}
+
+// AccountTransaction - Audit trail for all account movements
+model AccountTransaction {
+  id                     String            @id @default(cuid())
+  accountId              String
+  account                Account           @relation(fields: [accountId], references: [id])
+  type                   TransactionType
+  status                 TransactionStatus @default(PENDING)
+  amount                 Float // Positive for deposits/refunds, negative for charges
+  balanceAfter           Float
+  description            String
+  stripeSessionId        String?           @unique
+  stripePaymentIntentId  String?           @unique
+  campaignId             String?
+  campaign               Campaign?         @relation(fields: [campaignId], references: [id])
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
+  @@index([campaignId])
+  @@index([createdAt])
 }

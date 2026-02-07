@@ -14,6 +14,7 @@ import {
 import {
   Movie as MovieIcon,
   Analytics as AnalyticsIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon,
   Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
@@ -24,6 +25,7 @@ const drawerWidth = 240;
 const menuItems = [
   { text: 'My Films', icon: <MovieIcon />, path: '/films' },
   { text: 'Results', icon: <AnalyticsIcon />, path: '/campaigns' },
+  { text: 'My Account', icon: <AccountBalanceWalletIcon />, path: '/account' },
 ];
 
 const settingsItems = [

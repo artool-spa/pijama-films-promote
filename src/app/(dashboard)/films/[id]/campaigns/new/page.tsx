@@ -1,8 +1,11 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getFilmById } from '@/models/film';
 import { getImagesByFilmMuviUuid } from '@/models/image';
 import { getVideosByFilmMuviUuid } from '@/models/video';
 import { syncMuviAssets } from '@/lib/assets';
+import { getSession } from '@/lib/auth/session';
+import { getPartnerByPartnerId } from '@/models/partner';
+import { getAccountBalance } from '@/models/account';
 import CreateCampaignClient from './client';
 
 export default async function CreateCampaignPage({
@@ -15,6 +18,16 @@ export default async function CreateCampaignPage({
 
   if (!film) {
     notFound();
+  }
+
+  // Fetch account balance for budget check
+  let initialBalance = 0;
+  const session = await getSession();
+  if (session) {
+    const partner = await getPartnerByPartnerId(session.partnerId);
+    if (partner) {
+      initialBalance = await getAccountBalance(partner.id);
+    }
   }
 
   // Sync MUVI media assets to local DB (creates records synchronously, validation in background)
@@ -74,6 +87,7 @@ export default async function CreateCampaignPage({
       film={film}
       localImages={localImages}
       localVideos={localVideos}
+      initialBalance={initialBalance}
     />
   );
 }

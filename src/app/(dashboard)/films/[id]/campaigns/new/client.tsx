@@ -114,6 +114,7 @@ type CreateCampaignClientProps = {
   film: Film;
   localImages: LocalAsset[];
   localVideos: LocalAsset[];
+  initialBalance: number;
 };
 
 // Type for uploaded assets (newly uploaded during this session)
@@ -230,7 +231,7 @@ function getYouTubeFormat(style: string): string {
   }
 }
 
-export default function CreateCampaignClient({ film, localImages, localVideos }: CreateCampaignClientProps) {
+export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance }: CreateCampaignClientProps) {
   // Tab states
   const [leftTab, setLeftTab] = useState(0);
   const [rightTab, setRightTab] = useState(0);
@@ -260,6 +261,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
   // Submission state
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Account balance state
+  const [accountBalance, setAccountBalance] = useState(initialBalance);
+  const [addFundsOpen, setAddFundsOpen] = useState(false);
+  const [fundAmount, setFundAmount] = useState<number | null>(100);
+  const [fundCustomAmount, setFundCustomAmount] = useState('');
+  const [fundLoading, setFundLoading] = useState(false);
+  const [fundError, setFundError] = useState<string | null>(null);
 
   const router = useRouter();
 
@@ -1091,7 +1100,26 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
         }
       }
 
+      // Charge campaign budget from account
       if (campaignId) {
+        const chargeResponse = await fetch('/api/account/charge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            campaignId,
+            amount: parseFloat(budget),
+            campaignName,
+          }),
+        });
+
+        if (!chargeResponse.ok) {
+          const chargeError = await chargeResponse.json();
+          throw new Error(chargeError.error || 'Error charging campaign budget');
+        }
+
+        // Update local balance
+        setAccountBalance((prev) => prev - parseFloat(budget));
+
         router.push(`/films/${film.id}/campaigns/${campaignId}`);
       }
     } catch (error) {
@@ -1861,6 +1889,54 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                   </Grid>
                 </Grid>
 
+                {/* Balance Check Card */}
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    mt: 3,
+                    borderColor: accountBalance < parseFloat(budget || '0') ? 'error.main' : 'success.main',
+                    bgcolor: accountBalance < parseFloat(budget || '0') ? 'error.50' : 'success.50',
+                  }}
+                >
+                  <Typography variant="subtitle2" gutterBottom>
+                    Account Balance
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2">Available balance:</Typography>
+                    <Typography variant="body2" fontWeight="bold">${accountBalance.toFixed(2)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2">Campaign budget:</Typography>
+                    <Typography variant="body2" fontWeight="bold">-${parseFloat(budget || '0').toFixed(2)}</Typography>
+                  </Box>
+                  <Divider sx={{ my: 1 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">Balance after:</Typography>
+                    <Typography
+                      variant="body2"
+                      fontWeight="bold"
+                      color={accountBalance - parseFloat(budget || '0') < 0 ? 'error.main' : 'success.main'}
+                    >
+                      ${(accountBalance - parseFloat(budget || '0')).toFixed(2)}
+                    </Typography>
+                  </Box>
+                  {accountBalance < parseFloat(budget || '0') && (
+                    <Box sx={{ mt: 2 }}>
+                      <Alert severity="error" sx={{ mb: 1 }}>
+                        Insufficient balance for this campaign.
+                      </Alert>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setAddFundsOpen(true)}
+                      >
+                        Add Funds
+                      </Button>
+                    </Box>
+                  )}
+                </Paper>
+
                 {/* Progress Bar during submission */}
                 {submitting && (
                   <Box sx={{ mt: 4 }}>
@@ -1914,7 +1990,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                   <Button
                     variant="contained"
                     size="large"
-                    disabled={!isScheduleValid || !isCopiesValid || !isMediaValid || submitting}
+                    disabled={!isScheduleValid || !isCopiesValid || !isMediaValid || submitting || accountBalance < parseFloat(budget || '0')}
                     onClick={handleSubmit}
                   >
                     {submitting ? <CircularProgress size={24} color="inherit" /> : 'Promote'}
@@ -2364,6 +2440,96 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
             />
           ) : null}
         </DialogContent>
+      </Dialog>
+      {/* Add Funds Modal */}
+      <Dialog
+        open={addFundsOpen}
+        onClose={() => {
+          setAddFundsOpen(false);
+          setFundError(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Add Funds</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Select an amount or enter a custom one. Minimum amount is $5.
+          </Typography>
+          <ToggleButtonGroup
+            value={fundAmount}
+            exclusive
+            onChange={(_, value: number | null) => {
+              setFundAmount(value);
+              if (value) setFundCustomAmount('');
+            }}
+            sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 1 }}
+          >
+            {[50, 100, 250, 500, 1000].map((amt) => (
+              <ToggleButton key={amt} value={amt} sx={{ flex: '1 1 auto', minWidth: 80 }}>
+                ${amt}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+          <TextField
+            fullWidth
+            label="Custom amount"
+            type="number"
+            value={fundCustomAmount}
+            onChange={(e) => {
+              setFundCustomAmount(e.target.value);
+              setFundAmount(null);
+            }}
+            slotProps={{
+              input: { startAdornment: <Typography sx={{ mr: 1 }}>$</Typography> },
+              htmlInput: { min: 5, step: 1 },
+            }}
+            helperText="Minimum $5 USD"
+          />
+          {fundError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {fundError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setAddFundsOpen(false); setFundError(null); }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={fundLoading || ((fundAmount || parseFloat(fundCustomAmount) || 0) < 5)}
+            onClick={async () => {
+              const amt = fundAmount || parseFloat(fundCustomAmount) || 0;
+              if (amt < 5) { setFundError('Minimum amount is $5'); return; }
+              setFundLoading(true);
+              setFundError(null);
+              try {
+                const res = await fetch('/api/account/checkout', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ amount: amt }),
+                });
+                if (!res.ok) {
+                  const err = await res.json();
+                  throw new Error(err.error || 'Error creating checkout session');
+                }
+                const { url } = await res.json();
+                if (url) window.location.href = url;
+              } catch (error) {
+                setFundError(error instanceof Error ? error.message : 'Error processing payment');
+              } finally {
+                setFundLoading(false);
+              }
+            }}
+          >
+            {fundLoading ? (
+              <CircularProgress size={24} color="inherit" />
+            ) : (
+              `Pay $${(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)} with Stripe`
+            )}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Container>
   );
