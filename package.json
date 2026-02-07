@@ -13,7 +13,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "db:seed": "npx tsx prisma/seed.ts",
-    "deploy:coolify": "npx tsx scripts/coolify-deploy.ts"
+    "deploy:coolify": "npx tsx scripts/coolify-deploy.ts",
+    "deploy:mercure": "npx tsx scripts/coolify-deploy-mercure.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

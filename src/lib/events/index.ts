@@ -1,4 +1,4 @@
-export { broadcaster } from './broadcaster';
+export { publish } from './mercure';
 
 import type { AssetStatus } from '@prisma/client';
 

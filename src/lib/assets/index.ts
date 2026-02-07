@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { broadcaster } from '@/lib/events';
+import { publish } from '@/lib/events';
 import { uploadImage, uploadVideo } from '@/lib/storage';
 import {
   createImage,
@@ -298,7 +298,7 @@ function uploadVideoToMetaBackground(
       console.log(`[Assets] Meta upload complete for video ${videoId}: metaVideoId=${video_id}`);
 
       // Broadcast success to SSE subscribers
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'video_ready',
         videoId,
         metaVideoId: video_id,
@@ -325,7 +325,7 @@ function uploadVideoToMetaBackground(
       });
 
       // Broadcast error to SSE subscribers
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'video_error',
         videoId,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -405,7 +405,7 @@ export function syncMuviAssetsInBackground(
           console.log(`[Assets] Synced image: ${asset.name}`);
 
           // Broadcast image ready event
-          broadcaster.broadcast(`film:${filmMuviUuid}`, {
+          await publish(filmMuviUuid, {
             type: 'image_ready',
             imageId: image.id,
             name: image.name,
@@ -422,7 +422,7 @@ export function syncMuviAssetsInBackground(
           console.log(`[Assets] Synced video: ${asset.name}`);
 
           // Broadcast video synced event (video_ready is broadcast when Meta upload completes)
-          broadcaster.broadcast(`film:${filmMuviUuid}`, {
+          await publish(filmMuviUuid, {
             type: 'video_synced',
             videoId: video.id,
             name: video.name,
@@ -437,7 +437,7 @@ export function syncMuviAssetsInBackground(
     }
 
     // Broadcast sync complete event
-    broadcaster.broadcast(`film:${filmMuviUuid}`, {
+    await publish(filmMuviUuid, {
       type: 'asset_sync_complete',
       imagesCount,
       videosCount,
@@ -657,7 +657,7 @@ export function validateImageInBackground(
           eligibilityError: null,
         });
 
-        broadcaster.broadcast(`film:${filmMuviUuid}`, {
+        await publish(filmMuviUuid, {
           type: 'image_validated',
           imageId,
           status: 'READY',
@@ -665,7 +665,7 @@ export function validateImageInBackground(
           aspectRatio: null,
         });
 
-        broadcaster.broadcast(`film:${filmMuviUuid}`, {
+        await publish(filmMuviUuid, {
           type: 'image_eligibility_checked',
           imageId,
           facebookEligible: true,
@@ -716,7 +716,7 @@ export function validateImageInBackground(
       }
 
       // Broadcast validation result
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'image_validated',
         imageId,
         status: result.valid ? 'READY' : 'INVALID',
@@ -725,7 +725,7 @@ export function validateImageInBackground(
       });
 
       // Broadcast eligibility result
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'image_eligibility_checked',
         imageId,
         facebookEligible: result.facebookEligible,
@@ -740,7 +740,7 @@ export function validateImageInBackground(
         validationError: error instanceof Error ? error.message : 'Unknown error',
       });
 
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'image_validated',
         imageId,
         status: 'ERROR',
@@ -840,7 +840,7 @@ export function validateVideoInBackground(
       }
 
       // Broadcast validation result
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'video_validated',
         videoId,
         status: result.valid ? 'READY' : 'INVALID',
@@ -852,7 +852,7 @@ export function validateVideoInBackground(
       });
 
       // Broadcast eligibility result
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'video_eligibility_checked',
         videoId,
         facebookEligible: result.facebookEligible,
@@ -867,7 +867,7 @@ export function validateVideoInBackground(
         validationError: error instanceof Error ? error.message : 'Unknown error',
       });
 
-      broadcaster.broadcast(`film:${filmMuviUuid}`, {
+      await publish(filmMuviUuid, {
         type: 'video_validated',
         videoId,
         status: 'ERROR',
@@ -929,7 +929,7 @@ async function validateVideoWithMetaApi(
     });
 
     // Broadcast results
-    broadcaster.broadcast(`film:${filmMuviUuid}`, {
+    await publish(filmMuviUuid, {
       type: 'video_validated',
       videoId,
       status: isValid ? 'READY' : 'INVALID',
@@ -940,7 +940,7 @@ async function validateVideoWithMetaApi(
       duration,
     });
 
-    broadcaster.broadcast(`film:${filmMuviUuid}`, {
+    await publish(filmMuviUuid, {
       type: 'video_eligibility_checked',
       videoId,
       facebookEligible: true,
@@ -965,7 +965,7 @@ async function validateVideoWithMetaApi(
       eligibilityError: null,
     });
 
-    broadcaster.broadcast(`film:${filmMuviUuid}`, {
+    await publish(filmMuviUuid, {
       type: 'video_validated',
       videoId,
       status: 'READY',

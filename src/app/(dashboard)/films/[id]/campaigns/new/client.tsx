@@ -458,7 +458,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
 
   // SSE listener for background asset sync notifications
   useEffect(() => {
-    const eventSource = new EventSource(`/api/events?filmId=${film.id}`);
+    const mercureUrl = new URL(process.env.NEXT_PUBLIC_MERCURE_URL!);
+    mercureUrl.searchParams.set('topic', `https://promote.pijamafilms.com/films/${film.id}/events`);
+    const eventSource = new EventSource(mercureUrl.toString());
 
     eventSource.onmessage = (event) => {
       try {

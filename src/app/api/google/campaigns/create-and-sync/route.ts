@@ -4,7 +4,7 @@ import { createCampaign, getCampaignById, markGoogleCampaignSynced, markGoogleCa
 import { createAdsForCampaign, getAdsByCampaignId, markGoogleAdSynced, markAdError } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
-import { broadcaster } from '@/lib/events';
+import { publish } from '@/lib/events';
 import {
   google,
   createYouTubeCampaignWithAdGroup,
@@ -13,9 +13,9 @@ import {
   GoogleAdsApiError,
 } from '#google';
 
-// Helper to broadcast campaign progress
-function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
-  broadcaster.broadcast(`film:${filmId}`, {
+// Helper to publish campaign progress
+async function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
+  await publish(filmId, {
     type: 'campaign_progress',
     campaignId,
     step,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       }
       campaign = existing;
       ads = await getAdsByCampaignId(existingCampaignId);
-      emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Usando campaña existente para Google Ads');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Usando campaña existente para Google Ads');
     } else {
       // Create new campaign locally (DRAFT, platforms=[GOOGLE])
       campaign = await createCampaign({
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
         targetCpvMicros: targetCpvMicros ? BigInt(targetCpvMicros) : undefined,
       });
 
-      emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campana guardada localmente');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campana guardada localmente');
 
       // Step 2: Create ads locally (DRAFT)
       const adsToCreate = adsData.map(ad => ({
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       }));
 
       ads = await createAdsForCampaign(campaign.id, adsToCreate);
-      emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Anuncios guardados localmente');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Anuncios guardados localmente');
     }
 
     if (!autoSync) {
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    emitProgress(data.filmMuviUuid, campaign.id, 'google_campaign', 40, 'Creando campana en Google Ads...');
+    await emitProgress(data.filmMuviUuid, campaign.id, 'google_campaign', 40, 'Creando campana en Google Ads...');
 
     // Step 3: Build targeting and create campaign in Google Ads
     let googleCampaignId: string;
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
       googleCampaignId = googleResult.campaignResourceName;
       googleAdGroupId = googleResult.adGroupResourceName;
 
-      emitProgress(data.filmMuviUuid, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
 
       await markGoogleCampaignSynced(campaign.id, googleCampaignId, googleAdGroupId);
     } catch (error) {
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
 
       for (const adFormat of ALL_YOUTUBE_FORMATS) {
         try {
-          emitProgress(data.filmMuviUuid, campaign.id, 'video_ad', 75, `Creando anuncio: ${ad.name} (${adFormat})...`);
+          await emitProgress(data.filmMuviUuid, campaign.id, 'video_ad', 75, `Creando anuncio: ${ad.name} (${adFormat})...`);
 
           const googleAd = await createVideoAd(google, {
             name: `${ad.name} - ${adFormat}`,
@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (syncedAds.length > 0) {
-      emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campana de YouTube creada exitosamente!');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campana de YouTube creada exitosamente!');
     }
 
     return NextResponse.json({

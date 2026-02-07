@@ -11,5 +11,18 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
 
+  mercure:
+    image: dunglas/mercure
+    restart: always
+    environment:
+      SERVER_NAME: ':3001'
+      MERCURE_PUBLISHER_JWT_KEY: 'pijama-mercure-dev-secret-key-at-least-256-bits-long'
+      MERCURE_SUBSCRIBER_JWT_KEY: 'pijama-mercure-dev-secret-key-at-least-256-bits-long'
+      MERCURE_EXTRA_DIRECTIVES: |
+        anonymous
+        cors_origins http://localhost:3000
+    ports:
+      - "9090:3001"
+
 volumes:
   db:
