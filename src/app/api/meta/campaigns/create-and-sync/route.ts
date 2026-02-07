@@ -59,6 +59,8 @@ const CampaignWithAdsCreateSchema = z.object({
   filmGenres: z.array(z.string()).default([]),
   includeLgbtAudience: z.boolean().default(false),
   filmMuviUuid: z.string().min(1),
+  // Platforms (array for multi-platform campaigns)
+  platforms: z.array(z.enum(['META', 'GOOGLE'])).min(1).default(['META']),
   // Ads to create
   ads: z.array(AdInputSchema).min(1),
   // Auto-sync flag
@@ -102,9 +104,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 1: Create campaign locally (DRAFT status)
-    const { ads: adsData, autoSync, ...campaignData } = data;
+    const { ads: adsData, autoSync, platforms, ...campaignData } = data;
     const campaign = await createCampaign({
       ...campaignData,
+      platforms: platforms,
       partnerId: partner.id,
       conversionEvent: 'VIEW_CONTENT', // Default for landing page views
     });

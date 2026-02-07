@@ -1,6 +1,6 @@
 import prisma from '#prisma';
 import { z } from 'zod';
-import type { BudgetType, CampaignObjective } from '@prisma/client';
+import type { BudgetType, CampaignObjective, AdPlatform } from '@prisma/client';
 
 // ============================================================================
 // SHARED SCHEMAS
@@ -9,6 +9,9 @@ import type { BudgetType, CampaignObjective } from '@prisma/client';
 const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
+const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
+const GoogleEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ENABLED', 'PAUSED', 'REMOVED', 'ERROR']);
+const YouTubeAdFormatSchema = z.enum(['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS']);
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -17,6 +20,8 @@ const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 export const CampaignCreateSchema = z
   .object({
     name: z.string().min(1).max(255),
+    // Platform discriminator (array for multi-platform)
+    platforms: z.array(AdPlatformSchema).min(1).default(['META']),
     objective: CampaignObjectiveSchema,
     budget: z.number().positive(),
     budgetType: BudgetTypeSchema.default('LIFETIME'),
@@ -35,6 +40,9 @@ export const CampaignCreateSchema = z
     // Pixel/Conversion
     pixelId: z.string().optional(),
     conversionEvent: z.string().default('PURCHASE'),
+    // Google Ads specific
+    googleBidStrategy: z.string().optional(),
+    targetCpvMicros: z.bigint().optional(),
     // Film reference (MUVI UUID)
     filmMuviUuid: z.string().min(1),
     // Partner relation
@@ -60,6 +68,10 @@ export const CampaignUpdateSchema = z
     metaCampaignId: z.string().optional(),
     imageAdSetId: z.string().optional(),
     videoAdSetId: z.string().optional(),
+    // Google Ads IDs
+    googleCampaignId: z.string().optional(),
+    googleAdGroupId: z.string().optional(),
+    googleEntityStatus: GoogleEntityStatusSchema.optional(),
   })
   .strict();
 
@@ -104,6 +116,8 @@ const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
 export const AdSchema = z.object({
   id: z.string().cuid(),
   metaAdId: z.string().nullable(),
+  googleAdId: z.string().nullable(),
+  youtubeAdFormat: YouTubeAdFormatSchema.nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   adSetType: AdSetTypeSchema,
@@ -130,10 +144,18 @@ export const PartnerSchema = z.object({
 
 export const CampaignSchema = z.object({
   id: z.string().cuid(),
+  // Platform discriminator (array for multi-platform)
+  platforms: z.array(AdPlatformSchema),
   // CBO Meta IDs (dedicated campaign per local campaign)
   metaCampaignId: z.string().nullable(),
   imageAdSetId: z.string().nullable(),
   videoAdSetId: z.string().nullable(),
+  // Google Ads IDs
+  googleCampaignId: z.string().nullable(),
+  googleAdGroupId: z.string().nullable(),
+  googleEntityStatus: GoogleEntityStatusSchema.nullable(),
+  googleBidStrategy: z.string().nullable(),
+  targetCpvMicros: z.bigint().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -334,6 +356,7 @@ export async function createCampaign(data: CampaignCreateInput) {
       ...validated,
       budgetType: validated.budgetType as BudgetType,
       objective: validated.objective as CampaignObjective,
+      platforms: validated.platforms as AdPlatform[],
       status: 'DRAFT',
     },
     include: { partner: true },
@@ -431,4 +454,76 @@ export async function markCampaignError(id: string) {
   });
 
   return CampaignSchema.parse(result);
+}
+
+// ============================================================================
+// GOOGLE ADS SYNC FUNCTIONS
+// ============================================================================
+
+/**
+ * Mark campaign as synced with Google Ads
+ */
+export async function markGoogleCampaignSynced(
+  id: string,
+  googleCampaignId: string,
+  googleAdGroupId: string
+) {
+  const validId = IdSchema.parse(id);
+  const validGoogleCampaignId = z.string().min(1).parse(googleCampaignId);
+  const validGoogleAdGroupId = z.string().min(1).parse(googleAdGroupId);
+
+  const result = await prisma.campaign.update({
+    where: { id: validId },
+    data: {
+      googleCampaignId: validGoogleCampaignId,
+      googleAdGroupId: validGoogleAdGroupId,
+      googleEntityStatus: 'PENDING',
+      status: 'PENDING',
+      syncedAt: new Date(),
+    },
+  });
+
+  return CampaignSchema.parse(result);
+}
+
+/**
+ * Mark Google campaign as having a sync error
+ */
+export async function markGoogleCampaignError(id: string) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.campaign.update({
+    where: { id: validId },
+    data: {
+      googleEntityStatus: 'ERROR',
+      status: 'ERROR',
+    },
+  });
+
+  return CampaignSchema.parse(result);
+}
+
+/**
+ * Get Google campaigns by partner ID
+ */
+export async function getGoogleCampaignsByPartnerId(partnerId: string) {
+  const validPartnerId = IdSchema.parse(partnerId);
+
+  const results = await prisma.campaign.findMany({
+    where: {
+      partnerId: validPartnerId,
+      platforms: { has: 'GOOGLE' },
+    },
+    include: {
+      ads: {
+        include: {
+          images: true,
+          videos: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return z.array(CampaignWithAdsSchema).parse(results);
 }

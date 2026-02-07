@@ -50,6 +50,7 @@ import {
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
+  YouTube as YouTubeIcon,
   Warning as WarningIcon,
   Refresh as RefreshIcon,
   Image as ImageIcon,
@@ -57,6 +58,7 @@ import {
   HourglassEmpty as HourglassIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
+import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 
 // Asset status type
 type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
@@ -132,10 +134,11 @@ type UploadedAsset = {
   eligibilityError?: string | null;
 };
 
-// Platform configurations with ad styles (META platforms only)
+// Platform configurations with ad styles
 const PLATFORMS = [
-  { id: 'facebook', name: 'Facebook', adStyles: ['Feed', 'Stories'] },
-  { id: 'instagram', name: 'Instagram', adStyles: ['Feed', 'Stories'] },
+  { id: 'facebook', name: 'Facebook', adStyles: ['Feed', 'Stories'], platform: 'META' as const },
+  { id: 'instagram', name: 'Instagram', adStyles: ['Feed', 'Stories'], platform: 'META' as const },
+  { id: 'youtube', name: 'YouTube', adStyles: ['In-Stream', 'In-Feed', 'Bumper', 'Shorts'], platform: 'GOOGLE' as const },
 ];
 
 // Location type from Meta API
@@ -215,6 +218,16 @@ function getMetaFormat(platform: string, style: string): MetaAdPreviewFormat {
     if (style === 'Stories') return 'INSTAGRAM_STORY';
   }
   return 'MOBILE_FEED_STANDARD';
+}
+
+function getYouTubeFormat(style: string): string {
+  switch (style) {
+    case 'In-Stream': return 'IN_STREAM_SKIPPABLE';
+    case 'In-Feed': return 'IN_FEED';
+    case 'Bumper': return 'BUMPER';
+    case 'Shorts': return 'SHORTS';
+    default: return 'IN_STREAM_SKIPPABLE';
+  }
 }
 
 export default function CreateCampaignClient({ film, localImages, localVideos }: CreateCampaignClientProps) {
@@ -383,7 +396,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       return;
     }
 
-    const currentPlatform = PLATFORMS[rightTab];
+    const previewTabs = selectedPlatforms.map(pId => PLATFORMS.find(p => p.id === pId)!).filter(Boolean);
+    const currentPlatform = previewTabs[rightTab] || PLATFORMS[0];
+
+    // YouTube preview is rendered client-side, no API call needed
+    if (currentPlatform.platform === 'GOOGLE') {
+      setPreviewHtml(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+
     const format = getMetaFormat(currentPlatform.id, selectedAdStyle);
 
     // For videos, we need metaVideoId for preview
@@ -431,7 +454,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     } finally {
       setPreviewLoading(false);
     }
-  }, [rightTab, selectedAdStyle, previewableAssets, previewAssetIndex, copies, previewVariant, film.trailerUrl]);
+  }, [rightTab, selectedAdStyle, previewableAssets, previewAssetIndex, copies, previewVariant, film.trailerUrl, selectedPlatforms]);
 
   // SSE listener for background asset sync notifications
   useEffect(() => {
@@ -889,7 +912,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
     setUploading(false);
   };
 
-  const currentPlatform = PLATFORMS[rightTab];
+  // Compute preview tabs from selected platforms
+  const previewTabs = useMemo(() =>
+    selectedPlatforms.map(pId => PLATFORMS.find(p => p.id === pId)!).filter(Boolean),
+    [selectedPlatforms]
+  );
+  const currentPlatform = previewTabs[rightTab] || PLATFORMS[0];
+
+  // Reset rightTab when selectedPlatforms changes
+  useEffect(() => {
+    setRightTab(0);
+  }, [selectedPlatforms]);
 
   // Map gender string to Meta API number array
   const mapGender = (genderValue: string): number[] => {
@@ -919,6 +952,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       allVideos.some(vid => vid.id === id)
     );
 
+    // Determine AdPlatform values from selected platforms (deduplicated)
+    const platformValues = [...new Set(
+      selectedPlatforms.map(pId => {
+        const p = PLATFORMS.find(pl => pl.id === pId);
+        return p?.platform || 'META';
+      })
+    )];
+
     // Create single ad with all copy variants
     const ad = {
       name: `${film.title} - ${selectedLanguage.toUpperCase()}`,
@@ -932,7 +973,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       videoIds,
     };
 
-    return {
+    const basePayload = {
       name: campaignName,
       objective: 'LANDING_PAGE_VIEW' as const,
       language: selectedLanguage,
@@ -948,12 +989,15 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
       filmGenres: selectedGenres,
       includeLgbtAudience: gender === 'LGBTQ',
       filmMuviUuid: film.id,
+      platforms: platformValues,
       ads: [ad],
       autoSync: true,
     };
+
+    return basePayload;
   };
 
-  // Submit campaign with ads to API and auto-sync to Meta
+  // Submit campaign with ads to API and auto-sync
   const handleSubmit = async () => {
     setSubmitting(true);
     setSubmitError(null);
@@ -967,30 +1011,87 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
         throw new Error('Select at least one image or video for your campaign');
       }
 
-      const response = await fetch('/api/meta/campaigns/create-and-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const hasMetaPlatform = selectedPlatforms.some(p => p !== 'youtube');
+      const hasGoogle = selectedPlatforms.includes('youtube');
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
+      let campaignId: string | undefined;
+
+      // If Meta platform selected, create via Meta API first
+      if (hasMetaPlatform) {
+        const metaResponse = await fetch('/api/meta/campaigns/create-and-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!metaResponse.ok) {
+          const error = await metaResponse.json();
+          throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
+        }
+
+        const metaResult = await metaResponse.json();
+        campaignId = metaResult.campaign.id;
+
+        if (metaResult.syncError) {
+          console.warn('Campaign created but Meta sync failed:', metaResult.syncError);
+        }
+        if (metaResult.adErrors?.length > 0) {
+          console.warn('Some Meta ads failed to sync:', metaResult.adErrors);
+        }
+
+        // If Google also selected, sync same campaign to Google
+        if (hasGoogle) {
+          const googlePayload = {
+            ...payload,
+            campaignId, // Reuse existing campaign
+            googleBidStrategy: 'TARGET_CPV',
+          };
+
+          const googleResponse = await fetch('/api/google/campaigns/create-and-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(googlePayload),
+          });
+
+          if (!googleResponse.ok) {
+            const error = await googleResponse.json();
+            console.warn('Google sync failed:', error.error || 'Error syncing to Google');
+          } else {
+            const googleResult = await googleResponse.json();
+            if (googleResult.syncError) {
+              console.warn('Google sync issue:', googleResult.syncError);
+            }
+          }
+        }
+      } else if (hasGoogle) {
+        // Only Google selected
+        const googlePayload = {
+          ...payload,
+          googleBidStrategy: 'TARGET_CPV',
+        };
+
+        const googleResponse = await fetch('/api/google/campaigns/create-and-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(googlePayload),
+        });
+
+        if (!googleResponse.ok) {
+          const error = await googleResponse.json();
+          throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
+        }
+
+        const googleResult = await googleResponse.json();
+        campaignId = googleResult.campaign.id;
+
+        if (googleResult.syncError) {
+          console.warn('Campaign created but Google sync failed:', googleResult.syncError);
+        }
       }
 
-      const result = await response.json();
-
-      // Check for partial success (campaign created but sync failed)
-      if (result.syncError) {
-        console.warn('Campaign created but sync failed:', result.syncError);
+      if (campaignId) {
+        router.push(`/films/${film.id}/campaigns/${campaignId}`);
       }
-
-      // Check for ad sync errors
-      if (result.adErrors?.length > 0) {
-        console.warn('Some ads failed to sync:', result.adErrors);
-      }
-
-      router.push(`/films/${film.id}/campaigns/${result.campaign.id}`);
     } catch (error) {
       console.error('Error creating campaign:', error);
       setSubmitError(error instanceof Error ? error.message : 'Error creating campaign');
@@ -1048,7 +1149,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                                 }}
                               />
                             }
-                            label={platform.name}
+                            label={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                {platform.id === 'facebook' && <FacebookIcon sx={{ fontSize: 18, color: '#1877F2' }} />}
+                                {platform.id === 'instagram' && <InstagramIcon sx={{ fontSize: 18, color: '#E4405F' }} />}
+                                {platform.id === 'youtube' && <YouTubeIcon sx={{ fontSize: 18, color: '#FF0000' }} />}
+                                {platform.name}
+                              </Box>
+                            }
                           />
                         ))}
                       </FormGroup>
@@ -1823,9 +1931,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
             </Typography>
 
             {/* Platform Tabs */}
-            <Tabs value={rightTab} onChange={(e, v) => setRightTab(v)} sx={{ mb: 2 }}>
-              <Tab label="Facebook" />
-              <Tab label="Instagram" />
+            <Tabs value={rightTab} onChange={(e, v) => {
+              setRightTab(v);
+              // Reset ad style when switching to a platform with different styles
+              const newPlatform = previewTabs[v];
+              if (newPlatform && !newPlatform.adStyles.includes(selectedAdStyle)) {
+                setSelectedAdStyle(newPlatform.adStyles[0]);
+              }
+            }} sx={{ mb: 2 }}>
+              {previewTabs.map((p) => (
+                <Tab key={p.id} label={p.name} />
+              ))}
             </Tabs>
 
             {/* Ad Style Selector for Current Platform */}
@@ -1949,6 +2065,45 @@ export default function CreateCampaignClient({ film, localImages, localVideos }:
                     Retry
                   </Button>
                 </Box>
+              ) : currentPlatform.platform === 'GOOGLE' ? (
+                // YouTube preview rendered client-side
+                (() => {
+                  const hasMedia = selectedAssets.length > 0;
+                  const hasCopy = copies[previewVariant]?.headline;
+                  if (!hasMedia || !hasCopy) {
+                    return (
+                      <Box
+                        sx={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'column',
+                          gap: 2,
+                          bgcolor: 'background.default',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          p: 3,
+                        }}
+                      >
+                        <Typography color="text.secondary" align="center">
+                          {!hasMedia ? 'Select media to see YouTube preview' : 'Add copy text to see YouTube preview'}
+                        </Typography>
+                      </Box>
+                    );
+                  }
+                  return (
+                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                      <YouTubeAdPreview
+                        adFormat={getYouTubeFormat(selectedAdStyle)}
+                        headline={copies[previewVariant]?.headline}
+                        description={copies[previewVariant]?.description}
+                        thumbnailUrl={previewableAssets[previewAssetIndex]?.thumbnailUrl || previewableAssets[previewAssetIndex]?.url}
+                      />
+                    </Box>
+                  );
+                })()
               ) : previewHtml ? (
                 <Box
                   sx={{

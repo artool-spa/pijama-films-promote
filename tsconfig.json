@@ -36,6 +36,9 @@
       ],
       "#gemini": [
         "./src/lib/gemini/index.ts"
+      ],
+      "#google": [
+        "./src/lib/google/index.ts"
       ]
     },
     "target": "ES2017"

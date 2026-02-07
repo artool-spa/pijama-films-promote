@@ -9,6 +9,9 @@ const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', '
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
+const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
+const GoogleEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ENABLED', 'PAUSED', 'REMOVED', 'ERROR']);
+const YouTubeAdFormatSchema = z.enum(['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS']);
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -110,6 +113,8 @@ export const VideoSchema = z.object({
 export const AdSchema = z.object({
   id: z.string().cuid(),
   metaAdId: z.string().nullable(),
+  googleAdId: z.string().nullable(),
+  youtubeAdFormat: YouTubeAdFormatSchema.nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   adSetType: AdSetTypeSchema,
@@ -136,10 +141,18 @@ export const PartnerSchema = z.object({
 
 export const CampaignSchema = z.object({
   id: z.string().cuid(),
+  // Platform discriminator (array for multi-platform)
+  platforms: z.array(AdPlatformSchema),
   // CBO Meta IDs
   metaCampaignId: z.string().nullable(),
   imageAdSetId: z.string().nullable(),
   videoAdSetId: z.string().nullable(),
+  // Google Ads IDs
+  googleCampaignId: z.string().nullable(),
+  googleAdGroupId: z.string().nullable(),
+  googleEntityStatus: GoogleEntityStatusSchema.nullable(),
+  googleBidStrategy: z.string().nullable(),
+  targetCpvMicros: z.bigint().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -401,6 +414,35 @@ export async function markAdError(id: string) {
   const result = await prisma.ad.update({
     where: { id: validId },
     data: { status: 'ERROR' },
+    include: {
+      images: true,
+      videos: true,
+    },
+  });
+
+  return AdSchema.parse(result);
+}
+
+// ============================================================================
+// GOOGLE ADS SYNC FUNCTIONS
+// ============================================================================
+
+/**
+ * Mark ad as synced with Google Ads
+ */
+export async function markGoogleAdSynced(id: string, googleAdId: string, youtubeAdFormat?: string) {
+  const validId = IdSchema.parse(id);
+  const validGoogleAdId = z.string().min(1).parse(googleAdId);
+  const validFormat = youtubeAdFormat ? YouTubeAdFormatSchema.parse(youtubeAdFormat) : undefined;
+
+  const result = await prisma.ad.update({
+    where: { id: validId },
+    data: {
+      googleAdId: validGoogleAdId,
+      youtubeAdFormat: validFormat,
+      status: 'PENDING',
+      syncedAt: new Date(),
+    },
     include: {
       images: true,
       videos: true,

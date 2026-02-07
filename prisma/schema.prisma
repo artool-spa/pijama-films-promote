@@ -43,6 +43,28 @@ enum AssetStatus {
   ERROR      // System error
 }
 
+enum AdPlatform {
+  META
+  GOOGLE
+}
+
+enum GoogleEntityStatus {
+  DRAFT
+  PENDING
+  ENABLED
+  PAUSED
+  REMOVED
+  ERROR
+}
+
+enum YouTubeAdFormat {
+  IN_STREAM_SKIPPABLE
+  IN_STREAM_NON_SKIPPABLE
+  IN_FEED
+  BUMPER
+  SHORTS
+}
+
 // ============================================================================
 // CORE MODELS
 // ============================================================================
@@ -59,18 +81,26 @@ model Partner {
 }
 
 // ============================================================================
-// META ADS MODELS
+// ADS MODELS
 // ============================================================================
 
 // Campaign - Represents a promotion (budget, schedule, targeting)
 // Links to Partner and references film by MUVI UUID
-// Each Campaign creates a dedicated Meta Campaign with CBO (Campaign Budget Optimization)
+// Each Campaign can target multiple platforms (META and/or GOOGLE)
 model Campaign {
   id             String            @id @default(cuid())
+  // Platform discriminator (array for multi-platform campaigns)
+  platforms      AdPlatform[]      @default([META])
   // Meta Campaign with CBO (dedicated per local campaign)
   metaCampaignId String?           @unique // Meta Campaign ID with CBO enabled
   imageAdSetId   String?           @unique // Meta AdSet ID for image ads
   videoAdSetId   String?           @unique // Meta AdSet ID for video ads
+  // Google Ads campaign fields
+  googleCampaignId   String?       @unique // Google Ads campaign resource name
+  googleAdGroupId    String?       @unique // Google Ads ad group resource name
+  googleEntityStatus GoogleEntityStatus? // Status for Google campaigns
+  googleBidStrategy  String?             // e.g. "TARGET_CPV", "MAXIMIZE_CONVERSIONS"
+  targetCpvMicros    BigInt?             // Target cost-per-view in micros
   name           String
   status         MetaEntityStatus  @default(DRAFT)
   objective      CampaignObjective // CONVERSIONS or LANDING_PAGE_VIEW
@@ -117,14 +147,17 @@ model Campaign {
   @@index([partnerId])
   @@index([filmMuviUuid])
   @@index([status])
+  @@index([platforms])
 }
 
-// Ad - Creative with multiple variants for Meta's dynamic creative optimization
-// Arrays allow Meta to test different combinations automatically
+// Ad - Creative with multiple variants for dynamic creative optimization
+// Arrays allow platforms to test different combinations automatically
 // AdSetType determines which AdSet (image or video) this ad belongs to
 model Ad {
   id           String           @id @default(cuid())
   metaAdId     String?          @unique
+  googleAdId   String?          @unique // Google Ads ad resource name
+  youtubeAdFormat YouTubeAdFormat? // YouTube ad format for this ad
   name         String
   status       MetaEntityStatus @default(DRAFT)
   adSetType    AdSetType        @default(IMAGE) // IMAGE or VIDEO - determines target AdSet
@@ -214,6 +247,8 @@ model Video {
   // Platform eligibility
   facebookEligible  Boolean @default(false)
   instagramEligible Boolean @default(false)
+  youtubeEligible   Boolean @default(false)
+  youtubeVideoId    String? // YouTube video ID if uploaded
   eligibilityError  String?
 
   // Relation to ads using this video

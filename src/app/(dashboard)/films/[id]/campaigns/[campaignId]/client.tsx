@@ -19,7 +19,12 @@ import {
   Chip,
   CircularProgress,
 } from '@mui/material';
-import { ArrowBack as ArrowBackIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import {
+  ArrowBack as ArrowBackIcon,
+  Refresh as RefreshIcon,
+  YouTube as YouTubeIcon,
+  Facebook as FacebookIcon,
+} from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
@@ -46,29 +51,63 @@ type InsightsData = {
   dateEnd: string;
 };
 
+type YouTubeInsightsData = {
+  impressions: number;
+  videoViews: number;
+  videoViewRate: number;
+  averageCpv: number;
+  spend: number;
+  clicks: number;
+  ctr: number;
+  videoQuartile25Rate: number;
+  videoQuartile50Rate: number;
+  videoQuartile75Rate: number;
+  videoQuartile100Rate: number;
+  dateStart: string;
+  dateEnd: string;
+};
+
 export default function CampaignDetailClient({ film, campaign }: CampaignDetailClientProps) {
   const router = useRouter();
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [youtubeInsights, setYoutubeInsights] = useState<YouTubeInsightsData | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
-  // Fetch insights from Meta API
+  const platforms = (campaign as Record<string, unknown>).platforms as string[] || [];
+  const hasGoogle = platforms.includes('GOOGLE');
+  const hasMeta = platforms.includes('META');
+  const isSynced = (hasMeta && !!campaign.metaCampaignId) ||
+    (hasGoogle && !!(campaign as Record<string, unknown>).googleCampaignId);
+
+  // Fetch insights from the appropriate API(s)
   const fetchInsights = useCallback(async () => {
-    if (!campaign.metaCampaignId) return;
+    if (!isSynced) return;
 
     setInsightsLoading(true);
     setInsightsError(null);
 
     try {
-      const response = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
-      const data = await response.json();
+      // Fetch Meta insights if Meta platform is present and synced
+      if (hasMeta && campaign.metaCampaignId) {
+        const metaResponse = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
+        const metaData = await metaResponse.json();
+        if (metaData.synced && metaData.data) {
+          setInsights(metaData.data);
+        }
+      }
 
-      if (data.synced && data.data) {
-        setInsights(data.data);
-      } else if (data.message) {
-        setInsightsError(data.message);
+      // Fetch Google insights if Google platform is present and synced
+      if (hasGoogle && (campaign as Record<string, unknown>).googleCampaignId) {
+        const googleResponse = await fetch(`/api/google/campaigns/${campaign.id}/insights`);
+        const googleData = await googleResponse.json();
+        if (googleData.synced && googleData.data) {
+          setYoutubeInsights(googleData.data);
+        } else if (googleData.message) {
+          setInsightsError(googleData.message);
+        }
       }
     } catch (error) {
       setInsightsError('Failed to fetch campaign metrics');
@@ -76,14 +115,14 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     } finally {
       setInsightsLoading(false);
     }
-  }, [campaign.metaCampaignId, campaign.id]);
+  }, [isSynced, hasMeta, hasGoogle, campaign.id, campaign.metaCampaignId]);
 
   // Fetch insights on mount if campaign is synced
   useEffect(() => {
-    if (campaign.metaCampaignId) {
+    if (isSynced) {
       fetchInsights();
     }
-  }, [campaign.metaCampaignId, fetchInsights]);
+  }, [isSynced, fetchInsights]);
 
   const getStatusColor = (status: CampaignStatus) => {
     switch (status) {
@@ -140,7 +179,23 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         <Typography variant="body1" color="text.secondary">
           {film.title} - {film.director}
         </Typography>
-        <Box sx={{ mt: 1, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ mt: 1, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          {hasMeta && (
+            <Chip
+              icon={<FacebookIcon />}
+              label="Meta"
+              size="small"
+              sx={{ bgcolor: '#1877F2', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+            />
+          )}
+          {hasGoogle && (
+            <Chip
+              icon={<YouTubeIcon />}
+              label="YouTube"
+              size="small"
+              sx={{ bgcolor: '#FF0000', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+            />
+          )}
           <Chip
             label={getStatusLabel(campaign.status as CampaignStatus)}
             color={getStatusColor(campaign.status as CampaignStatus)}
@@ -149,8 +204,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             {new Date(campaign.startDate).toLocaleDateString('en-US')}
             {campaign.endDate && ` - ${new Date(campaign.endDate).toLocaleDateString('en-US')}`}
           </Typography>
-          {!campaign.metaCampaignId && (
-            <Chip label="Not synced to Meta" variant="outlined" size="small" />
+          {!isSynced && (
+            <Chip label="Not synced" variant="outlined" size="small" />
           )}
         </Box>
       </Box>
@@ -189,7 +244,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">Campaign Metrics</Typography>
-            {campaign.metaCampaignId && (
+            {isSynced && (
               <Button
                 size="small"
                 startIcon={insightsLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
@@ -207,61 +262,118 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             </Typography>
           )}
 
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Budget
-              </Typography>
-              <Typography variant="h5" color="primary">
-                ${campaign.budget.toLocaleString()}
-              </Typography>
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Spend
-              </Typography>
-              <Typography variant="h5">
-                {insights ? `$${insights.spend.toLocaleString()}` : '-'}
-              </Typography>
-              {insights && insights.spend > 0 && (
-                <Typography variant="caption" color="text.secondary">
-                  {((insights.spend / campaign.budget) * 100).toFixed(1)}%
+          {/* Meta Metrics */}
+          {hasMeta && (
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Budget
                 </Typography>
-              )}
+                <Typography variant="h5" color="primary">
+                  ${campaign.budget.toLocaleString()}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Spend
+                </Typography>
+                <Typography variant="h5">
+                  {insights ? `$${insights.spend.toLocaleString()}` : '-'}
+                </Typography>
+                {insights && insights.spend > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    {((insights.spend / campaign.budget) * 100).toFixed(1)}%
+                  </Typography>
+                )}
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Impressions
+                </Typography>
+                <Typography variant="h5">
+                  {insights ? insights.impressions.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Clicks
+                </Typography>
+                <Typography variant="h5">
+                  {insights ? insights.clicks.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Conversions
+                </Typography>
+                <Typography variant="h5" color="success.main">
+                  {insights ? insights.conversions.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  CTR
+                </Typography>
+                <Typography variant="h5">
+                  {insights ? `${insights.ctr.toFixed(2)}%` : '-'}
+                </Typography>
+              </Grid>
             </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Impressions
-              </Typography>
-              <Typography variant="h5">
-                {insights ? insights.impressions.toLocaleString() : '-'}
-              </Typography>
+          )}
+
+          {/* YouTube Metrics */}
+          {hasGoogle && (
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Budget
+                </Typography>
+                <Typography variant="h5" color="primary">
+                  ${campaign.budget.toLocaleString()}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Spend
+                </Typography>
+                <Typography variant="h5">
+                  {youtubeInsights ? `$${youtubeInsights.spend.toLocaleString()}` : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Video Views
+                </Typography>
+                <Typography variant="h5" color="success.main">
+                  {youtubeInsights ? youtubeInsights.videoViews.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  View Rate
+                </Typography>
+                <Typography variant="h5">
+                  {youtubeInsights ? `${(youtubeInsights.videoViewRate * 100).toFixed(1)}%` : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Avg. CPV
+                </Typography>
+                <Typography variant="h5">
+                  {youtubeInsights ? `$${youtubeInsights.averageCpv.toFixed(3)}` : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  100% Viewed
+                </Typography>
+                <Typography variant="h5">
+                  {youtubeInsights ? `${(youtubeInsights.videoQuartile100Rate * 100).toFixed(1)}%` : '-'}
+                </Typography>
+              </Grid>
             </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Clicks
-              </Typography>
-              <Typography variant="h5">
-                {insights ? insights.clicks.toLocaleString() : '-'}
-              </Typography>
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Conversions
-              </Typography>
-              <Typography variant="h5" color="success.main">
-                {insights ? insights.conversions.toLocaleString() : '-'}
-              </Typography>
-            </Grid>
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                CTR
-              </Typography>
-              <Typography variant="h5">
-                {insights ? `${insights.ctr.toFixed(2)}%` : '-'}
-              </Typography>
-            </Grid>
-          </Grid>
+          )}
         </CardContent>
       </Card>
 
