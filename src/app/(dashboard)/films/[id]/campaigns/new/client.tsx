@@ -29,6 +29,8 @@ import {
   ToggleButton,
   Checkbox,
   FormGroup,
+  Switch,
+  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -232,6 +234,11 @@ function getYouTubeFormat(style: string): string {
 }
 
 export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance }: CreateCampaignClientProps) {
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
   // Tab states
   const [leftTab, setLeftTab] = useState(0);
   const [rightTab, setRightTab] = useState(0);
@@ -249,11 +256,22 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [locationSearch, setLocationSearch] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
   const [budget, setBudget] = useState('');
-  const [startDate, setStartDate] = useState('');
+  const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState('');
   const [usePijamaAudience, setUsePijamaAudience] = useState(true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
-  const [selectedGenres, setSelectedGenres] = useState<string[]>(film.genre || []);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(() => {
+    const filmCategories = film.genre || [];
+    // Map film categories to FILM_GENRES values, matching by label or value
+    return filmCategories
+      .map((cat) => {
+        const match = FILM_GENRES.find(
+          (g) => g.value.toLowerCase() === cat.toLowerCase() || g.label.toLowerCase() === cat.toLowerCase()
+        );
+        return match?.value;
+      })
+      .filter((v): v is string => Boolean(v));
+  });
 
   // Date validation state
   const [dateError, setDateError] = useState<string | null>(null);
@@ -272,11 +290,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   const router = useRouter();
 
-  // Form state - Copies (single language, generated via API)
-  const [selectedLanguage, setSelectedLanguage] = useState('es');
-  const [loadingLanguage, setLoadingLanguage] = useState<string | null>(null);
-  const [copies, setCopies] = useState<Record<string, { headline: string; description: string }>>({});
-  const [initialCopiesGenerated, setInitialCopiesGenerated] = useState(false);
+  // Form state - Copies (multi-language, generated via API)
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['es']);
+  const [loadingLanguages, setLoadingLanguages] = useState<Set<string>>(new Set());
+  const [copiesByLang, setCopiesByLang] = useState<Record<string, Record<string, { headline: string; description: string }>>>({});
+  const [currentCopyLanguage, setCurrentCopyLanguage] = useState(selectedLanguages[0] || 'es');
+
+  // Copies for the currently selected language (convenience accessor)
+  const copies = useMemo(() => copiesByLang[currentCopyLanguage] || {}, [copiesByLang, currentCopyLanguage]);
 
   // Campaign name state (editable in summary tab)
   const [campaignName, setCampaignName] = useState(`${film.title} - Campaign`);
@@ -377,13 +398,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     return selectedPlatforms.length > 0 &&
       budget !== '' && Number(budget) > 0 &&
       startDate !== '' && endDate !== '' &&
-      !dateError && selectedLocations.length > 0;
-  }, [selectedPlatforms, budget, startDate, endDate, dateError, selectedLocations]);
+      !dateError && selectedLocations.length > 0 &&
+      selectedLanguages.length > 0;
+  }, [selectedPlatforms, budget, startDate, endDate, dateError, selectedLocations, selectedLanguages]);
 
   const isCopiesValid = useMemo(() => {
-    return Object.keys(copies).length > 0 &&
-      Object.values(copies).some(c => c.headline && c.description);
-  }, [copies]);
+    return selectedLanguages.every(lang => {
+      const langCopies = copiesByLang[lang];
+      return langCopies && Object.keys(langCopies).length > 0 &&
+        Object.values(langCopies).some(c => c.headline && c.description);
+    });
+  }, [copiesByLang, selectedLanguages]);
 
   const isMediaValid = useMemo(() => selectedAssets.length > 0, [selectedAssets]);
 
@@ -669,13 +694,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   }, [availableVariants, previewVariant]);
 
-  // Auto-generate copies when entering copies tab for the first time
+  // Auto-generate copies for any languages missing copies when entering the Ad Copy tab
   useEffect(() => {
-    if (leftTab === 1 && !initialCopiesGenerated && Object.keys(copies).length === 0) {
-      handleLanguageChange(selectedLanguage);
-      setInitialCopiesGenerated(true);
+    if (leftTab === 1) {
+      generateAllCopies();
     }
-  }, [leftTab, initialCopiesGenerated, copies, selectedLanguage]);
+  }, [leftTab, selectedLanguages]);
 
   // Keyboard navigation for preview
   useEffect(() => {
@@ -779,15 +803,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   }, [locationSearch]);
 
   const handleCopyChange = (variant: 'A' | 'B' | 'C', field: string, value: string) => {
-    setCopies(prev => ({
+    setCopiesByLang(prev => ({
       ...prev,
-      [variant]: { ...prev[variant], [field]: value },
+      [currentCopyLanguage]: {
+        ...prev[currentCopyLanguage],
+        [variant]: { ...(prev[currentCopyLanguage]?.[variant]), [field]: value },
+      },
     }));
   };
 
-  const handleLanguageChange = async (langCode: string) => {
-    setSelectedLanguage(langCode);
-    setLoadingLanguage(langCode);
+  const generateCopiesForLanguage = async (langCode: string) => {
+    setLoadingLanguages(prev => new Set(prev).add(langCode));
 
     const emptyCopies = {
       A: { headline: '', description: '' },
@@ -818,28 +844,43 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         {}
       ) || emptyCopies;
 
-      setCopies(formattedCopies);
+      setCopiesByLang(prev => ({ ...prev, [langCode]: formattedCopies }));
     } catch (error) {
       console.error('Error generating copies:', error);
-      // Fallback to empty copies on error
-      setCopies(emptyCopies);
+      setCopiesByLang(prev => ({ ...prev, [langCode]: emptyCopies }));
     }
 
-    setLoadingLanguage(null);
+    setLoadingLanguages(prev => {
+      const next = new Set(prev);
+      next.delete(langCode);
+      return next;
+    });
+  };
+
+  const generateAllCopies = async () => {
+    const langsToGenerate = selectedLanguages.filter(
+      lang => !copiesByLang[lang] || Object.keys(copiesByLang[lang]).length === 0
+    );
+    if (langsToGenerate.length === 0) return;
+
+    await Promise.all(langsToGenerate.map(lang => generateCopiesForLanguage(lang)));
   };
 
   const handleDeleteVariant = (variant: 'A' | 'B' | 'C') => {
-    setCopies(prev => {
-      const newCopies = { ...prev };
-      delete newCopies[variant];
-      return newCopies;
+    setCopiesByLang(prev => {
+      const langCopies = { ...prev[currentCopyLanguage] };
+      delete langCopies[variant];
+      return { ...prev, [currentCopyLanguage]: langCopies };
     });
   };
 
   const handleAddVariant = (variant: 'A' | 'B' | 'C') => {
-    setCopies(prev => ({
+    setCopiesByLang(prev => ({
       ...prev,
-      [variant]: { headline: '', description: '' },
+      [currentCopyLanguage]: {
+        ...prev[currentCopyLanguage],
+        [variant]: { headline: '', description: '' },
+      },
     }));
   };
 
@@ -947,12 +988,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   // Map form state to API schema including ads
   const mapFormToAPI = () => {
-    // Get headlines and bodies from all variants
-    const headlines = Object.values(copies)
-      .map(v => v.headline)
+    // Get headlines and bodies from all languages and variants
+    const headlines = Object.values(copiesByLang)
+      .flatMap(langCopies => Object.values(langCopies).map(v => v.headline))
       .filter(Boolean);
-    const bodies = Object.values(copies)
-      .map(v => v.description)
+    const bodies = Object.values(copiesByLang)
+      .flatMap(langCopies => Object.values(langCopies).map(v => v.description))
       .filter(Boolean);
 
     // Get selected image and video IDs
@@ -973,8 +1014,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
     // Create single ad with all copy variants
     const ad = {
-      name: `${film.title} - ${selectedLanguage.toUpperCase()}`,
-      language: selectedLanguage,
+      name: `${film.title} - ${selectedLanguages.map(l => l.toUpperCase()).join('/')}`,
+      language: selectedLanguages[0] || 'es',
       headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
       bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
       descriptions: [],
@@ -987,7 +1028,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     const basePayload = {
       name: campaignName,
       objective: 'LANDING_PAGE_VIEW' as const,
-      language: selectedLanguage,
+      languages: selectedLanguages,
       budget: Number(budget),
       budgetType: 'LIFETIME' as const,
       startDate: new Date(startDate),
@@ -1193,45 +1234,6 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                     </FormControl>
                   </Grid>
 
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      fullWidth
-                      label="Min Age"
-                      type="number"
-                      value={ageMin}
-                      onChange={(e) => setAgeMin(Number(e.target.value))}
-                      inputProps={{ min: 13, max: 100 }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      fullWidth
-                      label="Max Age"
-                      type="number"
-                      value={ageMax}
-                      onChange={(e) => setAgeMax(Number(e.target.value))}
-                      inputProps={{ min: 13, max: 100 }}
-                    />
-                  </Grid>
-
-                  <Grid size={{ xs: 12 }}>
-                    <FormControl component="fieldset">
-                      <Typography variant="subtitle2" gutterBottom>
-                        Gender
-                      </Typography>
-                      <RadioGroup
-                        row
-                        value={gender}
-                        onChange={(e) => setGender(e.target.value)}
-                      >
-                        <FormControlLabel value="ALL" control={<Radio />} label="All" />
-                        <FormControlLabel value="MALE" control={<Radio />} label="Male" />
-                        <FormControlLabel value="FEMALE" control={<Radio />} label="Female" />
-                        {/* Hidden temporarily - <FormControlLabel value="LGBTQ" control={<Radio />} label="LGBTQ+" /> */}
-                      </RadioGroup>
-                    </FormControl>
-                  </Grid>
-
                   <Grid size={{ xs: 12 }}>
                     <Autocomplete
                       multiple
@@ -1296,6 +1298,30 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                     />
                   </Grid>
 
+                  <Grid size={{ xs: 12 }}>
+                    <Autocomplete
+                      multiple
+                      options={LANGUAGES}
+                      getOptionLabel={(option) => option.name}
+                      value={LANGUAGES.filter(l => selectedLanguages.includes(l.code))}
+                      onChange={(_, newValue) => setSelectedLanguages(newValue.map(v => v.code))}
+                      isOptionEqualToValue={(option, value) => option.code === value.code}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Languages"
+                          placeholder="Select languages"
+                        />
+                      )}
+                      renderTags={(value, getTagProps) =>
+                        value.map((option, index) => {
+                          const { key, ...tagProps } = getTagProps({ index });
+                          return <Chip key={key} label={option.name} {...tagProps} />;
+                        })
+                      }
+                    />
+                  </Grid>
+
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       fullWidth
@@ -1304,6 +1330,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
                       InputLabelProps={{ shrink: true }}
+                      inputProps={{ min: todayStr }}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
@@ -1332,57 +1359,116 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         transition: 'all 0.2s ease-in-out',
                       }}
                     >
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={usePijamaAudience}
-                            onChange={(e) => {
-                              if (!e.target.checked) {
-                                setShowAudienceWarning(true);
-                              } else {
-                                setUsePijamaAudience(true);
-                              }
-                            }}
-                            sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }}
-                          />
-                        }
-                        label={
-                          <Box>
-                            <Typography variant="subtitle1" component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                              Use Pijama Audience
-                            </Typography>
-                            <Typography variant="body2" display="block" color="text.secondary">
-                              Optimize your campaign with our specialized film audience
-                            </Typography>
-                          </Box>
-                        }
-                      />
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={usePijamaAudience}
+                              onChange={(e) => {
+                                if (!e.target.checked) {
+                                  setShowAudienceWarning(true);
+                                } else {
+                                  setUsePijamaAudience(true);
+                                }
+                              }}
+                            />
+                          }
+                          label={
+                            <Box>
+                              <Typography variant="subtitle1" component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                                Pijama Audience
+                              </Typography>
+                              <Typography variant="body2" display="block" color="text.secondary">
+                                {usePijamaAudience
+                                  ? 'Optimize your campaign using our specialized data for independent film. We take care of finding the best audience for your film.'
+                                  : 'Manually configure your audience targeting. Define age, gender, and film categories.'}
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                        <Chip
+                          label={usePijamaAudience ? 'RECOMMENDED' : 'MANUAL TARGETING'}
+                          size="small"
+                          sx={{
+                            ml: 2,
+                            flexShrink: 0,
+                            fontWeight: 'bold',
+                            bgcolor: usePijamaAudience ? 'primary.main' : 'grey.400',
+                            color: usePijamaAudience ? 'primary.contrastText' : 'white',
+                          }}
+                        />
+                      </Box>
                     </Paper>
                   </Grid>
 
                   <Grid size={{ xs: 12 }}>
-                    <Autocomplete
-                      multiple
-                      options={FILM_GENRES}
-                      getOptionLabel={(option) => option.label}
-                      value={FILM_GENRES.filter(g => selectedGenres.includes(g.value))}
-                      onChange={(e, newValue) => setSelectedGenres(newValue.map(v => v.value))}
-                      isOptionEqualToValue={(option, value) => option.value === value.value}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Genre Targeting"
-                          placeholder="Select genres"
-                          helperText="Target audiences interested in these film genres"
-                        />
-                      )}
-                      renderTags={(value, getTagProps) =>
-                        value.map((option, index) => {
-                          const { key, ...tagProps } = getTagProps({ index });
-                          return <Chip key={key} label={option.label} {...tagProps} />;
-                        })
-                      }
-                    />
+                    <Collapse in={!usePijamaAudience} timeout="auto">
+                      <Grid container spacing={3}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            fullWidth
+                            label="Min Age"
+                            type="number"
+                            value={ageMin}
+                            onChange={(e) => setAgeMin(Number(e.target.value))}
+                            inputProps={{ min: 13, max: 100 }}
+                          />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            fullWidth
+                            label="Max Age"
+                            type="number"
+                            value={ageMax}
+                            onChange={(e) => setAgeMax(Number(e.target.value))}
+                            inputProps={{ min: 13, max: 100 }}
+                          />
+                        </Grid>
+
+                        <Grid size={{ xs: 12 }}>
+                          <FormControl component="fieldset">
+                            <Typography variant="subtitle2" gutterBottom>
+                              Gender
+                            </Typography>
+                            <RadioGroup
+                              row
+                              value={gender}
+                              onChange={(e) => setGender(e.target.value)}
+                            >
+                              <FormControlLabel value="ALL" control={<Radio />} label="All" />
+                              <FormControlLabel value="MALE" control={<Radio />} label="Male" />
+                              <FormControlLabel value="FEMALE" control={<Radio />} label="Female" />
+                              {/* Hidden temporarily - <FormControlLabel value="LGBTQ" control={<Radio />} label="LGBTQ+" /> */}
+                            </RadioGroup>
+                          </FormControl>
+                        </Grid>
+
+                        <Grid size={{ xs: 12 }}>
+                          <Autocomplete
+                            multiple
+                            options={FILM_GENRES}
+                            getOptionLabel={(option) => option.label}
+                            value={FILM_GENRES.filter(g => selectedGenres.includes(g.value))}
+                            onChange={(e, newValue) => setSelectedGenres(newValue.map(v => v.value))}
+                            isOptionEqualToValue={(option, value) => option.value === value.value}
+                            renderInput={(params) => (
+                              <TextField
+                                {...params}
+                                label="Category"
+                                placeholder="Select categories"
+                                helperText="Target audiences interested in these film categories"
+                              />
+                            )}
+                            renderTags={(value, getTagProps) =>
+                              value.map((option, index) => {
+                                const { key, ...tagProps } = getTagProps({ index });
+                                return <Chip key={key} label={option.label} {...tagProps} />;
+                              })
+                            }
+                          />
+                        </Grid>
+                      </Grid>
+                    </Collapse>
                   </Grid>
 
                 </Grid>
@@ -1392,23 +1478,29 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {/* Tab 2: Creatives */}
             {leftTab === 1 && (
               <Box>
-                <FormControl fullWidth sx={{ mb: 3 }}>
-                  <InputLabel>Language</InputLabel>
-                  <Select
-                    value={selectedLanguage}
-                    onChange={(e) => handleLanguageChange(e.target.value)}
-                    label="Language"
-                    disabled={loadingLanguage !== null}
-                  >
-                    {LANGUAGES.map(lang => (
-                      <MenuItem key={lang.code} value={lang.code}>
-                        {lang.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                {loadingLanguage === selectedLanguage ? (
+                {selectedLanguages.length > 1 && (
+                  <FormControl fullWidth sx={{ mb: 3 }}>
+                    <InputLabel>Language</InputLabel>
+                    <Select
+                      value={currentCopyLanguage}
+                      onChange={(e) => {
+                        const lang = e.target.value;
+                        setCurrentCopyLanguage(lang);
+                        if (!copiesByLang[lang] || Object.keys(copiesByLang[lang]).length === 0) {
+                          generateCopiesForLanguage(lang);
+                        }
+                      }}
+                      label="Language"
+                    >
+                      {selectedLanguages.map(code => (
+                        <MenuItem key={code} value={code}>
+                          {LANGUAGES.find(l => l.code === code)?.name || code}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+                {loadingLanguages.has(currentCopyLanguage) ? (
                   <Box sx={{ textAlign: 'center', py: 4 }}>
                     <Typography color="text.secondary">
                       Generating texts with AI...
@@ -1850,11 +1942,25 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         <strong>Platforms:</strong> {selectedPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(', ') || 'None'}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>Age:</strong> {ageMin} - {ageMax}
-                      </Typography>
-                      <Typography variant="body2">
                         <strong>Countries:</strong> {selectedLocations.map(l => l.name).join(', ') || 'None'}
                       </Typography>
+                      {usePijamaAudience ? (
+                        <Typography variant="body2">
+                          <strong>Audience:</strong> Pijama Audience (optimized)
+                        </Typography>
+                      ) : (
+                        <>
+                          <Typography variant="body2">
+                            <strong>Age:</strong> {ageMin} - {ageMax}
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Gender:</strong> {gender === 'ALL' ? 'All' : gender === 'MALE' ? 'Male' : 'Female'}
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Categories:</strong> {selectedGenres.length > 0 ? selectedGenres.join(', ') : 'None'}
+                          </Typography>
+                        </>
+                      )}
                     </Paper>
                   </Grid>
 
@@ -1880,10 +1986,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         Ad Copy
                       </Typography>
                       <Typography variant="body2">
-                        <strong>Language:</strong> {LANGUAGES.find(l => l.code === selectedLanguage)?.name || selectedLanguage}
+                        <strong>Languages:</strong> {selectedLanguages.map(code => LANGUAGES.find(l => l.code === code)?.name || code).join(', ') || 'None'}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>Variants:</strong> {Object.keys(copies).join(', ') || 'None'}
+                        <strong>Variants:</strong> {Object.keys(copies).join(', ') || 'None'} ({selectedLanguages.length} {selectedLanguages.length === 1 ? 'language' : 'languages'})
                       </Typography>
                     </Paper>
                   </Grid>
@@ -2373,7 +2479,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         <DialogTitle>Confirmation</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you don't want to use an optimized audience?
+            Are you sure you don&apos;t want to use an optimized audience?
           </DialogContentText>
         </DialogContent>
         <DialogActions>
