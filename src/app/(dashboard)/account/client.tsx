@@ -112,9 +112,7 @@ export default function AccountClient({ account: initialAccount, paymentStatus, 
           const data = await response.json();
           setVerifiedStatus(data.status);
           setShowPaymentAlert(true);
-          if (data.status === 'completed') {
-            await refreshAccount();
-          }
+          await refreshAccount();
         }
       } catch (error) {
         console.error('Error verifying session:', error);
@@ -385,7 +383,15 @@ export default function AccountClient({ account: initialAccount, paymentStatus, 
               <ToggleButton
                 key={amount}
                 value={amount}
-                sx={{ flex: '1 1 auto', minWidth: 80 }}
+                sx={{
+                  flex: '1 1 auto',
+                  minWidth: 80,
+                  '&.Mui-selected': {
+                    backgroundColor: '#fdd835',
+                    color: 'black',
+                    '&:hover': { backgroundColor: '#fbc02d' },
+                  },
+                }}
               >
                 ${amount}
               </ToggleButton>
