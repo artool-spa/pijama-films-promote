@@ -35,6 +35,7 @@ import type { AccountWithTransactions } from '@/models/account';
 type AccountClientProps = {
   account: AccountWithTransactions;
   paymentStatus: string | null;
+  sessionId: string | null;
 };
 
 const TRANSACTION_TYPE_LABELS: Record<string, string> = {
@@ -60,7 +61,7 @@ const TRANSACTION_STATUS_LABELS: Record<string, string> = {
 
 const PRESET_AMOUNTS = [50, 100, 250, 500, 1000];
 
-export default function AccountClient({ account: initialAccount, paymentStatus }: AccountClientProps) {
+export default function AccountClient({ account: initialAccount, paymentStatus, sessionId }: AccountClientProps) {
   const router = useRouter();
   const [account, setAccount] = useState(initialAccount);
   const [page, setPage] = useState(0);
@@ -74,8 +75,10 @@ export default function AccountClient({ account: initialAccount, paymentStatus }
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
-  // Payment status alerts
-  const [showPaymentAlert, setShowPaymentAlert] = useState(!!paymentStatus);
+  // Payment verification state
+  const [verifying, setVerifying] = useState(!!sessionId);
+  const [verifiedStatus, setVerifiedStatus] = useState<string | null>(null);
+  const [showPaymentAlert, setShowPaymentAlert] = useState(false);
 
   // Refresh account data after payment return
   const refreshAccount = useCallback(async () => {
@@ -94,14 +97,34 @@ export default function AccountClient({ account: initialAccount, paymentStatus }
   }, [page, rowsPerPage]);
 
   useEffect(() => {
-    if (paymentStatus === 'success') {
-      // Poll a few times to wait for webhook to process
-      const intervals = [1000, 3000, 6000];
-      intervals.forEach((delay) => {
-        setTimeout(refreshAccount, delay);
-      });
-    }
-  }, [paymentStatus, refreshAccount]);
+    if (!sessionId || !paymentStatus) return;
+
+    const verifySession = async () => {
+      try {
+        setVerifying(true);
+        const response = await fetch('/api/account/verify-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setVerifiedStatus(data.status);
+          setShowPaymentAlert(true);
+          if (data.status === 'completed') {
+            await refreshAccount();
+          }
+        }
+      } catch (error) {
+        console.error('Error verifying session:', error);
+      } finally {
+        setVerifying(false);
+      }
+    };
+
+    verifySession();
+  }, [sessionId, paymentStatus, refreshAccount]);
 
   const handlePageChange = async (_: unknown, newPage: number) => {
     setPage(newPage);
@@ -170,8 +193,15 @@ export default function AccountClient({ account: initialAccount, paymentStatus }
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Payment status alerts */}
-      {showPaymentAlert && paymentStatus === 'success' && (
+      {/* Payment verification spinner */}
+      {verifying && (
+        <Alert severity="info" icon={<CircularProgress size={20} />} sx={{ mb: 3 }}>
+          Verifying payment...
+        </Alert>
+      )}
+
+      {/* Payment status alerts (only shown after server verification) */}
+      {showPaymentAlert && verifiedStatus === 'completed' && (
         <Alert
           severity="success"
           sx={{ mb: 3 }}
@@ -180,10 +210,10 @@ export default function AccountClient({ account: initialAccount, paymentStatus }
             router.replace('/account', { scroll: false });
           }}
         >
-          Payment processed successfully. Your balance will update shortly.
+          Payment processed successfully. Your balance has been updated.
         </Alert>
       )}
-      {showPaymentAlert && paymentStatus === 'cancelled' && (
+      {showPaymentAlert && verifiedStatus === 'cancelled' && (
         <Alert
           severity="info"
           sx={{ mb: 3 }}

@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
         partnerId: partner.id,
         amount: amount.toString(),
       },
-      success_url: `${origin}/account?payment=success`,
-      cancel_url: `${origin}/account?payment=cancelled`,
+      success_url: `${origin}/account?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/account?payment=cancelled&session_id={CHECKOUT_SESSION_ID}`,
     });
 
     // Create pending deposit transaction

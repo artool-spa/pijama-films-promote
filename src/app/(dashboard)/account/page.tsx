@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 type SearchParams = {
   payment?: string;
+  session_id?: string;
 };
 
 export default async function AccountPage({
@@ -32,6 +33,7 @@ export default async function AccountPage({
     <AccountClient
       account={account}
       paymentStatus={params.payment || null}
+      sessionId={params.session_id || null}
     />
   );
 }

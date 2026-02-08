@@ -146,6 +146,16 @@ export async function recordDeposit(
       });
     }
 
+    // Check if there's an existing transaction for this session
+    const existingTx = await tx.accountTransaction.findUnique({
+      where: { stripeSessionId: validSessionId },
+    });
+
+    // Idempotency: if already completed, return without double-crediting
+    if (existingTx?.status === 'COMPLETED') {
+      return AccountTransactionSchema.parse(existingTx);
+    }
+
     const newBalance = account.balance + validAmount;
 
     // Update balance
@@ -154,16 +164,11 @@ export async function recordDeposit(
       data: { balance: newBalance },
     });
 
-    // Check if there's a pending transaction for this session
-    const pendingTx = await tx.accountTransaction.findUnique({
-      where: { stripeSessionId: validSessionId },
-    });
-
     let transaction;
-    if (pendingTx) {
+    if (existingTx) {
       // Update existing pending transaction to completed
       transaction = await tx.accountTransaction.update({
-        where: { id: pendingTx.id },
+        where: { id: existingTx.id },
         data: {
           status: 'COMPLETED',
           balanceAfter: newBalance,
@@ -290,6 +295,31 @@ export async function refundCampaignBudget(
 
     return AccountTransactionSchema.parse(transaction);
   });
+}
+
+/**
+ * Cancel a pending deposit transaction (e.g. when user cancels on Stripe)
+ * Returns null if transaction not found or already completed.
+ */
+export async function cancelPendingDeposit(
+  stripeSessionId: string
+): Promise<AccountTransaction | null> {
+  const validSessionId = z.string().min(1).parse(stripeSessionId);
+
+  const existingTx = await prisma.accountTransaction.findUnique({
+    where: { stripeSessionId: validSessionId },
+  });
+
+  if (!existingTx || existingTx.status !== 'PENDING') {
+    return null;
+  }
+
+  const updated = await prisma.accountTransaction.update({
+    where: { id: existingTx.id },
+    data: { status: 'CANCELLED' },
+  });
+
+  return AccountTransactionSchema.parse(updated);
 }
 
 // ============================================================================

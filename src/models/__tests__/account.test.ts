@@ -8,6 +8,7 @@ import {
   chargeCampaignBudget,
   refundCampaignBudget,
   createPendingDeposit,
+  cancelPendingDeposit,
   updateStripeCustomerId,
 } from '../account';
 
@@ -205,6 +206,64 @@ describe('Account Model', () => {
 
       const balance = await getAccountBalance(partnerId);
       expect(balance).toBe(0); // Still 0
+    });
+  });
+
+  describe('recordDeposit idempotency', () => {
+    it('should not double-credit when called twice with the same session', async () => {
+      const ts = Date.now();
+      const sessionId = `session-${ts}`;
+      const paymentIntentId = `pi-${ts}`;
+
+      await createPendingDeposit(partnerId, 100, sessionId);
+
+      // First call: should credit the balance
+      const tx1 = await recordDeposit(partnerId, 100, sessionId, paymentIntentId);
+      expect(tx1.status).toBe('COMPLETED');
+
+      const balanceAfterFirst = await getAccountBalance(partnerId);
+      expect(balanceAfterFirst).toBe(100);
+
+      // Second call: should return the same transaction without crediting again
+      const tx2 = await recordDeposit(partnerId, 100, sessionId, paymentIntentId);
+      expect(tx2.id).toBe(tx1.id);
+      expect(tx2.status).toBe('COMPLETED');
+
+      const balanceAfterSecond = await getAccountBalance(partnerId);
+      expect(balanceAfterSecond).toBe(100); // Still 100, not 200
+    });
+  });
+
+  describe('cancelPendingDeposit', () => {
+    it('should cancel a pending deposit', async () => {
+      const ts = Date.now();
+      const sessionId = `session-${ts}`;
+      await createPendingDeposit(partnerId, 100, sessionId);
+
+      const result = await cancelPendingDeposit(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('CANCELLED');
+      expect(result!.stripeSessionId).toBe(sessionId);
+
+      // Balance should remain unchanged
+      const balance = await getAccountBalance(partnerId);
+      expect(balance).toBe(0);
+    });
+
+    it('should return null for an already completed transaction', async () => {
+      const ts = Date.now();
+      const sessionId = `session-${ts}`;
+      await createPendingDeposit(partnerId, 100, sessionId);
+      await recordDeposit(partnerId, 100, sessionId, `pi-${ts}`);
+
+      const result = await cancelPendingDeposit(sessionId);
+      expect(result).toBeNull();
+    });
+
+    it('should return null for an unknown session ID', async () => {
+      const result = await cancelPendingDeposit('cs_unknown_session');
+      expect(result).toBeNull();
     });
   });
 
