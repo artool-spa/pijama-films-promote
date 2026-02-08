@@ -41,6 +41,7 @@ import {
   LinearProgress,
   Alert,
   Tooltip,
+  MobileStepper,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -58,6 +59,7 @@ import {
   Image as ImageIcon,
   TextFields as TextFieldsIcon,
   HourglassEmpty as HourglassIcon,
+  HelpOutline as HelpIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
@@ -260,6 +262,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [endDate, setEndDate] = useState('');
   const [usePijamaAudience, setUsePijamaAudience] = useState(true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(true);
+  const [howItWorksStep, setHowItWorksStep] = useState(0);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(() => {
     const filmCategories = film.genre || [];
     // Map film categories to FILM_GENRES values, matching by label or value
@@ -1174,13 +1178,22 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
-          Create Campaign
-        </Typography>
-        <Typography variant="h5" color="text.secondary">
-          {film.title}
-        </Typography>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Box>
+          <Typography variant="h3" component="h1" gutterBottom>
+            Create Campaign
+          </Typography>
+          <Typography variant="h5" color="text.secondary">
+            {film.title}
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<HelpIcon />}
+          onClick={() => { setHowItWorksStep(0); setShowHowItWorks(true); }}
+        >
+          How it Works
+        </Button>
       </Box>
 
       {/* Two Column Layout */}
@@ -2644,6 +2657,111 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             )}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* How it Works Modal */}
+      <Dialog
+        open={showHowItWorks}
+        onClose={() => setShowHowItWorks(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          How it Works
+          <IconButton onClick={() => setShowHowItWorks(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ minHeight: 160 }}>
+          {howItWorksStep === 0 && (
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Step 1: Define your audience
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Select your platforms (Instagram, Facebook, YouTube) and language,
+                set your budget (min. $100), and schedule your campaign. Toggle
+                &quot;Pijama Audience&quot; to leverage our optimized data, or manually
+                segment by age and location.
+              </Typography>
+            </Box>
+          )}
+          {howItWorksStep === 1 && (
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Step 2: Ad creativity
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                We automatically generate 3 ad copy variants based on your movie
+                metadata. Review and edit as needed. In digital marketing, it is
+                always desirable to have multiple copy variations available.
+              </Typography>
+            </Box>
+          )}
+          {howItWorksStep === 2 && (
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Step 3: Visual Campaign Assets
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Choose from your existing movie library (trailers, posters) or
+                upload new assets. Please check dimension and length restrictions.
+                High-performing social media assets often require different aspect
+                ratios and shorter durations than standard film trailers.
+              </Typography>
+            </Box>
+          )}
+          {howItWorksStep === 3 && (
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Step 4: Review
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Verify your budget, targeting, and creatives in a final summary.
+                Once approved, we handle the technical distribution and delivery.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <MobileStepper
+          variant="dots"
+          steps={4}
+          position="static"
+          activeStep={howItWorksStep}
+          sx={{ flexGrow: 1 }}
+          backButton={
+            <Button
+              size="small"
+              onClick={() => setHowItWorksStep((s) => s - 1)}
+              disabled={howItWorksStep === 0}
+              startIcon={<ChevronLeftIcon />}
+            >
+              Back
+            </Button>
+          }
+          nextButton={
+            howItWorksStep === 3 ? (
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => {
+                  setShowHowItWorks(false);
+                  setHowItWorksStep(0);
+                }}
+              >
+                Got it
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                onClick={() => setHowItWorksStep((s) => s + 1)}
+                endIcon={<ChevronRightIcon />}
+              >
+                Next
+              </Button>
+            )
+          }
+        />
       </Dialog>
     </Container>
   );
