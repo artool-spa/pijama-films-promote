@@ -2466,7 +2466,15 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 1 }}
           >
             {[50, 100, 250, 500, 1000].map((amt) => (
-              <ToggleButton key={amt} value={amt} sx={{ flex: '1 1 auto', minWidth: 80 }}>
+              <ToggleButton key={amt} value={amt} sx={{
+                  flex: '1 1 auto',
+                  minWidth: 80,
+                  '&.Mui-selected': {
+                    backgroundColor: '#fdd835',
+                    color: 'black',
+                    '&:hover': { backgroundColor: '#fbc02d' },
+                  },
+                }}>
                 ${amt}
               </ToggleButton>
             ))}
