@@ -285,6 +285,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   // Draft ID tracking
   const [draftId, setDraftId] = useState<string | null>(existingDraft?.id ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const defaultEndDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
 
   // Tab states
   const [leftTab, setLeftTab] = useState(0);
@@ -302,9 +307,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [locationOptions, setLocationOptions] = useState<MetaLocation[]>(DEFAULT_COUNTRIES);
   const [locationSearch, setLocationSearch] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
-  const [budget, setBudget] = useState(draft?.budget ?? (existingDraft ? String(existingDraft.budget) : ''));
+  const [budget, setBudget] = useState(draft?.budget ?? (existingDraft ? String(existingDraft.budget) : '100'));
   const [startDate, setStartDate] = useState(draft?.startDate ?? todayStr);
-  const [endDate, setEndDate] = useState(draft?.endDate ?? '');
+  const [endDate, setEndDate] = useState(draft?.endDate ?? defaultEndDate);
   const [usePijamaAudience, setUsePijamaAudience] = useState(draft?.usePijamaAudience ?? existingDraft?.includeBaseAudiences ?? true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(!existingDraft);
