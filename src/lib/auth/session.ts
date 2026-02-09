@@ -17,7 +17,7 @@ const SECRET_KEY = new TextEncoder().encode(
 );
 
 export interface SessionPayload {
-  username: string;
+  email: string;
   name: string;
   partnerId: string;
   expiresAt: number;

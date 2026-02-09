@@ -41,7 +41,6 @@ import {
   LinearProgress,
   Alert,
   Tooltip,
-  MobileStepper,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -157,6 +156,7 @@ type CreateCampaignClientProps = {
   } | null;
   paymentStatus?: string;
   paymentSessionId?: string;
+  howItWorksDismissed: boolean;
 };
 
 // Type for uploaded assets (newly uploaded during this session)
@@ -273,7 +273,7 @@ function getYouTubeFormat(style: string): string {
   }
 }
 
-export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance, existingDraft, paymentStatus, paymentSessionId }: CreateCampaignClientProps) {
+export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance, existingDraft, paymentStatus, paymentSessionId, howItWorksDismissed }: CreateCampaignClientProps) {
   const todayStr = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -312,8 +312,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [endDate, setEndDate] = useState(draft?.endDate ?? defaultEndDate);
   const [usePijamaAudience, setUsePijamaAudience] = useState(draft?.usePijamaAudience ?? existingDraft?.includeBaseAudiences ?? true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
-  const [showHowItWorks, setShowHowItWorks] = useState(!existingDraft);
-  const [howItWorksStep, setHowItWorksStep] = useState(0);
+  const [showHowItWorks, setShowHowItWorks] = useState(!howItWorksDismissed);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(() => {
     if (draft?.selectedGenres) return draft.selectedGenres;
     if (existingDraft?.filmGenres?.length) return existingDraft.filmGenres;
@@ -1349,7 +1349,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         <Button
           variant="outlined"
           startIcon={<HelpIcon />}
-          onClick={() => { setHowItWorksStep(0); setShowHowItWorks(true); }}
+          onClick={() => setShowHowItWorks(true)}
         >
           How it Works
         </Button>
@@ -2840,105 +2840,97 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       <Dialog
         open={showHowItWorks}
         onClose={() => setShowHowItWorks(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          How it Works
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="h5" fontWeight="bold">Cómo funciona</Typography>
+          </Box>
           <IconButton onClick={() => setShowHowItWorks(false)}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent dividers sx={{ minHeight: 160 }}>
-          {howItWorksStep === 0 && (
-            <Box>
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                Step 1: Define your audience
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Select your platforms (Instagram, Facebook, YouTube) and language,
-                set your budget (min. $100), and schedule your campaign. Toggle
-                &quot;Pijama Audience&quot; to leverage our optimized data, or manually
-                segment by age and location.
-              </Typography>
-            </Box>
-          )}
-          {howItWorksStep === 1 && (
-            <Box>
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                Step 2: Ad creativity
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                We automatically generate 3 ad copy variants based on your movie
-                metadata. Review and edit as needed. In digital marketing, it is
-                always desirable to have multiple copy variations available.
-              </Typography>
-            </Box>
-          )}
-          {howItWorksStep === 2 && (
-            <Box>
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                Step 3: Visual Campaign Assets
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Choose from your existing movie library (trailers, posters) or
-                upload new assets. Please check dimension and length restrictions.
-                High-performing social media assets often require different aspect
-                ratios and shorter durations than standard film trailers.
-              </Typography>
-            </Box>
-          )}
-          {howItWorksStep === 3 && (
-            <Box>
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                Step 4: Review
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Verify your budget, targeting, and creatives in a final summary.
-                Once approved, we handle the technical distribution and delivery.
-              </Typography>
-            </Box>
-          )}
+        <DialogContent sx={{ pt: 3 }}>
+          <Grid container spacing={3}>
+            {[
+              {
+                num: 1,
+                title: 'Define your audience',
+                body: 'Select your platforms (Instagram, Facebook, YouTube) and language, set your budget (min. $100), and schedule your campaign. Toggle "Pijama Audience" to leverage our optimized data, or manually segment by age and location.',
+              },
+              {
+                num: 2,
+                title: 'Ad creativity',
+                body: 'We automatically generate 3 ad copy variants based on your movie metadata. Review and edit as needed. In digital marketing, it is always desirable to have multiple copy variations available.',
+              },
+              {
+                num: 3,
+                title: 'Visual Campaign Assets',
+                body: 'Choose from your existing movie library (trailers, posters) or upload new assets. Please check dimension and length restrictions. High-performing social media assets often require different aspect ratios and shorter durations than standard film trailers.',
+              },
+              {
+                num: 4,
+                title: 'Review',
+                body: 'Verify your budget, targeting, and creatives in a final summary. Once approved, we handle the technical distribution and delivery.',
+              },
+            ].map((step) => (
+              <Grid key={step.num} size={{ xs: 12, sm: 6 }}>
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 2.5, height: '100%', borderRadius: 2 }}
+                >
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      bgcolor: '#f5c518',
+                      color: '#000',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '1rem',
+                      mb: 1.5,
+                    }}
+                  >
+                    {step.num}
+                  </Box>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    {step.title}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {step.body}
+                  </Typography>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
         </DialogContent>
-        <MobileStepper
-          variant="dots"
-          steps={4}
-          position="static"
-          activeStep={howItWorksStep}
-          sx={{ flexGrow: 1 }}
-          backButton={
-            <Button
-              size="small"
-              onClick={() => setHowItWorksStep((s) => s - 1)}
-              disabled={howItWorksStep === 0}
-              startIcon={<ChevronLeftIcon />}
-            >
-              Back
-            </Button>
-          }
-          nextButton={
-            howItWorksStep === 3 ? (
-              <Button
-                size="small"
-                variant="contained"
-                onClick={() => {
-                  setShowHowItWorks(false);
-                  setHowItWorksStep(0);
-                }}
-              >
-                Got it
-              </Button>
-            ) : (
-              <Button
-                size="small"
-                onClick={() => setHowItWorksStep((s) => s + 1)}
-                endIcon={<ChevronRightIcon />}
-              >
-                Next
-              </Button>
-            )
-          }
-        />
+        <DialogActions sx={{ justifyContent: 'space-between', px: 3, py: 2 }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+              />
+            }
+            label="No mostrar esto de nuevo"
+          />
+          <Button
+            variant="contained"
+            sx={{ bgcolor: '#f5c518', color: '#000', '&:hover': { bgcolor: '#e0b015' } }}
+            onClick={() => {
+              setShowHowItWorks(false);
+              if (dontShowAgain) {
+                fetch('/api/user-preferences/how-it-works', { method: 'PATCH' });
+              }
+            }}
+          >
+            Comenzar
+          </Button>
+        </DialogActions>
       </Dialog>
     </Container>
   );

@@ -4,7 +4,7 @@ import { validateCredentials } from '@/lib/auth/temporal-users';
 import { createSessionToken, setSessionCookie } from '@/lib/auth/session';
 
 const loginSchema = z.object({
-  username: z.string().min(1, 'Username required'),
+  email: z.string().min(1, 'Email required'),
   password: z.string().min(1, 'Password required'),
 });
 
@@ -20,19 +20,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { username, password } = parsed.data;
-    const user = validateCredentials(username, password);
+    const { email, password } = parsed.data;
+    const user = validateCredentials(email, password);
 
     if (!user) {
       return NextResponse.json(
-        { error: 'Invalid username or password' },
+        { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
     // Create session token
     const token = await createSessionToken({
-      username: user.username,
+      email: user.email,
       name: user.name,
       partnerId: user.partnerId,
     });
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       user: {
-        username: user.username,
+        email: user.email,
         name: user.name,
         partnerId: user.partnerId,
       },

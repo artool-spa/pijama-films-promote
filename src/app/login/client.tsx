@@ -16,7 +16,7 @@ import {
 
 export default function LoginClient() {
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +30,7 @@ export default function LoginClient() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
@@ -89,9 +89,10 @@ export default function LoginClient() {
 
               <TextField
                 fullWidth
-                label="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 margin="normal"
                 required
                 autoFocus

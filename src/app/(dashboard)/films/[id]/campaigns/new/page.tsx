@@ -7,6 +7,7 @@ import { getSession } from '@/lib/auth/session';
 import { getPartnerByPartnerId } from '@/models/partner';
 import { getAccountBalance } from '@/models/account';
 import { getCampaignById } from '@/models/campaign';
+import { getUserPreference } from '@/models/userPreference';
 import CreateCampaignClient from './client';
 
 export default async function CreateCampaignPage({
@@ -24,13 +25,18 @@ export default async function CreateCampaignPage({
     notFound();
   }
 
-  // Fetch account balance for budget check
+  // Fetch account balance for budget check and user preferences
   let initialBalance = 0;
+  let howItWorksDismissed = false;
   const session = await getSession();
   if (session) {
     const partner = await getPartnerByPartnerId(session.partnerId);
     if (partner) {
       initialBalance = await getAccountBalance(partner.id);
+    }
+    const preference = await getUserPreference(session.email);
+    if (preference) {
+      howItWorksDismissed = preference.howItWorksDismissed;
     }
   }
 
@@ -104,6 +110,7 @@ export default async function CreateCampaignPage({
       existingDraft={existingDraft}
       paymentStatus={payment}
       paymentSessionId={session_id}
+      howItWorksDismissed={howItWorksDismissed}
     />
   );
 }
