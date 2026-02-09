@@ -6,14 +6,18 @@ import { syncMuviAssets } from '@/lib/assets';
 import { getSession } from '@/lib/auth/session';
 import { getPartnerByPartnerId } from '@/models/partner';
 import { getAccountBalance } from '@/models/account';
+import { getCampaignById } from '@/models/campaign';
 import CreateCampaignClient from './client';
 
 export default async function CreateCampaignPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ draft?: string; payment?: string; session_id?: string }>;
 }) {
   const { id } = await params;
+  const { draft: draftId, payment, session_id } = await searchParams;
   const film = await getFilmById(id, false); // Don't need campaigns
 
   if (!film) {
@@ -82,12 +86,24 @@ export default async function CreateCampaignPage({
     eligibilityError: vid.eligibilityError,
   }));
 
+  // Load existing draft if resuming
+  let existingDraft = null;
+  if (draftId) {
+    const draft = await getCampaignById(draftId);
+    if (draft && draft.status === 'DRAFT' && draft.filmMuviUuid === id) {
+      existingDraft = draft;
+    }
+  }
+
   return (
     <CreateCampaignClient
       film={film}
       localImages={localImages}
       localVideos={localVideos}
       initialBalance={initialBalance}
+      existingDraft={existingDraft}
+      paymentStatus={payment}
+      paymentSessionId={session_id}
     />
   );
 }

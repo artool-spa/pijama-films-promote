@@ -157,6 +157,7 @@ model Campaign {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   syncedAt       DateTime?
+  draftFormState Json?          // Serialized UI form state for draft resume
   ads            Ad[]
   transactions   AccountTransaction[]
 

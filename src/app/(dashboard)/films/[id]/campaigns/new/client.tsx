@@ -114,11 +114,49 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 // Filter type for assets
 type AssetFilter = 'all' | 'ready' | 'validating' | 'invalid';
 
+type DraftFormState = {
+  selectedPlatforms?: string[];
+  selectedAdStyle?: string;
+  ageMin?: number;
+  ageMax?: number;
+  gender?: string;
+  selectedLocations?: MetaLocation[];
+  budget?: string;
+  startDate?: string;
+  endDate?: string;
+  usePijamaAudience?: boolean;
+  selectedGenres?: string[];
+  selectedLanguages?: string[];
+  copiesByLang?: Record<string, Record<string, { headline: string; description: string }>>;
+  selectedAssets?: string[];
+  campaignName?: string;
+};
+
 type CreateCampaignClientProps = {
   film: Film;
   localImages: LocalAsset[];
   localVideos: LocalAsset[];
   initialBalance: number;
+  existingDraft?: {
+    id: string;
+    draftFormState?: unknown;
+    name: string;
+    budget: number;
+    startDate: Date;
+    endDate: Date | null;
+    targetCountries: string[];
+    targetAgeMin: number;
+    targetAgeMax: number;
+    targetGenders: number[];
+    includeBaseAudiences: boolean;
+    filmGenres: string[];
+    includeLgbtAudience: boolean;
+    platforms: string[];
+    language: string;
+    filmMuviUuid: string;
+  } | null;
+  paymentStatus?: string;
+  paymentSessionId?: string;
 };
 
 // Type for uploaded assets (newly uploaded during this session)
@@ -235,36 +273,45 @@ function getYouTubeFormat(style: string): string {
   }
 }
 
-export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance }: CreateCampaignClientProps) {
+export default function CreateCampaignClient({ film, localImages, localVideos, initialBalance, existingDraft, paymentStatus, paymentSessionId }: CreateCampaignClientProps) {
   const todayStr = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
+
+  // Parse draft form state if resuming
+  const draft = existingDraft?.draftFormState as DraftFormState | undefined;
+
+  // Draft ID tracking
+  const [draftId, setDraftId] = useState<string | null>(existingDraft?.id ?? null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   // Tab states
   const [leftTab, setLeftTab] = useState(0);
   const [rightTab, setRightTab] = useState(0);
 
   // Platform and ad style
-  const [selectedAdStyle, setSelectedAdStyle] = useState('Feed');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['facebook', 'instagram']);
+  const [selectedAdStyle, setSelectedAdStyle] = useState(draft?.selectedAdStyle ?? 'Feed');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(draft?.selectedPlatforms ?? ['facebook', 'instagram']);
 
   // Form state - Demographics & Budget
-  const [ageMin, setAgeMin] = useState(18);
-  const [ageMax, setAgeMax] = useState(65);
-  const [gender, setGender] = useState('ALL');
-  const [selectedLocations, setSelectedLocations] = useState<MetaLocation[]>([DEFAULT_COUNTRIES[0]]);
+  const [ageMin, setAgeMin] = useState(draft?.ageMin ?? existingDraft?.targetAgeMin ?? 18);
+  const [ageMax, setAgeMax] = useState(draft?.ageMax ?? existingDraft?.targetAgeMax ?? 65);
+  const [gender, setGender] = useState(draft?.gender ?? 'ALL');
+  const [selectedLocations, setSelectedLocations] = useState<MetaLocation[]>(draft?.selectedLocations ?? [DEFAULT_COUNTRIES[0]]);
   const [locationOptions, setLocationOptions] = useState<MetaLocation[]>(DEFAULT_COUNTRIES);
   const [locationSearch, setLocationSearch] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
-  const [budget, setBudget] = useState('');
-  const [startDate, setStartDate] = useState(todayStr);
-  const [endDate, setEndDate] = useState('');
-  const [usePijamaAudience, setUsePijamaAudience] = useState(true);
+  const [budget, setBudget] = useState(draft?.budget ?? (existingDraft ? String(existingDraft.budget) : ''));
+  const [startDate, setStartDate] = useState(draft?.startDate ?? todayStr);
+  const [endDate, setEndDate] = useState(draft?.endDate ?? '');
+  const [usePijamaAudience, setUsePijamaAudience] = useState(draft?.usePijamaAudience ?? existingDraft?.includeBaseAudiences ?? true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
-  const [showHowItWorks, setShowHowItWorks] = useState(true);
+  const [showHowItWorks, setShowHowItWorks] = useState(!existingDraft);
   const [howItWorksStep, setHowItWorksStep] = useState(0);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(() => {
+    if (draft?.selectedGenres) return draft.selectedGenres;
+    if (existingDraft?.filmGenres?.length) return existingDraft.filmGenres;
     const filmCategories = film.genre || [];
     // Map film categories to FILM_GENRES values, matching by label or value
     return filmCategories
@@ -295,26 +342,29 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const router = useRouter();
 
   // Form state - Copies (multi-language, generated via API)
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['es']);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(draft?.selectedLanguages ?? ['es']);
   const [loadingLanguages, setLoadingLanguages] = useState<Set<string>>(new Set());
-  const [copiesByLang, setCopiesByLang] = useState<Record<string, Record<string, { headline: string; description: string }>>>({});
-  const [currentCopyLanguage, setCurrentCopyLanguage] = useState(selectedLanguages[0] || 'es');
+  const [copiesByLang, setCopiesByLang] = useState<Record<string, Record<string, { headline: string; description: string }>>>(draft?.copiesByLang ?? {});
+  const [currentCopyLanguage, setCurrentCopyLanguage] = useState(draft?.selectedLanguages?.[0] ?? 'es');
 
   // Copies for the currently selected language (convenience accessor)
   const copies = useMemo(() => copiesByLang[currentCopyLanguage] || {}, [copiesByLang, currentCopyLanguage]);
 
   // Campaign name state (editable in summary tab)
-  const [campaignName, setCampaignName] = useState(`${film.title} - Campaign`);
+  const [campaignName, setCampaignName] = useState(draft?.campaignName ?? existingDraft?.name ?? `${film.title} - Campaign`);
 
   // Local assets state (initialized from server, updated via SSE)
   const [localImageAssets, setLocalImageAssets] = useState<LocalAsset[]>(localImages);
   const [localVideoAssets, setLocalVideoAssets] = useState<LocalAsset[]>(localVideos);
 
-  // Form state - Media Assets (start with all local DB assets selected)
-  const [selectedAssets, setSelectedAssets] = useState<string[]>(() => [
-    ...localImages.map((asset) => asset.id),
-    ...localVideos.map((asset) => asset.id),
-  ]);
+  // Form state - Media Assets (start with all local DB assets selected, or draft selection)
+  const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
+    if (draft?.selectedAssets) return draft.selectedAssets;
+    return [
+      ...localImages.map((asset) => asset.id),
+      ...localVideos.map((asset) => asset.id),
+    ];
+  });
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerAsset, setViewerAsset] = useState<LocalAsset | UploadedAsset | null>(null);
 
@@ -763,6 +813,35 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   }, [startDate, endDate]);
 
+  // Handle payment return from Stripe checkout
+  useEffect(() => {
+    if (paymentStatus === 'success' && paymentSessionId) {
+      (async () => {
+        try {
+          const res = await fetch('/api/account/verify-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: paymentSessionId }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.balance !== undefined) {
+              setAccountBalance(data.balance);
+            }
+            setSubmitError(null);
+          }
+        } catch (error) {
+          console.error('Error verifying payment session:', error);
+        }
+        // Clean up URL params
+        const url = new URL(window.location.href);
+        url.searchParams.delete('payment');
+        url.searchParams.delete('session_id');
+        window.history.replaceState({}, '', url.toString());
+      })();
+    }
+  }, [paymentStatus, paymentSessionId]);
+
   // Debounced location search
   useEffect(() => {
     if (!locationSearch.trim()) {
@@ -990,6 +1069,78 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   };
 
+  // Save current form state as a draft
+  const saveDraft = async (): Promise<string | null> => {
+    setSavingDraft(true);
+    try {
+      // Determine AdPlatform values from selected platforms
+      const platformValues = [...new Set(
+        selectedPlatforms.map(pId => {
+          const p = PLATFORMS.find(pl => pl.id === pId);
+          return p?.platform || 'META';
+        })
+      )] as ('META' | 'GOOGLE')[];
+
+      const formState: DraftFormState = {
+        selectedPlatforms,
+        selectedAdStyle,
+        ageMin,
+        ageMax,
+        gender,
+        selectedLocations,
+        budget,
+        startDate,
+        endDate,
+        usePijamaAudience,
+        selectedGenres,
+        selectedLanguages,
+        copiesByLang,
+        selectedAssets,
+        campaignName,
+      };
+
+      const res = await fetch('/api/campaigns/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          draftId: draftId || undefined,
+          campaignData: {
+            name: campaignName,
+            budget: Number(budget) || 0,
+            startDate: new Date(startDate),
+            endDate: endDate ? new Date(endDate) : undefined,
+            targetCountries: selectedLocations.map(loc => loc.country_code || loc.key),
+            targetAgeMin: ageMin,
+            targetAgeMax: ageMax,
+            targetGenders: mapGender(gender),
+            includeBaseAudiences: usePijamaAudience,
+            filmGenres: selectedGenres,
+            includeLgbtAudience: gender === 'LGBTQ',
+            filmMuviUuid: film.id,
+            platforms: platformValues,
+            language: selectedLanguages[0] || 'es',
+          },
+          formState,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error('Failed to save draft');
+        return draftId;
+      }
+
+      const data = await res.json();
+      const newDraftId = data.campaign.id;
+      setDraftId(newDraftId);
+      return newDraftId;
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      return draftId;
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   // Map form state to API schema including ads
   const mapFormToAPI = () => {
     // Get headlines and bodies from all languages and variants
@@ -1070,6 +1221,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       const hasMetaPlatform = selectedPlatforms.some(p => p !== 'youtube');
       const hasGoogle = selectedPlatforms.includes('youtube');
 
+      // Include draftId if resuming from a draft
+      const payloadWithDraft = draftId ? { ...payload, draftId } : payload;
+
       let campaignId: string | undefined;
 
       // If Meta platform selected, create via Meta API first
@@ -1077,7 +1231,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         const metaResponse = await fetch('/api/meta/campaigns/create-and-sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(payloadWithDraft),
         });
 
         if (!metaResponse.ok) {
@@ -1122,7 +1276,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       } else if (hasGoogle) {
         // Only Google selected
         const googlePayload = {
-          ...payload,
+          ...payloadWithDraft,
           googleBidStrategy: 'TARGET_CPV',
         };
 
@@ -2089,8 +2243,20 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                 )}
               </Box>
               <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button variant="outlined">
-                  Save Draft
+                <Button
+                  variant="outlined"
+                  disabled={savingDraft}
+                  onClick={async () => {
+                    const id = await saveDraft();
+                    if (id && !draftId) {
+                      // Update URL with draft ID for future saves
+                      const url = new URL(window.location.href);
+                      url.searchParams.set('draft', id);
+                      window.history.replaceState({}, '', url.toString());
+                    }
+                  }}
+                >
+                  {savingDraft ? 'Saving...' : (draftId ? 'Draft Saved' : 'Save Draft')}
                 </Button>
                 {leftTab < 3 ? (
                   <Button
@@ -2632,10 +2798,16 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               setFundLoading(true);
               setFundError(null);
               try {
+                // Auto-save draft before redirecting to Stripe
+                const savedDraftId = await saveDraft();
+                const returnPath = savedDraftId
+                  ? `/films/${film.id}/campaigns/new?draft=${savedDraftId}`
+                  : `/films/${film.id}/campaigns/new`;
+
                 const res = await fetch('/api/account/checkout', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ amount: amt }),
+                  body: JSON.stringify({ amount: amt, returnUrl: returnPath }),
                 });
                 if (!res.ok) {
                   const err = await res.json();

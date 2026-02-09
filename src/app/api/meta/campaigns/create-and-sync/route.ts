@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createCampaign, markCampaignSynced, markCampaignError } from '@/models/campaign';
+import { createCampaign, updateCampaign, getCampaignById, markCampaignSynced, markCampaignError } from '@/models/campaign';
 import { createAdsForCampaign, markAdSynced, markAdError } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -65,6 +65,8 @@ const CampaignWithAdsCreateSchema = z.object({
   ads: z.array(AdInputSchema).min(1),
   // Auto-sync flag
   autoSync: z.boolean().default(true),
+  // Optional draft ID to update existing draft instead of creating new
+  draftId: z.string().cuid().optional(),
 });
 
 type CampaignWithAdsCreate = z.infer<typeof CampaignWithAdsCreateSchema>;
@@ -103,14 +105,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Partner no encontrado' }, { status: 404 });
     }
 
-    // Step 1: Create campaign locally (DRAFT status)
-    const { ads: adsData, autoSync, platforms, ...campaignData } = data;
-    const campaign = await createCampaign({
-      ...campaignData,
-      platforms: platforms,
-      partnerId: partner.id,
-      conversionEvent: 'VIEW_CONTENT', // Default for landing page views
-    });
+    // Step 1: Create or update campaign locally (DRAFT status)
+    const { ads: adsData, autoSync, platforms, draftId, ...campaignData } = data;
+
+    let campaign;
+    if (draftId) {
+      // Update existing draft campaign
+      const existing = await getCampaignById(draftId);
+      if (!existing || existing.partnerId !== partner.id) {
+        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+      }
+      await updateCampaign(draftId, {
+        name: campaignData.name,
+        budget: campaignData.budget,
+        endDate: campaignData.endDate,
+        language: campaignData.language,
+        targetCountries: campaignData.targetCountries,
+        targetAgeMin: campaignData.targetAgeMin,
+        targetAgeMax: campaignData.targetAgeMax,
+        targetGenders: campaignData.targetGenders,
+        includeBaseAudiences: campaignData.includeBaseAudiences,
+        filmGenres: campaignData.filmGenres,
+        includeLgbtAudience: campaignData.includeLgbtAudience,
+        draftFormState: null, // Clear draft form state
+      });
+      campaign = { ...existing, ...campaignData, id: draftId };
+    } else {
+      campaign = await createCampaign({
+        ...campaignData,
+        platforms: platforms,
+        partnerId: partner.id,
+        conversionEvent: 'VIEW_CONTENT', // Default for landing page views
+      });
+    }
 
     await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campaign saved locally');
 

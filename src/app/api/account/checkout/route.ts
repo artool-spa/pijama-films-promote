@@ -10,6 +10,7 @@ import {
 
 const CheckoutSchema = z.object({
   amount: z.number().min(5, 'Minimum amount is $5'),
+  returnUrl: z.string().optional(),
 });
 
 /**
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { amount } = result.data;
+    const { amount, returnUrl } = result.data;
 
     // Get or create account
     const account = await getOrCreateAccount(partner.id);
@@ -76,8 +77,12 @@ export async function POST(req: NextRequest) {
         partnerId: partner.id,
         amount: amount.toString(),
       },
-      success_url: `${origin}/account?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/account?payment=cancelled&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: returnUrl
+        ? `${origin}${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`
+        : `${origin}/account?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: returnUrl
+        ? `${origin}${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=cancelled&session_id={CHECKOUT_SESSION_ID}`
+        : `${origin}/account?payment=cancelled&session_id={CHECKOUT_SESSION_ID}`,
     });
 
     // Create pending deposit transaction

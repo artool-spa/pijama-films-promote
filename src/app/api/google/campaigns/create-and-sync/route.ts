@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createCampaign, getCampaignById, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
+import { createCampaign, updateCampaign, getCampaignById, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
 import { createAdsForCampaign, getAdsByCampaignId, markGoogleAdSynced, markAdError } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -61,6 +61,8 @@ const GoogleCampaignWithAdsCreateSchema = z.object({
   // Ads
   ads: z.array(AdInputSchema).min(1),
   autoSync: z.boolean().default(true),
+  // Optional draft ID to update existing draft instead of creating new
+  draftId: z.string().cuid().optional(),
 });
 
 /**
@@ -92,12 +94,51 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 1: Create or reuse campaign
-    const { ads: adsData, autoSync, targetCpvMicros, campaignId: existingCampaignId, ...campaignData } = data;
+    const { ads: adsData, autoSync, targetCpvMicros, campaignId: existingCampaignId, draftId, ...campaignData } = data;
 
     let campaign;
     let ads;
 
-    if (existingCampaignId) {
+    if (draftId && !existingCampaignId) {
+      // Update existing draft campaign
+      const existing = await getCampaignById(draftId);
+      if (!existing || existing.partnerId !== partner.id) {
+        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+      }
+      await updateCampaign(draftId, {
+        name: campaignData.name,
+        budget: campaignData.budget,
+        endDate: campaignData.endDate,
+        language: campaignData.language,
+        targetCountries: campaignData.targetCountries,
+        targetAgeMin: campaignData.targetAgeMin,
+        targetAgeMax: campaignData.targetAgeMax,
+        targetGenders: campaignData.targetGenders,
+        includeBaseAudiences: campaignData.includeBaseAudiences,
+        filmGenres: campaignData.filmGenres,
+        includeLgbtAudience: campaignData.includeLgbtAudience,
+        draftFormState: null, // Clear draft form state
+      });
+      campaign = { ...existing, ...campaignData, id: draftId };
+
+      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Draft campaign updated');
+
+      // Create ads locally (DRAFT)
+      const adsToCreate = adsData.map(ad => ({
+        name: ad.name,
+        headlines: ad.headlines,
+        bodies: ad.bodies,
+        descriptions: ad.descriptions,
+        callToAction: ad.callToAction,
+        linkUrl: ad.linkUrl,
+        imageIds: [],
+        videoIds: ad.videoIds,
+        adSetType: 'VIDEO' as const,
+      }));
+
+      ads = await createAdsForCampaign(campaign.id, adsToCreate);
+      await emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Ads saved locally');
+    } else if (existingCampaignId) {
       // Reuse existing campaign (multi-platform: Meta campaign already created)
       const existing = await getCampaignById(existingCampaignId);
       if (!existing) {

@@ -1,5 +1,6 @@
 import prisma from '#prisma';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import type { BudgetType, CampaignObjective, AdPlatform } from '@prisma/client';
 
 // ============================================================================
@@ -47,6 +48,8 @@ export const CampaignCreateSchema = z
     filmMuviUuid: z.string().min(1),
     // Partner relation
     partnerId: z.string().cuid(),
+    // Draft form state
+    draftFormState: z.unknown().optional(),
   })
   .strict();
 
@@ -72,6 +75,8 @@ export const CampaignUpdateSchema = z
     googleCampaignId: z.string().optional(),
     googleAdGroupId: z.string().optional(),
     googleEntityStatus: GoogleEntityStatusSchema.optional(),
+    // Draft form state (null to clear, undefined to skip)
+    draftFormState: z.unknown().nullable().optional(),
   })
   .strict();
 
@@ -181,6 +186,7 @@ export const CampaignSchema = z.object({
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
+  draftFormState: z.unknown().nullable(),
 });
 
 export const CampaignWithAdsSchema = CampaignSchema.extend({
@@ -341,6 +347,28 @@ export async function getActiveCampaigns() {
   return z.array(ActiveCampaignSchema).parse(results);
 }
 
+/**
+ * Get draft campaigns by partner ID
+ */
+export async function getDraftCampaignsByPartnerId(partnerId: string) {
+  const validPartnerId = IdSchema.parse(partnerId);
+
+  const results = await prisma.campaign.findMany({
+    where: { partnerId: validPartnerId, status: 'DRAFT' },
+    include: {
+      ads: {
+        include: {
+          images: true,
+          videos: true,
+        },
+      },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+
+  return z.array(CampaignWithAdsSchema).parse(results);
+}
+
 // ============================================================================
 // MUTATION FUNCTIONS
 // ============================================================================
@@ -350,14 +378,42 @@ export async function getActiveCampaigns() {
  */
 export async function createCampaign(data: CampaignCreateInput) {
   const validated = CampaignCreateSchema.parse(data);
+  const { draftFormState, ...rest } = validated;
 
   const result = await prisma.campaign.create({
     data: {
-      ...validated,
-      budgetType: validated.budgetType as BudgetType,
-      objective: validated.objective as CampaignObjective,
-      platforms: validated.platforms as AdPlatform[],
+      ...rest,
+      budgetType: rest.budgetType as BudgetType,
+      objective: rest.objective as CampaignObjective,
+      platforms: rest.platforms as AdPlatform[],
       status: 'DRAFT',
+      draftFormState: draftFormState !== undefined
+        ? (draftFormState as Prisma.InputJsonValue)
+        : undefined,
+    },
+    include: { partner: true },
+  });
+
+  return CampaignWithPartnerSchema.parse(result);
+}
+
+/**
+ * Save a draft campaign with form state
+ */
+export async function saveDraftCampaign(data: CampaignCreateInput) {
+  const validated = CampaignCreateSchema.parse(data);
+  const { draftFormState, ...rest } = validated;
+
+  const result = await prisma.campaign.create({
+    data: {
+      ...rest,
+      budgetType: rest.budgetType as BudgetType,
+      objective: rest.objective as CampaignObjective,
+      platforms: rest.platforms as AdPlatform[],
+      status: 'DRAFT',
+      draftFormState: draftFormState !== undefined
+        ? (draftFormState as Prisma.InputJsonValue)
+        : undefined,
     },
     include: { partner: true },
   });
@@ -371,14 +427,23 @@ export async function createCampaign(data: CampaignCreateInput) {
 export async function updateCampaign(id: string, data: CampaignUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = CampaignUpdateSchema.parse(data);
+  const { draftFormState: rawDraftFormState, ...rest } = validated;
 
   // Determine if any Meta IDs are being set (indicates sync)
-  const isSyncing = validated.metaCampaignId || validated.imageAdSetId || validated.videoAdSetId;
+  const isSyncing = rest.metaCampaignId || rest.imageAdSetId || rest.videoAdSetId;
+
+  // Handle JSON null for draftFormState (Prisma requires Prisma.JsonNull)
+  const draftFormState = rawDraftFormState === null
+    ? Prisma.JsonNull
+    : rawDraftFormState !== undefined
+      ? (rawDraftFormState as Prisma.InputJsonValue)
+      : undefined;
 
   const result = await prisma.campaign.update({
     where: { id: validId },
     data: {
-      ...validated,
+      ...rest,
+      draftFormState,
       syncedAt: isSyncing ? new Date() : undefined,
     },
   });
