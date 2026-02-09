@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import stripe from '#stripe';
-import { recordDeposit } from '@/models/account';
+import { recordDeposit, creditFeeAdjustment } from '@/models/account';
 
 /**
  * POST /api/webhooks/stripe
@@ -43,9 +44,11 @@ export async function POST(req: NextRequest) {
       const session = event.data.object;
 
       const partnerId = session.metadata?.partnerId;
-      const amount = session.metadata?.amount;
+      // Use depositAmount (net amount credited) — fallback to amount for backwards compat
+      const depositAmount = session.metadata?.depositAmount || session.metadata?.amount;
+      const estimatedFee = parseFloat(session.metadata?.stripeFee || '0');
 
-      if (!partnerId || !amount) {
+      if (!partnerId || !depositAmount) {
         console.error('Missing metadata in checkout session:', session.id);
         return NextResponse.json(
           { error: 'Missing session metadata' },
@@ -53,14 +56,37 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const paymentIntentId = session.payment_intent as string;
+
       try {
         await recordDeposit(
           partnerId,
-          parseFloat(amount),
+          parseFloat(depositAmount),
           session.id,
-          session.payment_intent as string
+          paymentIntentId
         );
-        console.log(`Deposit recorded for partner ${partnerId}: $${amount}`);
+        console.log(`Deposit recorded for partner ${partnerId}: $${depositAmount}`);
+
+        // Fee reconciliation: credit back difference if actual fee < estimated
+        if (estimatedFee > 0 && paymentIntentId) {
+          try {
+            const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+              expand: ['latest_charge.balance_transaction'],
+            });
+            const charge = paymentIntent.latest_charge as Stripe.Charge | null;
+            const balanceTransaction = charge?.balance_transaction as Stripe.BalanceTransaction | null;
+            if (balanceTransaction?.fee != null) {
+              const actualFee = balanceTransaction.fee / 100; // cents to dollars
+              const adjustment = Math.round((estimatedFee - actualFee) * 100) / 100;
+              if (adjustment > 0.01) {
+                await creditFeeAdjustment(partnerId, adjustment, paymentIntentId);
+                console.log(`Fee adjustment credited for partner ${partnerId}: $${adjustment.toFixed(2)}`);
+              }
+            }
+          } catch (feeError) {
+            console.error('Fee reconciliation error (webhook):', feeError);
+          }
+        }
       } catch (error) {
         console.error('Error recording deposit:', error);
         return NextResponse.json(

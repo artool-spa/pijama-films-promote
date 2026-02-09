@@ -25,12 +25,14 @@ import {
   CircularProgress,
   ToggleButtonGroup,
   ToggleButton,
+  Divider,
 } from '@mui/material';
 import {
   AccountBalanceWallet as WalletIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
 import type { AccountWithTransactions } from '@/models/account';
+import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 
 type AccountClientProps = {
   account: AccountWithTransactions;
@@ -414,13 +416,35 @@ export default function AccountClient({ account: initialAccount, paymentStatus, 
             helperText="Minimum $5 USD"
           />
 
+          {/* Fee breakdown */}
+          {getFinalAmount() >= 5 && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="body2">Deposit:</Typography>
+                <Typography variant="body2">${getFinalAmount().toFixed(2)}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">Stripe fee (estimated):</Typography>
+                <Typography variant="body2" color="text.secondary">${calculateWorstCaseFee(getFinalAmount()).toFixed(2)}</Typography>
+              </Box>
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="body2" fontWeight="bold">Total charge:</Typography>
+                <Typography variant="body2" fontWeight="bold">${calculateTotalCharge(getFinalAmount()).toFixed(2)}</Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                If the actual fee is lower, the difference will be credited to your account.
+              </Typography>
+            </Box>
+          )}
+
           {checkoutError && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {checkoutError}
             </Alert>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+        <DialogActions sx={{ px: 3, pb: 2, pt: 1, gap: 1 }}>
           <Button
             onClick={() => {
               setModalOpen(false);
@@ -437,7 +461,7 @@ export default function AccountClient({ account: initialAccount, paymentStatus, 
             {checkoutLoading ? (
               <CircularProgress size={24} color="inherit" />
             ) : (
-              `Pay $${getFinalAmount().toFixed(2)} with Stripe`
+              `Pay $${calculateTotalCharge(getFinalAmount()).toFixed(2)} with Stripe`
             )}
           </Button>
         </DialogActions>

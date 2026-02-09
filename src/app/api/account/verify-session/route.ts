@@ -3,7 +3,7 @@ import { z } from 'zod';
 import Stripe from 'stripe';
 import stripe from '#stripe';
 import { getPartnerFromRequest } from '@/lib/auth';
-import { recordDeposit, cancelPendingDeposit, getAccountBalance } from '@/models/account';
+import { recordDeposit, cancelPendingDeposit, getAccountBalance, creditFeeAdjustment } from '@/models/account';
 
 const VerifySessionSchema = z.object({
   sessionId: z.string().min(1),
@@ -43,13 +43,39 @@ export async function POST(req: NextRequest) {
     }
 
     if (session.status === 'complete' && session.payment_status === 'paid') {
-      const amount = parseFloat(session.metadata?.amount || '0');
+      // Use depositAmount (net amount credited) — fallback to amount for backwards compat
+      const depositAmount = parseFloat(session.metadata?.depositAmount || session.metadata?.amount || '0');
+      const estimatedFee = parseFloat(session.metadata?.stripeFee || '0');
+      const paymentIntentId = session.payment_intent as string;
+
       await recordDeposit(
         partner.id,
-        amount,
+        depositAmount,
         session.id,
-        session.payment_intent as string
+        paymentIntentId
       );
+
+      // Fee reconciliation: credit back difference if actual fee < estimated
+      if (estimatedFee > 0 && paymentIntentId) {
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+            expand: ['latest_charge.balance_transaction'],
+          });
+          const charge = paymentIntent.latest_charge as Stripe.Charge | null;
+          const balanceTransaction = charge?.balance_transaction as Stripe.BalanceTransaction | null;
+          if (balanceTransaction?.fee != null) {
+            const actualFee = balanceTransaction.fee / 100; // cents to dollars
+            const adjustment = Math.round((estimatedFee - actualFee) * 100) / 100;
+            if (adjustment > 0.01) {
+              await creditFeeAdjustment(partner.id, adjustment, paymentIntentId);
+            }
+          }
+        } catch (feeError) {
+          // Non-critical: webhook will handle reconciliation if this fails
+          console.error('Fee reconciliation error (verify-session):', feeError);
+        }
+      }
+
       const balance = await getAccountBalance(partner.id);
       return NextResponse.json({ status: 'completed', balance });
     }

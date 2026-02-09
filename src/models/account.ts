@@ -30,6 +30,8 @@ export const AccountTransactionSchema = z.object({
   amount: z.number(),
   balanceAfter: z.number(),
   description: z.string(),
+  stripeFee: z.number().nullable(),
+  grossAmount: z.number().nullable(),
   stripeSessionId: z.string().nullable(),
   stripePaymentIntentId: z.string().nullable(),
   campaignId: z.string().nullable(),
@@ -122,12 +124,14 @@ export async function getAccountBalance(partnerId: string): Promise<number> {
 
 /**
  * Record a completed deposit (called by Stripe webhook after payment succeeds)
+ * amount = deposit amount (what user gets credited, net of fees)
  */
 export async function recordDeposit(
   partnerId: string,
   amount: number,
   stripeSessionId: string,
-  stripePaymentIntentId: string
+  stripePaymentIntentId: string,
+  options?: { grossAmount?: number; stripeFee?: number }
 ): Promise<AccountTransaction> {
   const validPartnerId = PartnerIdSchema.parse(partnerId);
   const validAmount = z.number().positive().parse(amount);
@@ -176,7 +180,7 @@ export async function recordDeposit(
         },
       });
     } else {
-      // Create new completed transaction
+      // Create new completed transaction (fallback path)
       transaction = await tx.accountTransaction.create({
         data: {
           accountId: account.id,
@@ -185,6 +189,8 @@ export async function recordDeposit(
           amount: validAmount,
           balanceAfter: newBalance,
           description: `Deposit of $${validAmount.toFixed(2)}`,
+          stripeFee: options?.stripeFee ?? null,
+          grossAmount: options?.grossAmount ?? null,
           stripeSessionId: validSessionId,
           stripePaymentIntentId: validPaymentIntentId,
         },
@@ -331,11 +337,15 @@ export async function cancelPendingDeposit(
  */
 export async function createPendingDeposit(
   partnerId: string,
-  amount: number,
+  depositAmount: number,
+  grossAmount: number,
+  stripeFee: number,
   stripeSessionId: string
 ): Promise<AccountTransaction> {
   const validPartnerId = PartnerIdSchema.parse(partnerId);
-  const validAmount = z.number().positive().parse(amount);
+  const validAmount = z.number().positive().parse(depositAmount);
+  const validGrossAmount = z.number().positive().parse(grossAmount);
+  const validStripeFee = z.number().nonnegative().parse(stripeFee);
   const validSessionId = z.string().min(1).parse(stripeSessionId);
 
   const account = await getOrCreateAccount(validPartnerId);
@@ -348,11 +358,70 @@ export async function createPendingDeposit(
       amount: validAmount,
       balanceAfter: account.balance, // Balance hasn't changed yet
       description: `Pending deposit of $${validAmount.toFixed(2)}`,
+      stripeFee: validStripeFee,
+      grossAmount: validGrossAmount,
       stripeSessionId: validSessionId,
     },
   });
 
   return AccountTransactionSchema.parse(transaction);
+}
+
+/**
+ * Credit a fee adjustment when actual Stripe fee is lower than estimated.
+ * Idempotent: checks for existing ADJUSTMENT with the same stripePaymentIntentId.
+ */
+export async function creditFeeAdjustment(
+  partnerId: string,
+  adjustmentAmount: number,
+  stripePaymentIntentId: string
+): Promise<AccountTransaction | null> {
+  const validPartnerId = PartnerIdSchema.parse(partnerId);
+  const validAmount = z.number().positive().parse(adjustmentAmount);
+  const validPaymentIntentId = z.string().min(1).parse(stripePaymentIntentId);
+
+  return await prisma.$transaction(async (tx) => {
+    // Idempotency: check for existing ADJUSTMENT with this payment intent
+    const existing = await tx.accountTransaction.findFirst({
+      where: {
+        type: 'ADJUSTMENT',
+        stripePaymentIntentId: validPaymentIntentId,
+      },
+    });
+
+    if (existing) {
+      return AccountTransactionSchema.parse(existing);
+    }
+
+    const account = await tx.account.findUnique({
+      where: { partnerId: validPartnerId },
+    });
+
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    const newBalance = account.balance + validAmount;
+
+    await tx.account.update({
+      where: { id: account.id },
+      data: { balance: newBalance },
+    });
+
+    const transaction = await tx.accountTransaction.create({
+      data: {
+        accountId: account.id,
+        type: 'ADJUSTMENT',
+        status: 'COMPLETED',
+        amount: validAmount,
+        balanceAfter: newBalance,
+        description: 'Fee adjustment: actual Stripe fee lower than estimated',
+        stripePaymentIntentId: validPaymentIntentId,
+      },
+    });
+
+    return AccountTransactionSchema.parse(transaction);
+  });
 }
 
 /**

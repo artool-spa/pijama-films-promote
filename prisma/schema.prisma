@@ -336,8 +336,10 @@ model AccountTransaction {
   amount                 Float // Positive for deposits/refunds, negative for charges
   balanceAfter           Float
   description            String
+  stripeFee              Float? // Estimated Stripe fee (only on DEPOSIT transactions)
+  grossAmount            Float? // Total amount charged via Stripe (deposit + fee)
   stripeSessionId        String?           @unique
-  stripePaymentIntentId  String?           @unique
+  stripePaymentIntentId  String?
   campaignId             String?
   campaign               Campaign?         @relation(fields: [campaignId], references: [id])
   createdAt              DateTime          @default(now())
@@ -348,4 +350,5 @@ model AccountTransaction {
   @@index([status])
   @@index([campaignId])
   @@index([createdAt])
+  @@index([stripePaymentIntentId])
 }

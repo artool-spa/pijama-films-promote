@@ -62,6 +62,7 @@ import {
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
+import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 
 // Asset status type
 type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
@@ -2784,13 +2785,36 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             }}
             helperText="Minimum $5 USD"
           />
+
+          {/* Fee breakdown */}
+          {(fundAmount || parseFloat(fundCustomAmount) || 0) >= 5 && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="body2">Deposit:</Typography>
+                <Typography variant="body2">${(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">Stripe fee (estimated):</Typography>
+                <Typography variant="body2" color="text.secondary">${calculateWorstCaseFee(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)}</Typography>
+              </Box>
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="body2" fontWeight="bold">Total charge:</Typography>
+                <Typography variant="body2" fontWeight="bold">${calculateTotalCharge(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)}</Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                If the actual fee is lower, the difference will be credited to your account.
+              </Typography>
+            </Box>
+          )}
+
           {fundError && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {fundError}
             </Alert>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+        <DialogActions sx={{ px: 3, pb: 2, pt: 1, gap: 1 }}>
           <Button onClick={() => { setAddFundsOpen(false); setFundError(null); }}>
             Cancel
           </Button>
@@ -2830,7 +2854,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {fundLoading ? (
               <CircularProgress size={24} color="inherit" />
             ) : (
-              `Pay $${(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)} with Stripe`
+              `Pay $${calculateTotalCharge(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)} with Stripe`
             )}
           </Button>
         </DialogActions>

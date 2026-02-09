@@ -7,6 +7,7 @@ import {
   updateStripeCustomerId,
   createPendingDeposit,
 } from '@/models/account';
+import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 
 const CheckoutSchema = z.object({
   amount: z.number().min(5, 'Minimum amount is $5'),
@@ -36,6 +37,10 @@ export async function POST(req: NextRequest) {
 
     const { amount, returnUrl } = result.data;
 
+    // Calculate fees (fee added on top of deposit)
+    const stripeFee = calculateWorstCaseFee(amount);
+    const grossAmount = calculateTotalCharge(amount);
+
     // Get or create account
     const account = await getOrCreateAccount(partner.id);
 
@@ -55,7 +60,7 @@ export async function POST(req: NextRequest) {
     // Determine base URL from request
     const origin = req.headers.get('origin') || 'http://localhost:3000';
 
-    // Create Checkout Session
+    // Create Checkout Session — charge gross amount (deposit + fee)
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       mode: 'payment',
@@ -66,9 +71,9 @@ export async function POST(req: NextRequest) {
             currency: 'usd',
             product_data: {
               name: 'Campaign Funds',
-              description: `Deposit of $${amount.toFixed(2)} USD`,
+              description: `Deposit of $${amount.toFixed(2)} USD (+ $${stripeFee.toFixed(2)} processing fee)`,
             },
-            unit_amount: Math.round(amount * 100), // Stripe uses cents
+            unit_amount: Math.round(grossAmount * 100), // Stripe uses cents
           },
           quantity: 1,
         },
@@ -76,6 +81,9 @@ export async function POST(req: NextRequest) {
       metadata: {
         partnerId: partner.id,
         amount: amount.toString(),
+        depositAmount: amount.toString(),
+        stripeFee: stripeFee.toString(),
+        grossAmount: grossAmount.toString(),
       },
       success_url: returnUrl
         ? `${origin}${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`
@@ -86,7 +94,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Create pending deposit transaction
-    await createPendingDeposit(partner.id, amount, session.id);
+    await createPendingDeposit(partner.id, amount, grossAmount, stripeFee, session.id);
 
     return NextResponse.json({
       sessionId: session.id,

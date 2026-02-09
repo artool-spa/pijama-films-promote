@@ -10,6 +10,7 @@ import {
   createPendingDeposit,
   cancelPendingDeposit,
   updateStripeCustomerId,
+  creditFeeAdjustment,
 } from '../account';
 
 describe('Account Model', () => {
@@ -122,7 +123,7 @@ describe('Account Model', () => {
     it('should update pending transaction if one exists', async () => {
       const ts = Date.now();
       const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
 
       const transaction = await recordDeposit(partnerId, 100, sessionId, `pi-${ts}`);
 
@@ -197,11 +198,13 @@ describe('Account Model', () => {
   describe('createPendingDeposit', () => {
     it('should create a pending deposit transaction without changing balance', async () => {
       const ts = Date.now();
-      const transaction = await createPendingDeposit(partnerId, 100, `session-${ts}`);
+      const transaction = await createPendingDeposit(partnerId, 100, 106.20, 6.20, `session-${ts}`);
 
       expect(transaction.type).toBe('DEPOSIT');
       expect(transaction.status).toBe('PENDING');
       expect(transaction.amount).toBe(100);
+      expect(transaction.stripeFee).toBe(6.20);
+      expect(transaction.grossAmount).toBe(106.20);
       expect(transaction.balanceAfter).toBe(0); // Balance unchanged
 
       const balance = await getAccountBalance(partnerId);
@@ -215,7 +218,7 @@ describe('Account Model', () => {
       const sessionId = `session-${ts}`;
       const paymentIntentId = `pi-${ts}`;
 
-      await createPendingDeposit(partnerId, 100, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
 
       // First call: should credit the balance
       const tx1 = await recordDeposit(partnerId, 100, sessionId, paymentIntentId);
@@ -238,7 +241,7 @@ describe('Account Model', () => {
     it('should cancel a pending deposit', async () => {
       const ts = Date.now();
       const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
 
       const result = await cancelPendingDeposit(sessionId);
 
@@ -254,7 +257,7 @@ describe('Account Model', () => {
     it('should return null for an already completed transaction', async () => {
       const ts = Date.now();
       const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
       await recordDeposit(partnerId, 100, sessionId, `pi-${ts}`);
 
       const result = await cancelPendingDeposit(sessionId);
@@ -264,6 +267,40 @@ describe('Account Model', () => {
     it('should return null for an unknown session ID', async () => {
       const result = await cancelPendingDeposit('cs_unknown_session');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('creditFeeAdjustment', () => {
+    it('should credit adjustment and create ADJUSTMENT transaction', async () => {
+      const ts = Date.now();
+      // First deposit some funds
+      await recordDeposit(partnerId, 100, `session-${ts}`, `pi-${ts}`);
+
+      const transaction = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
+
+      expect(transaction).not.toBeNull();
+      expect(transaction!.type).toBe('ADJUSTMENT');
+      expect(transaction!.status).toBe('COMPLETED');
+      expect(transaction!.amount).toBe(1.50);
+      expect(transaction!.balanceAfter).toBe(101.50);
+      expect(transaction!.stripePaymentIntentId).toBe(`pi-${ts}`);
+
+      const balance = await getAccountBalance(partnerId);
+      expect(balance).toBe(101.50);
+    });
+
+    it('should be idempotent — return existing adjustment on second call', async () => {
+      const ts = Date.now();
+      await recordDeposit(partnerId, 100, `session-${ts}`, `pi-${ts}`);
+
+      const tx1 = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
+      const tx2 = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
+
+      expect(tx1!.id).toBe(tx2!.id);
+
+      // Balance should only be credited once
+      const balance = await getAccountBalance(partnerId);
+      expect(balance).toBe(101.50);
     });
   });
 
