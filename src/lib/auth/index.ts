@@ -33,7 +33,7 @@ export type { SessionPayload } from './session';
 // Temporal users exports (for temporary auth)
 export {
   validateCredentials,
-  getUserByUsername,
+  getUserByEmail,
   TEMPORAL_USERS,
 } from './temporal-users';
 

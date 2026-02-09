@@ -8,7 +8,7 @@
  */
 
 export interface TemporalUser {
-  username: string;
+  email: string;
   password: string;
   name: string;
   partnerId: string;
@@ -18,19 +18,19 @@ export interface TemporalUser {
 // All users have access to all films as special partner
 export const TEMPORAL_USERS: TemporalUser[] = [
   {
-    username: 'admin',
+    email: 'admin@pijamafilms.com',
     password: 'pijama2026',
     name: 'Administrator',
     partnerId: 'pijamafilms',
   },
   {
-    username: 'producer1',
+    email: 'producer1@pijamafilms.com',
     password: 'pijama2026',
     name: 'Producer 1',
     partnerId: 'pijamafilms',
   },
   {
-    username: 'producer2',
+    email: 'producer2@pijamafilms.com',
     password: 'pijama2026',
     name: 'Producer 2',
     partnerId: 'pijamafilms',
@@ -41,18 +41,18 @@ export const TEMPORAL_USERS: TemporalUser[] = [
  * Validate user credentials against the whitelist
  */
 export function validateCredentials(
-  username: string,
+  email: string,
   password: string
 ): TemporalUser | null {
   const user = TEMPORAL_USERS.find(
-    (u) => u.username === username && u.password === password
+    (u) => u.email === email && u.password === password
   );
   return user || null;
 }
 
 /**
- * Get user by username (without password validation)
+ * Get user by email (without password validation)
  */
-export function getUserByUsername(username: string): TemporalUser | null {
-  return TEMPORAL_USERS.find((u) => u.username === username) || null;
+export function getUserByEmail(email: string): TemporalUser | null {
+  return TEMPORAL_USERS.find((u) => u.email === email) || null;
 }

@@ -80,6 +80,19 @@ enum YouTubeAdFormat {
 }
 
 // ============================================================================
+// USER PREFERENCES
+// ============================================================================
+
+// UserPreference - Per-user UI preferences (keyed by email)
+model UserPreference {
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  howItWorksDismissed Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ============================================================================
 // CORE MODELS
 // ============================================================================
 
