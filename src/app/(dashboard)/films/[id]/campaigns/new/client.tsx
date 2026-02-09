@@ -2840,12 +2840,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       <Dialog
         open={showHowItWorks}
         onClose={() => setShowHowItWorks(false)}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
           <Box sx={{ flex: 1 }}>
-            <Typography variant="h5" fontWeight="bold">Cómo funciona</Typography>
+            <Typography variant="h4" fontWeight="bold">How it Works</Typography>
           </Box>
           <IconButton onClick={() => setShowHowItWorks(false)}>
             <CloseIcon />
@@ -2878,12 +2878,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               <Grid key={step.num} size={{ xs: 12, sm: 6 }}>
                 <Paper
                   variant="outlined"
-                  sx={{ p: 2.5, height: '100%', borderRadius: 2 }}
+                  sx={{ p: 3, height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}
                 >
                   <Box
                     sx={{
-                      width: 36,
-                      height: 36,
+                      width: 48,
+                      height: 48,
                       borderRadius: '50%',
                       bgcolor: '#f5c518',
                       color: '#000',
@@ -2891,16 +2891,16 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                       alignItems: 'center',
                       justifyContent: 'center',
                       fontWeight: 'bold',
-                      fontSize: '1rem',
-                      mb: 1.5,
+                      fontSize: '1.25rem',
+                      mb: 2,
                     }}
                   >
                     {step.num}
                   </Box>
-                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  <Typography variant="h6" fontWeight="bold" gutterBottom>
                     {step.title}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body1" color="text.secondary">
                     {step.body}
                   </Typography>
                 </Paper>
@@ -2916,7 +2916,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                 onChange={(e) => setDontShowAgain(e.target.checked)}
               />
             }
-            label="No mostrar esto de nuevo"
+            label="Don't show this again"
           />
           <Button
             variant="contained"
@@ -2928,7 +2928,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               }
             }}
           >
-            Comenzar
+            Get Started
           </Button>
         </DialogActions>
       </Dialog>
