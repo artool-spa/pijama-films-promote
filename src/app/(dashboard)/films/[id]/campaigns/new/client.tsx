@@ -241,6 +241,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
 
+  const defaultEndDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
   // Tab states
   const [leftTab, setLeftTab] = useState(0);
   const [rightTab, setRightTab] = useState(0);
@@ -257,9 +263,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [locationOptions, setLocationOptions] = useState<MetaLocation[]>(DEFAULT_COUNTRIES);
   const [locationSearch, setLocationSearch] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
-  const [budget, setBudget] = useState('');
+  const [budget, setBudget] = useState('100');
   const [startDate, setStartDate] = useState(todayStr);
-  const [endDate, setEndDate] = useState('');
+  const [endDate, setEndDate] = useState(defaultEndDate);
   const [usePijamaAudience, setUsePijamaAudience] = useState(true);
   const [showAudienceWarning, setShowAudienceWarning] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(true);
