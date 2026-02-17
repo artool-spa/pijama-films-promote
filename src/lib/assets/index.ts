@@ -13,15 +13,18 @@ import {
   createVideo,
   getVideoByOriginalUrl,
   setMetaVideoId,
+  setYoutubeVideoId,
   setVideoValidating,
   updateVideoValidation,
   updateVideoEligibility,
   type Video,
 } from '@/models/video';
 import { meta, uploadAdVideo } from '#meta';
+import { uploadVideoToYouTube } from '@/lib/google/youtube';
 import {
   validateImageForMeta,
   validateVideoForMeta,
+  validateVideoForYouTube,
   calculateAspectRatio,
 } from './validation';
 
@@ -253,6 +256,10 @@ async function getOrCreateMuviVideo(
         existing.metaVideoId
       );
     }
+    // If exists but no YouTube video ID, trigger YouTube upload
+    if (!existing.youtubeVideoId) {
+      uploadVideoToYouTubeBackground(existing.id, existing.url, existing.name, filmMuviUuid);
+    }
     return existing;
   }
 
@@ -273,6 +280,9 @@ async function getOrCreateMuviVideo(
   // Upload to Meta in background (needed for ad previews)
   // Validation will be triggered after Meta upload completes
   uploadVideoToMetaBackground(video.id, originalUrl, name, filmMuviUuid);
+
+  // Upload to YouTube in background (needed for Google Ads campaigns)
+  uploadVideoToYouTubeBackground(video.id, originalUrl, name, filmMuviUuid);
 
   return video;
 }
@@ -327,6 +337,45 @@ function uploadVideoToMetaBackground(
       // Broadcast error to SSE subscribers
       await publish(filmMuviUuid, {
         type: 'video_error',
+        videoId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  })();
+}
+
+/**
+ * Upload video to YouTube in background (fire and forget)
+ * Updates the video record with youtubeVideoId when complete
+ * Broadcasts events to SSE subscribers when upload succeeds or fails
+ */
+function uploadVideoToYouTubeBackground(
+  videoId: string,
+  videoUrl: string,
+  videoName: string,
+  filmMuviUuid: string
+): void {
+  // Fire and forget - don't await
+  (async () => {
+    try {
+      console.log(`[Assets] Starting YouTube upload for video ${videoId}: ${videoName}`);
+      const { youtubeVideoId } = await uploadVideoToYouTube(videoUrl, videoName);
+      await setYoutubeVideoId(videoId, youtubeVideoId);
+      console.log(`[Assets] YouTube upload complete for video ${videoId}: youtubeVideoId=${youtubeVideoId}`);
+
+      // Broadcast success to SSE subscribers
+      await publish(filmMuviUuid, {
+        type: 'youtube_video_ready',
+        videoId,
+        youtubeVideoId,
+      });
+    } catch (error) {
+      console.error(`[Assets] Failed to upload video ${videoId} to YouTube:`, error);
+
+      // Don't fail the whole video - YouTube upload is supplementary
+      // The video can still be used for Meta campaigns
+      await publish(filmMuviUuid, {
+        type: 'youtube_video_error',
         videoId,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -507,6 +556,10 @@ export async function getOrCreateVideo(
     if (!existing.metaVideoId) {
       uploadVideoToMetaBackground(existing.id, existing.url, existing.name, filmMuviUuid);
     }
+    // If exists but no YouTube video ID, trigger YouTube upload
+    if (!existing.youtubeVideoId) {
+      uploadVideoToYouTubeBackground(existing.id, existing.url, existing.name, filmMuviUuid);
+    }
     return existing;
   }
 
@@ -533,6 +586,9 @@ export async function getOrCreateVideo(
 
   // Upload to Meta in background
   uploadVideoToMetaBackground(video.id, video.url, video.name, filmMuviUuid);
+
+  // Upload to YouTube in background
+  uploadVideoToYouTubeBackground(video.id, video.url, video.name, filmMuviUuid);
 
   return video;
 }
@@ -802,6 +858,9 @@ export function validateVideoInBackground(
       const result = validateVideoForMeta({ width, height, duration, size });
       const aspectRatio = calculateAspectRatio(width, height);
 
+      // Validate against YouTube requirements (resolution-based)
+      const youtubeResult = validateVideoForYouTube({ width, height, mimeType: 'video/mp4' });
+
       if (result.valid) {
         await updateVideoValidation(videoId, {
           status: 'READY',
@@ -812,10 +871,11 @@ export function validateVideoInBackground(
           duration,
         });
 
-        // Update eligibility
+        // Update eligibility (includes YouTube)
         await updateVideoEligibility(videoId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          youtubeEligible: youtubeResult.youtubeEligible,
           eligibilityError: null,
         });
 
@@ -833,6 +893,7 @@ export function validateVideoInBackground(
         await updateVideoEligibility(videoId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          youtubeEligible: youtubeResult.youtubeEligible,
           eligibilityError: result.errors.join('; '),
         });
 

@@ -7,7 +7,7 @@ import type { BudgetType, CampaignObjective, AdPlatform } from '@prisma/client';
 // SHARED SCHEMAS
 // ============================================================================
 
-const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
+const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING_ASSETS', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
@@ -113,6 +113,7 @@ const VideoSchema = z.object({
   duration: z.number().int().nullable(),
   thumbnailUrl: z.string().nullable(),
   metaVideoId: z.string().nullable(),
+  youtubeVideoId: z.string().nullable(),
   createdAt: z.coerce.date(),
 });
 
@@ -369,6 +370,27 @@ export async function getDraftCampaignsByPartnerId(partnerId: string) {
   return z.array(CampaignWithAdsSchema).parse(results);
 }
 
+/**
+ * Get all campaigns with PENDING_ASSETS status (waiting for video uploads)
+ */
+export async function getCampaignsPendingAssets() {
+  const results = await prisma.campaign.findMany({
+    where: { status: 'PENDING_ASSETS' },
+    include: {
+      partner: true,
+      ads: {
+        include: {
+          images: true,
+          videos: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return z.array(CampaignWithPartnerAndAdsSchema).parse(results);
+}
+
 // ============================================================================
 // MUTATION FUNCTIONS
 // ============================================================================
@@ -516,6 +538,20 @@ export async function markCampaignError(id: string) {
   const result = await prisma.campaign.update({
     where: { id: validId },
     data: { status: 'ERROR' },
+  });
+
+  return CampaignSchema.parse(result);
+}
+
+/**
+ * Mark campaign as pending assets (waiting for video/image uploads)
+ */
+export async function markCampaignPendingAssets(id: string) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.campaign.update({
+    where: { id: validId },
+    data: { status: 'PENDING_ASSETS' },
   });
 
   return CampaignSchema.parse(result);

@@ -62,6 +62,8 @@ export const VideoSchema = z.object({
   // Platform eligibility
   facebookEligible: z.boolean(),
   instagramEligible: z.boolean(),
+  youtubeEligible: z.boolean(),
+  youtubeVideoId: z.string().nullable(),
   eligibilityError: z.string().nullable(),
 });
 
@@ -213,6 +215,24 @@ export async function setMetaVideoId(id: string, metaVideoId: string) {
   return VideoSchema.parse(result);
 }
 
+/**
+ * Set YouTube video ID after uploading to YouTube
+ */
+export async function setYoutubeVideoId(id: string, youtubeVideoId: string) {
+  const validId = IdSchema.parse(id);
+  const validYoutubeVideoId = z.string().min(1).parse(youtubeVideoId);
+
+  const result = await prisma.video.update({
+    where: { id: validId },
+    data: {
+      youtubeVideoId: validYoutubeVideoId,
+      youtubeEligible: true,
+    },
+  });
+
+  return VideoSchema.parse(result);
+}
+
 // ============================================================================
 // VALIDATION FUNCTIONS
 // ============================================================================
@@ -238,6 +258,7 @@ export type VideoValidationUpdate = z.infer<typeof VideoValidationUpdateSchema>;
 const VideoEligibilityUpdateSchema = z.object({
   facebookEligible: z.boolean(),
   instagramEligible: z.boolean(),
+  youtubeEligible: z.boolean().optional(),
   eligibilityError: z.string().nullable().optional(),
 });
 

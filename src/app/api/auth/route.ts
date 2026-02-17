@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(req: NextRequest) {
+  console.log('AUTH GET]');
   const { searchParams } = req.nextUrl;
   const queryParams = Object.fromEntries(searchParams.entries());
 
@@ -12,6 +13,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  console.log('AUTH POST]');
   const { searchParams } = req.nextUrl;
   const queryParams = Object.fromEntries(searchParams.entries());
 

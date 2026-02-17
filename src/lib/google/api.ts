@@ -88,7 +88,7 @@ export async function createVideoAdGroup(
     name: validated.name,
     campaign: validated.campaignResourceName,
     status: validated.status,
-    type: 'VIDEO_TRUE_VIEW_IN_STREAM', // Default for video campaigns
+    type: 'VIDEO_RESPONSIVE', // Supports multiple ad formats (skippable, non-skippable, bumper, etc.)
   };
 
   if (validated.cpvBidMicros) {
@@ -440,6 +440,26 @@ export async function updateCampaignStatus(
   ]);
 
   console.log('[Google] Campaign status updated:', campaignResourceName, '->', status);
+}
+
+/**
+ * Update ad group status in Google Ads
+ */
+export async function updateAdGroupStatus(
+  client: GoogleAdsClient,
+  adGroupResourceName: string,
+  status: 'ENABLED' | 'PAUSED' | 'REMOVED'
+): Promise<void> {
+  await client.mutate('adGroups', [
+    {
+      update: {
+        resourceName: adGroupResourceName,
+        status,
+      },
+    },
+  ]);
+
+  console.log('[Google] Ad group status updated:', adGroupResourceName, '->', status);
 }
 
 /**

@@ -17,6 +17,8 @@ export type SSEEventType =
   | 'video_validated'
   | 'image_eligibility_checked'
   | 'video_eligibility_checked'
+  | 'youtube_video_ready'
+  | 'youtube_video_error'
   | 'campaign_progress'
   | 'campaign_complete'
   | 'campaign_error';
@@ -98,6 +100,18 @@ export interface SSEVideoEligibilityCheckedEvent {
   error: string | null;
 }
 
+export interface SSEYouTubeVideoReadyEvent {
+  type: 'youtube_video_ready';
+  videoId: string;
+  youtubeVideoId: string;
+}
+
+export interface SSEYouTubeVideoErrorEvent {
+  type: 'youtube_video_error';
+  videoId: string;
+  error: string;
+}
+
 export interface SSECampaignProgressEvent {
   type: 'campaign_progress';
   campaignId: string;
@@ -129,6 +143,8 @@ export type SSEEvent =
   | SSEVideoValidatedEvent
   | SSEImageEligibilityCheckedEvent
   | SSEVideoEligibilityCheckedEvent
+  | SSEYouTubeVideoReadyEvent
+  | SSEYouTubeVideoErrorEvent
   | SSECampaignProgressEvent
   | SSECampaignCompleteEvent
   | SSECampaignErrorEvent;

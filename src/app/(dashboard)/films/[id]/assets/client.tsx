@@ -173,6 +173,8 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             aspectRatio: result.aspectRatio,
             facebookEligible: result.facebookEligible || false,
             instagramEligible: result.instagramEligible || false,
+            youtubeEligible: result.youtubeEligible || false,
+            youtubeVideoId: result.youtubeVideoId || null,
             eligibilityError: result.eligibilityError,
             _count: { ads: 0 },
           };
@@ -332,6 +334,8 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 aspectRatio: null,
                 facebookEligible: false,
                 instagramEligible: false,
+                youtubeEligible: false,
+                youtubeVideoId: null,
                 eligibilityError: null,
                 _count: { ads: 0 },
               },

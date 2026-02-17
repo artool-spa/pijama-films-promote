@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createCampaign, updateCampaign, getCampaignById, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
-import { createAdsForCampaign, getAdsByCampaignId, markGoogleAdSynced, markAdError } from '@/models/ad';
+import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
+import { createAdsForCampaign, getAdsByCampaignId } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { publish } from '@/lib/events';
-import {
-  google,
-  createYouTubeCampaignWithAdGroup,
-  createVideoAd,
-  buildGoogleTargeting,
-  GoogleAdsApiError,
-} from '#google';
+import { GoogleAdsApiError } from '#google';
+import { areGoogleAssetsReady, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 
 // Helper to publish campaign progress
 async function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
@@ -68,6 +63,9 @@ const GoogleCampaignWithAdsCreateSchema = z.object({
 /**
  * POST /api/google/campaigns/create-and-sync
  * Create a YouTube campaign with ads and sync to Google Ads
+ *
+ * If videos are still uploading to YouTube (no youtubeVideoId), the campaign
+ * is saved with PENDING_ASSETS status and sync will complete via cron.
  */
 export async function POST(req: NextRequest) {
   const partner = await getPartnerFromRequest(req);
@@ -185,130 +183,47 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    await emitProgress(data.filmMuviUuid, campaign.id, 'google_campaign', 40, 'Creando campana en Google Ads...');
+    // Step 3: Check if all video assets have YouTube IDs
+    if (!areGoogleAssetsReady(ads)) {
+      // Videos are still uploading to YouTube — defer sync
+      await markCampaignPendingAssets(campaign.id);
 
-    // Step 3: Build targeting and create campaign in Google Ads
-    let googleCampaignId: string;
-    let googleAdGroupId: string;
-
-    try {
-      const targeting = buildGoogleTargeting({
-        countries: campaign.targetCountries,
-        ageMin: campaign.targetAgeMin,
-        ageMax: campaign.targetAgeMax,
-        genders: campaign.targetGenders,
-        filmGenres: campaign.filmGenres,
-        includeBaseAudiences: campaign.includeBaseAudiences,
-      });
-
-      const metaCampaignName = `camp_${targetPartner.name}_${campaign.name}`;
-      const googleResult = await createYouTubeCampaignWithAdGroup(google, {
-        name: metaCampaignName,
-        budget: campaign.budget,
-        budgetType: campaign.budgetType === 'DAILY' ? 'DAILY' : 'TOTAL',
-        startDate: campaign.startDate.toISOString().split('T')[0],
-        endDate: campaign.endDate?.toISOString().split('T')[0],
-        biddingStrategy: data.googleBidStrategy,
-        targetCpvMicros: targetCpvMicros ? BigInt(targetCpvMicros) : undefined,
-        targeting,
-      });
-
-      googleCampaignId = googleResult.campaignResourceName;
-      googleAdGroupId = googleResult.adGroupResourceName;
-
-      await emitProgress(data.filmMuviUuid, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
-
-      await markGoogleCampaignSynced(campaign.id, googleCampaignId, googleAdGroupId);
-    } catch (error) {
-      console.error('Error syncing campaign to Google Ads:', error);
-      await markGoogleCampaignError(campaign.id).catch(() => {});
-
-      let syncError = 'Error al sincronizar con Google Ads';
-      let syncErrorDetails: unknown = undefined;
-      if (error instanceof GoogleAdsApiError) {
-        syncError = error.message;
-        syncErrorDetails = {
-          code: error.errorCode,
-          response: error.response,
-        };
-      }
+      await emitProgress(data.filmMuviUuid, campaign.id, 'pending_assets', 25,
+        'Videos are still uploading to YouTube. Sync will complete automatically.');
 
       return NextResponse.json({
         success: true,
         campaign,
         ads,
         synced: false,
-        syncError,
-        syncErrorDetails,
+        pendingAssets: true,
+        message: 'Campaña guardada. Los videos aún se están subiendo a YouTube — la sincronización se completará automáticamente.',
       }, { status: 201 });
     }
 
-    // Step 4: Create video ads in Google Ads (one per format per ad)
-    const ALL_YOUTUBE_FORMATS = ['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS'] as const;
-    const syncedAds: typeof ads = [];
-    const adErrors: Array<{ adId: string; error: string }> = [];
-
-    for (const ad of ads) {
-      // Use the first video for the ad
-      const video = ad.videos[0];
-      if (!video) {
-        adErrors.push({ adId: ad.id, error: 'No video found for this ad' });
-        continue;
-      }
-
-      // Use youtubeVideoId if available, otherwise use a placeholder
-      const youtubeVideoId = video.metaVideoId || video.id; // metaVideoId might store YouTube ID too
-      let firstGoogleAdResourceName: string | undefined;
-
-      for (const adFormat of ALL_YOUTUBE_FORMATS) {
-        try {
-          await emitProgress(data.filmMuviUuid, campaign.id, 'video_ad', 75, `Creando anuncio: ${ad.name} (${adFormat})...`);
-
-          const googleAd = await createVideoAd(google, {
-            name: `${ad.name} - ${adFormat}`,
-            adGroupResourceName: googleAdGroupId,
-            youtubeVideoId,
-            adFormat,
-            headline: ad.headlines[0],
-            description1: ad.bodies[0]?.substring(0, 90),
-            description2: ad.bodies[1]?.substring(0, 90),
-            finalUrl: ad.linkUrl,
-            callToAction: ad.callToAction,
-          });
-
-          // Store the first synced ad resource name on the local ad record
-          if (!firstGoogleAdResourceName) {
-            firstGoogleAdResourceName = googleAd.resourceName;
-            await markGoogleAdSynced(ad.id, googleAd.resourceName, adFormat);
-          }
-        } catch (error) {
-          const errorMsg = error instanceof GoogleAdsApiError ? error.message : `Error creating ${adFormat} ad`;
-          console.error(`Failed to create Google ad (${adFormat}) for ${ad.id}:`, error);
-          adErrors.push({ adId: ad.id, error: errorMsg });
-        }
-      }
-
-      if (firstGoogleAdResourceName) {
-        syncedAds.push({ ...ad, googleAdId: firstGoogleAdResourceName });
-      } else {
-        await markAdError(ad.id).catch(() => {});
-      }
+    // Step 4: All assets ready — fetch full campaign with relations and sync
+    const fullCampaign = await getCampaignById(campaign.id);
+    if (!fullCampaign) {
+      return NextResponse.json({ error: 'Campaign not found after creation' }, { status: 500 });
     }
 
-    if (syncedAds.length > 0) {
-      await emitProgress(data.filmMuviUuid, campaign.id, 'complete', 100, 'Campana de YouTube creada exitosamente!');
-    }
+    const syncResult = await syncCampaignToGoogle(fullCampaign, targetPartner.name, {
+      googleBidStrategy: data.googleBidStrategy,
+      targetCpvMicros: targetCpvMicros ? BigInt(targetCpvMicros) : undefined,
+    });
 
     return NextResponse.json({
       success: true,
       campaign: {
         ...campaign,
-        googleCampaignId,
-        googleAdGroupId,
+        googleCampaignId: syncResult.googleCampaignId,
+        googleAdGroupId: syncResult.googleAdGroupId,
       },
-      ads: syncedAds.length > 0 ? syncedAds : ads,
-      synced: syncedAds.length > 0,
-      adErrors: adErrors.length > 0 ? adErrors : undefined,
+      ads: syncResult.syncedAds.length > 0 ? syncResult.syncedAds : ads,
+      synced: syncResult.synced,
+      adErrors: syncResult.adErrors.length > 0 ? syncResult.adErrors : undefined,
+      syncError: syncResult.syncError,
+      syncErrorDetails: syncResult.syncErrorDetails,
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating Google campaign:', error);

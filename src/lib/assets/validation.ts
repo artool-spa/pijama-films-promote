@@ -254,3 +254,87 @@ export function validateVideoForMeta(input: VideoValidationInput): ValidationRes
 export function meetsMinimumRequirements(width: number, height: number): boolean {
   return width >= META_IMAGE_REQUIREMENTS.minWidth && height >= META_IMAGE_REQUIREMENTS.minHeight;
 }
+
+// ============================================================================
+// YOUTUBE VALIDATION
+// ============================================================================
+
+export const YOUTUBE_VIDEO_REQUIREMENTS = {
+  minWidth: 426,
+  minHeight: 240,
+  supportedMimeTypes: ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'] as readonly string[],
+  // Duration limits per ad format (seconds)
+  bumperMaxDuration: 6,
+  nonSkippableMaxDuration: 15,
+} as const;
+
+export interface YouTubeValidationResult {
+  valid: boolean;
+  errors: string[];
+  youtubeEligible: boolean;
+}
+
+/**
+ * Validate a video against YouTube platform requirements
+ */
+export function validateVideoForYouTube(input: {
+  width: number;
+  height: number;
+  mimeType: string;
+}): YouTubeValidationResult {
+  const { width, height, mimeType } = input;
+  const errors: string[] = [];
+
+  // Check minimum resolution
+  if (width < YOUTUBE_VIDEO_REQUIREMENTS.minWidth) {
+    errors.push(`Width must be at least ${YOUTUBE_VIDEO_REQUIREMENTS.minWidth}px for YouTube (current: ${width}px)`);
+  }
+  if (height < YOUTUBE_VIDEO_REQUIREMENTS.minHeight) {
+    errors.push(`Height must be at least ${YOUTUBE_VIDEO_REQUIREMENTS.minHeight}px for YouTube (current: ${height}px)`);
+  }
+
+  // Check supported formats
+  if (!YOUTUBE_VIDEO_REQUIREMENTS.supportedMimeTypes.includes(mimeType)) {
+    errors.push(`MIME type ${mimeType} is not supported for YouTube. Supported: MP4, MOV, AVI, WebM`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    youtubeEligible: errors.length === 0,
+  };
+}
+
+type YouTubeAdFormat = 'IN_STREAM_SKIPPABLE' | 'IN_STREAM_NON_SKIPPABLE' | 'IN_FEED' | 'BUMPER' | 'SHORTS';
+
+/**
+ * Get eligible YouTube ad formats based on video duration
+ */
+export function getEligibleYouTubeFormats(durationSeconds: number): YouTubeAdFormat[] {
+  const formats: YouTubeAdFormat[] = [];
+
+  if (durationSeconds <= YOUTUBE_VIDEO_REQUIREMENTS.bumperMaxDuration) {
+    formats.push('BUMPER');
+  }
+
+  if (durationSeconds <= YOUTUBE_VIDEO_REQUIREMENTS.nonSkippableMaxDuration) {
+    formats.push('IN_STREAM_NON_SKIPPABLE');
+  }
+
+  // Shorts work well for short-form content up to 60s
+  if (durationSeconds <= 60) {
+    formats.push('SHORTS');
+  }
+
+  if (durationSeconds > YOUTUBE_VIDEO_REQUIREMENTS.nonSkippableMaxDuration) {
+    formats.push('IN_STREAM_SKIPPABLE');
+    formats.push('IN_FEED');
+  }
+
+  // Fallback: if no formats matched (shouldn't happen), allow skippable
+  if (formats.length === 0) {
+    formats.push('IN_STREAM_SKIPPABLE');
+  }
+
+  return formats;
+}

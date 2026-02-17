@@ -13,6 +13,7 @@ datasource db {
 
 enum MetaEntityStatus {
   DRAFT
+  PENDING_ASSETS // Waiting for video/image uploads to complete
   PENDING
   ACTIVE
   PAUSED

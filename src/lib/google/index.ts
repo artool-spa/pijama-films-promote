@@ -74,8 +74,12 @@ export {
   createYouTubeCampaignWithAdGroup,
   getYouTubeInsights,
   updateCampaignStatus,
+  updateAdGroupStatus,
   getCampaignStatus,
 } from './api';
+
+// Re-export YouTube upload functions
+export { uploadVideoToYouTube } from './youtube';
 
 // Re-export types
 export type {
