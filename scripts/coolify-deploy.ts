@@ -16,6 +16,7 @@
 import { config } from "dotenv";
 import { resolve } from "path";
 import { execSync, spawnSync } from "child_process";
+import { error } from "console";
 
 // Load environment variables from .env
 config({ path: resolve(process.cwd(), ".env") });
@@ -273,6 +274,8 @@ async function getOrCreateDatabase(
 
     return { database: existing, connectionString };
   }
+
+  throw "NO DATABASE"
 
   console.log(`   Creating PostgreSQL database: ${DB_SERVICE_NAME}`);
   const dbPassword = generatePassword();
