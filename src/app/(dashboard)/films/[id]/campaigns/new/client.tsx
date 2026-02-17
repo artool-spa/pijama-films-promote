@@ -63,6 +63,7 @@ import {
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
+import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 
 // Asset status type
 type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
@@ -453,14 +454,27 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     return (['A', 'B', 'C'] as const).filter(v => copies[v]?.headline);
   }, [copies]);
 
+  // Budget validation
+  const budgetValidation = useMemo(() =>
+    validateCampaignBudget({
+      budget: budgetAmount,
+      platforms: selectedPlatforms,
+      languages: selectedLanguages.length,
+      startDate,
+      endDate,
+    }),
+    [budgetAmount, selectedPlatforms, selectedLanguages.length, startDate, endDate]
+  );
+
   // Tab validation memos
   const isScheduleValid = useMemo(() => {
     return selectedPlatforms.length > 0 &&
       budget !== '' && Number(budget) > 0 &&
       startDate !== '' && endDate !== '' &&
       !dateError && selectedLocations.length > 0 &&
-      selectedLanguages.length > 0;
-  }, [selectedPlatforms, budget, startDate, endDate, dateError, selectedLocations, selectedLanguages]);
+      selectedLanguages.length > 0 &&
+      budgetValidation.valid;
+  }, [selectedPlatforms, budget, startDate, endDate, dateError, selectedLocations, selectedLanguages, budgetValidation.valid]);
 
   const isCopiesValid = useMemo(() => {
     return selectedLanguages.every(lang => {
@@ -1469,6 +1483,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                       value={budget}
                       onChange={(e) => setBudget(e.target.value)}
                       inputProps={{ min: 0, step: 100 }}
+                      error={budgetAmount > 0 && !budgetValidation.valid}
+                      helperText={budgetAmount > 0 && !budgetValidation.valid
+                        ? budgetValidation.errorMessage
+                        : budgetValidation.helperMessage}
                     />
                   </Grid>
 

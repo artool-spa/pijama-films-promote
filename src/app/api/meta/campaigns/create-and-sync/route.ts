@@ -7,6 +7,7 @@ import { getPartnerFromRequest } from '@/lib/auth';
 import { publish } from '@/lib/events';
 import { MetaApiError } from '#meta';
 import { areMetaAssetsReady, syncCampaignToMeta } from '@/lib/campaigns/sync';
+import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 
 // Helper to publish campaign progress
 async function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
@@ -93,6 +94,21 @@ export async function POST(req: NextRequest) {
     }
 
     const data = result.data;
+
+    // Validate budget meets platform minimums
+    const budgetCheck = validateCampaignBudget({
+      budget: data.budget,
+      platforms: data.platforms.includes('META') ? ['facebook'] : [],
+      languages: 1,
+      startDate: data.startDate.toISOString().split('T')[0],
+      endDate: data.endDate ? data.endDate.toISOString().split('T')[0] : '',
+    });
+    if (!budgetCheck.valid) {
+      return NextResponse.json(
+        { error: budgetCheck.errorMessage },
+        { status: 400 }
+      );
+    }
 
     // Verify the partner exists
     const targetPartner = await getPartnerById(partner.id);
