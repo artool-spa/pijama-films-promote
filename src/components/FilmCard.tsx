@@ -13,6 +13,7 @@ import {
 import {
   PlayCircle as PlayCircleIcon,
   Campaign as CampaignIcon,
+  Image as ImageIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import type { Film } from '@/models/film';
@@ -96,20 +97,30 @@ export default function FilmCard({ film }: FilmCardProps) {
         )}
       </CardContent>
 
-      <CardActions sx={{ p: 2, pt: 0 }}>
+      <CardActions sx={{ p: 2, pt: 0, gap: 1 }}>
         {hasCampaigns ? (
-          <Button size="small" variant="outlined" fullWidth onClick={handleViewStats}>
-            View Campaigns
-          </Button>
+          <>
+            <Button size="small" variant="outlined" sx={{ flex: 1 }} onClick={handleViewStats}>
+              View Campaigns
+            </Button>
+            <Button size="small" variant="text" onClick={() => router.push(`/films/${film.id}/assets`)}>
+              Assets
+            </Button>
+          </>
         ) : (
-          <Button
-            size="small"
-            variant="contained"
-            fullWidth
-            onClick={handleCreatePromotion}
-          >
-            Create Campaign
-          </Button>
+          <>
+            <Button
+              size="small"
+              variant="contained"
+              sx={{ flex: 1 }}
+              onClick={handleCreatePromotion}
+            >
+              Create Campaign
+            </Button>
+            <Button size="small" variant="text" onClick={() => router.push(`/films/${film.id}/assets`)}>
+              Assets
+            </Button>
+          </>
         )}
       </CardActions>
     </Card>

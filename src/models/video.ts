@@ -244,6 +244,26 @@ const VideoEligibilityUpdateSchema = z.object({
 export type VideoEligibilityUpdate = z.infer<typeof VideoEligibilityUpdateSchema>;
 
 /**
+ * Get videos by film MUVI UUID with ad usage counts
+ */
+export async function getVideosWithUsageByFilmMuviUuid(filmMuviUuid: string) {
+  const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
+
+  const results = await prisma.video.findMany({
+    where: { filmMuviUuid: validFilmMuviUuid },
+    include: { _count: { select: { ads: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return results.map((result) => ({
+    ...VideoSchema.parse(result),
+    _count: { ads: result._count.ads },
+  }));
+}
+
+export type VideoWithUsage = Awaited<ReturnType<typeof getVideosWithUsageByFilmMuviUuid>>[number];
+
+/**
  * Get videos by film MUVI UUID with optional status filter
  */
 export async function getVideosByFilmMuviUuidWithStatus(

@@ -380,7 +380,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Asset filter state
-  const [assetFilter, setAssetFilter] = useState<AssetFilter>('all');
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>('ready');
 
   // Preview state
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -1046,6 +1046,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         setUploadedAssets(prev => [...prev, newAsset]);
         setSelectedAssets(prev => [...prev, newAsset.id]);
+        if (isVideo) setAssetFilter('validating');
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : 'Upload failed');
       }
@@ -1756,46 +1757,31 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {/* Tab 3: Media Assets */}
             {leftTab === 2 && (
               <Box>
-                {/* Upload Zone */}
+                {/* Manage Assets Link */}
                 <Box
                   sx={{
                     mb: 3,
                     p: 3,
-                    border: '2px dashed',
+                    border: '1px dashed',
                     borderColor: 'divider',
                     borderRadius: 1,
                     textAlign: 'center',
-                    cursor: 'pointer',
-                    '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
                   }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (e.dataTransfer.files) handleFileUpload(e.dataTransfer.files);
-                  }}
-                  onClick={() => document.getElementById('file-upload')?.click()}
                 >
-                  <input
-                    id="file-upload"
-                    type="file"
-                    multiple
-                    accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
-                    hidden
-                    onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
-                  />
-                  <CloudUploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
-                  <Typography>Drag files here or click to select</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Images: JPG, PNG, WebP, GIF (max 10MB) | Videos: MP4, WebM, MOV (max 500MB)
+                  <Typography gutterBottom>
+                    Manage your media assets on the Assets page
                   </Typography>
+                  <Button
+                    variant="outlined"
+                    startIcon={<ImageIcon />}
+                    onClick={async () => {
+                      const savedDraftId = await saveDraft();
+                      router.push(`/films/${film.id}/assets?returnTo=campaign&draft=${savedDraftId || draftId || ''}`);
+                    }}
+                  >
+                    Manage Assets
+                  </Button>
                 </Box>
-
-                {uploading && <LinearProgress sx={{ mb: 2 }} />}
-                {uploadError && (
-                  <Alert severity="error" sx={{ mb: 2 }} onClose={() => setUploadError(null)}>
-                    {uploadError}
-                  </Alert>
-                )}
 
                 {/* Filter Controls */}
                 <Box sx={{ mb: 3 }}>

@@ -7,6 +7,7 @@ import {
 } from '@/lib/storage';
 import { createVideo } from '@/models/video';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { validateVideoInBackground } from '@/lib/assets';
 
 const VideoUploadQuerySchema = z.object({
   filmMuviUuid: z.string().min(1, 'filmMuviUuid es requerido'),
@@ -82,6 +83,17 @@ export async function POST(req: NextRequest) {
       mimeType: storageResult.mimeType,
       size: storageResult.size,
     });
+
+    // Trigger background validation (dimensions, duration, platform eligibility)
+    validateVideoInBackground(
+      video.id,
+      video.url,
+      filmMuviUuid,
+      undefined,
+      undefined,
+      undefined,
+      storageResult.size,
+    );
 
     return NextResponse.json(video, { status: 201 });
   } catch (error) {

@@ -7,6 +7,7 @@ import {
 } from '@/lib/storage';
 import { createImage } from '@/models/image';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { validateImageInBackground } from '@/lib/assets';
 
 const ImageUploadQuerySchema = z.object({
   filmMuviUuid: z.string().min(1, 'filmMuviUuid es requerido'),
@@ -82,6 +83,16 @@ export async function POST(req: NextRequest) {
       mimeType: storageResult.mimeType,
       size: storageResult.size,
     });
+
+    // Trigger background validation (dimensions, platform eligibility)
+    validateImageInBackground(
+      image.id,
+      image.url,
+      filmMuviUuid,
+      undefined,
+      undefined,
+      storageResult.size,
+    );
 
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
