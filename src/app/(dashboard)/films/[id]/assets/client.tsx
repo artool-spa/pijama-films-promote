@@ -46,7 +46,7 @@ import {
 import type { Film } from '@/models/film';
 import type { ImageWithUsage } from '@/models/image';
 import type { VideoWithUsage } from '@/models/video';
-import { AD_FORMATS, CROP_ASPECT_RATIOS, hasVerticalAsset, hasAssetForRatio, getAspectRatioLabel } from '@/lib/assets/formats';
+import { AD_FORMATS, CROP_ASPECT_RATIOS, hasVerticalAsset, hasAssetForRatio, hasImageForRatio, hasVideoForRatio, getAspectRatioLabel } from '@/lib/assets/formats';
 import { ASSET_STATUS_LABELS, ASSET_STATUS_COLORS } from '@/lib/assets/labels';
 import type { AssetStatus } from '@prisma/client';
 import CropDialog from './CropDialog';
@@ -64,7 +64,7 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 type LocalImage = ImageWithUsage;
 type LocalVideo = VideoWithUsage;
 
-type AssetFilter = 'all' | 'ready' | 'validating' | 'invalid';
+type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating' | 'invalid';
 
 type AssetsClientProps = {
   film: Film;
@@ -88,7 +88,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
   // Asset state
   const [imageAssets, setImageAssets] = useState<LocalImage[]>(initialImages);
   const [videoAssets, setVideoAssets] = useState<LocalVideo[]>(initialVideos);
-  const [assetFilter, setAssetFilter] = useState<AssetFilter>('ready');
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>('promotable');
 
   // Upload state
   const [uploading, setUploading] = useState(false);
@@ -103,6 +103,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
   // Filter assets
   const filteredImages = useMemo(() => {
     if (assetFilter === 'all') return imageAssets;
+    if (assetFilter === 'promotable') return imageAssets.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
     if (assetFilter === 'ready') return imageAssets.filter((a) => a.status === 'READY');
     if (assetFilter === 'validating') return imageAssets.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
     return imageAssets.filter((a) => a.status === 'INVALID' || a.status === 'ERROR');
@@ -110,6 +111,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
 
   const filteredVideos = useMemo(() => {
     if (assetFilter === 'all') return videoAssets;
+    if (assetFilter === 'promotable') return videoAssets.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
     if (assetFilter === 'ready') return videoAssets.filter((a) => a.status === 'READY');
     if (assetFilter === 'validating') return videoAssets.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
     return videoAssets.filter((a) => a.status === 'INVALID' || a.status === 'ERROR');
@@ -179,7 +181,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             _count: { ads: 0 },
           };
           setVideoAssets((prev) => [newVideo, ...prev]);
-          setAssetFilter('validating');
+          setAssetFilter('promotable');
         } else {
           const newImage: LocalImage = {
             id: result.id,
@@ -457,8 +459,10 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                   <TableCell>Format</TableCell>
                   <TableCell>Dimensions</TableCell>
                   <TableCell>Max Duration</TableCell>
+                  <TableCell>Media Types</TableCell>
                   <TableCell>Placements</TableCell>
-                  <TableCell align="center">Status</TableCell>
+                  <TableCell align="center">Video</TableCell>
+                  <TableCell align="center">Image</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -466,25 +470,58 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                   const ratioStr = Object.entries(RATIO_TO_FORMAT).find(
                     ([, v]) => v === format.name.match(/\(([^)]+)\)/)?.[1]
                   )?.[0] || '';
-                  const hasCoverage = hasAssetForRatio(allImages, allVideos, ratioStr);
+                  const hasVideo = hasVideoForRatio(allVideos, ratioStr);
+                  const hasImage = hasImageForRatio(allImages, ratioStr);
                   return (
                     <TableRow key={format.name}>
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {format.name}
-                          {format.recommended && (
-                            <Chip label="Recommended" size="small" color="primary" variant="outlined" />
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {format.name}
+                            {format.recommended && (
+                              <Chip label="Recommended" size="small" color="primary" variant="outlined" />
+                            )}
+                          </Box>
+                          {format.note && (
+                            <Typography variant="caption" color="text.secondary">
+                              {format.note}
+                            </Typography>
                           )}
                         </Box>
                       </TableCell>
                       <TableCell>{format.width} x {format.height}</TableCell>
                       <TableCell>{format.maxDuration}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          {format.mediaTypes.includes('video') && (
+                            <Chip label="Video" size="small" variant="outlined" />
+                          )}
+                          {format.mediaTypes.includes('image') && (
+                            <Chip label="Image" size="small" variant="outlined" />
+                          )}
+                        </Box>
+                      </TableCell>
                       <TableCell>{format.placements}</TableCell>
                       <TableCell align="center">
-                        {hasCoverage ? (
-                          <CheckCircleIcon color="success" fontSize="small" />
+                        {format.mediaTypes.includes('video') ? (
+                          hasVideo ? (
+                            <CheckCircleIcon color="success" fontSize="small" />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )
                         ) : (
-                          <Typography variant="caption" color="text.secondary">—</Typography>
+                          <Typography variant="caption" color="text.secondary">N/A</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        {format.mediaTypes.includes('image') ? (
+                          hasImage ? (
+                            <CheckCircleIcon color="success" fontSize="small" />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">N/A</Typography>
                         )}
                       </TableCell>
                     </TableRow>
@@ -553,6 +590,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
           size="small"
         >
           <ToggleButton value="all">All</ToggleButton>
+          <ToggleButton value="promotable">Promotable</ToggleButton>
           <ToggleButton value="ready">Ready</ToggleButton>
           <ToggleButton value="validating">Validating</ToggleButton>
           <ToggleButton value="invalid">Invalid</ToggleButton>
@@ -594,8 +632,8 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 }}
               />
 
-              {/* Validating overlay */}
-              {asset.status === 'VALIDATING' && (
+              {/* Validating/Pending overlay */}
+              {(asset.status === 'VALIDATING' || asset.status === 'PENDING') && (
                 <Box
                   sx={{
                     position: 'absolute',
@@ -614,13 +652,31 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 </Box>
               )}
 
-              <CardMedia
-                component="img"
-                height="112"
-                image={asset.thumbnailUrl || asset.url}
-                alt={asset.name}
-                sx={{ objectFit: 'cover' }}
-              />
+              {asset.thumbnailUrl ? (
+                <CardMedia
+                  component="img"
+                  height="112"
+                  image={asset.thumbnailUrl}
+                  alt={asset.name}
+                  sx={{ objectFit: 'cover' }}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    height: 112,
+                    bgcolor: 'grey.200',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {asset.status === 'PENDING' ? (
+                    <CloudUploadIcon sx={{ fontSize: 36, color: 'grey.400' }} />
+                  ) : (
+                    <YouTubeIcon sx={{ fontSize: 36, color: 'grey.400' }} />
+                  )}
+                </Box>
+              )}
               <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
                 <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', display: 'block', fontWeight: 500 }}>
                   {asset.name}
@@ -712,8 +768,8 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 }}
               />
 
-              {/* Validating overlay */}
-              {asset.status === 'VALIDATING' && (
+              {/* Validating/Pending overlay */}
+              {(asset.status === 'VALIDATING' || asset.status === 'PENDING') && (
                 <Box
                   sx={{
                     position: 'absolute',

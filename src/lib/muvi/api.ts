@@ -8,13 +8,15 @@ import {
 } from './types';
 import { MuviApiError, MuviValidationError } from './errors';
 
+// IP address required for geo-block enabled accounts
+const MUVI_IP_ADDRESS = process.env.MUVI_IP_ADDRESS || '127.0.0.1';
+
 // GraphQL query for basic movie list
-// Note: ip_address is required when geo-block category is enabled
 const MOVIES_LIST_QUERY = `
   contentList(
     app_token: ":app_token",
     product_key: ":product_key",
-    ip_address: "0.0.0.0"
+    ip_address: ":ip_address"
     {{FILTERS}}
   ) {
     page_info {
@@ -68,13 +70,12 @@ const MOVIES_LIST_QUERY = `
 `;
 
 // GraphQL query for movie details with assets
-// Note: ip_address is required when geo-block category is enabled
 const MOVIE_DETAILS_QUERY = `
   contentList(
     app_token: ":app_token",
     product_key: ":product_key",
-    content_uuid: ":content_uuid",
-    ip_address: "0.0.0.0"
+    ip_address: ":ip_address",
+    content_uuid: ":content_uuid"
   ) {
     page_info {
       total_count
@@ -311,14 +312,25 @@ export async function getMovies(
   const query = MOVIES_LIST_QUERY
     .replace(':app_token', await client.getAccessToken())
     .replace(':product_key', client.productKey)
+    .replace(':ip_address', MUVI_IP_ADDRESS)
     .replace('{{FILTERS}}', filters);
 
   try {
     const data = await executeQuery(client, query);
 
+    // Check for API-level error (response without data)
+    const apiResponse = data as { status?: string; code?: number; message?: string; data?: unknown };
+    if (apiResponse?.status === 'FAILED' || (apiResponse?.code && !apiResponse?.data)) {
+      throw new MuviApiError(
+        `Muvi API error: ${apiResponse.message || 'Unknown error'}`,
+        { statusCode: apiResponse.code, endpoint: '/content' }
+      );
+    }
+
     // Validate response
     const result = MuviContentListResponseSchema.safeParse(data);
     if (!result.success) {
+      console.error('[Muvi] Validation issues:', JSON.stringify(result.error.issues, null, 2));
       throw new MuviValidationError(
         'Invalid content list response',
         result.error.issues
@@ -354,14 +366,25 @@ export async function getMovieDetails(
   const query = MOVIE_DETAILS_QUERY
     .replace(':app_token', await client.getAccessToken())
     .replace(':product_key', client.productKey)
+    .replace(':ip_address', MUVI_IP_ADDRESS)
     .replace(':content_uuid', contentUuid);
 
   try {
     const data = await executeQuery(client, query);
 
+    // Check for API-level error (response without data)
+    const apiResponse = data as { status?: string; code?: number; message?: string; data?: unknown };
+    if (apiResponse?.status === 'FAILED' || (apiResponse?.code && !apiResponse?.data)) {
+      throw new MuviApiError(
+        `Muvi API error: ${apiResponse.message || 'Unknown error'}`,
+        { statusCode: apiResponse.code, endpoint: '/content' }
+      );
+    }
+
     // Validate response
     const result = MuviContentListResponseSchema.safeParse(data);
     if (!result.success) {
+      console.error('[Muvi] Validation issues:', JSON.stringify(result.error.issues, null, 2));
       throw new MuviValidationError(
         'Invalid content details response',
         result.error.issues

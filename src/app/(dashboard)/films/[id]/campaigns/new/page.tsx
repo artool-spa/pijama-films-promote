@@ -10,6 +10,8 @@ import { getCampaignById } from '@/models/campaign';
 import { getUserPreference } from '@/models/userPreference';
 import CreateCampaignClient from './client';
 
+export const dynamic = 'force-dynamic';
+
 export default async function CreateCampaignPage({
   params,
   searchParams,
@@ -41,21 +43,17 @@ export default async function CreateCampaignPage({
   }
 
   // Sync MUVI media assets to local DB (creates records synchronously, validation in background)
-  // This returns existing assets or creates new ones with PENDING status
-  let dbImages;
-  let dbVideos;
-
   if (film.mediaAssets && film.mediaAssets.length > 0) {
-    const synced = await syncMuviAssets(film.mediaAssets, id);
-    dbImages = synced.images;
-    dbVideos = synced.videos;
-  } else {
-    // No MUVI assets, fetch any existing assets from DB
-    [dbImages, dbVideos] = await Promise.all([
-      getImagesByFilmMuviUuid(id),
-      getVideosByFilmMuviUuid(id),
-    ]);
+    await syncMuviAssets(film.mediaAssets, id);
   }
+
+  // Fetch ALL assets from DB (includes both MUVI-synced and user-uploaded)
+  const [dbImages, dbVideos] = await Promise.all([
+    getImagesByFilmMuviUuid(id),
+    getVideosByFilmMuviUuid(id),
+  ]);
+
+  console.log(`[Campaign New] Film ${id}: ${dbImages.length} images, ${dbVideos.length} videos from DB`);
 
   // Map database assets to the format expected by the client
   // Include all validation fields

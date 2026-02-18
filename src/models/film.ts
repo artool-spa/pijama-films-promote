@@ -42,6 +42,8 @@ export type MediaAsset = {
   name: string;
   url: string;
   thumbnailUrl: string;
+  /** Direct mp4 URL for uploading to YouTube (not a streaming manifest) */
+  downloadUrl?: string;
 };
 
 export type AdCopyVariant = {
@@ -128,7 +130,7 @@ export function generateAdCopiesForFilm(
   film: MuviMovie,
   language: string = 'en'
 ): { A: AdCopyVariant; B: AdCopyVariant; C: AdCopyVariant } {
-  const title = film.content_name;
+  const title = film.content_name || 'Sin título';
   const desc = film.content_desc || '';
   const genre = film.categories?.[0]?.category_name || '';
 
@@ -273,11 +275,36 @@ function getTrailerUrl(trailerDetails?: MuviVideoAsset | null): string {
   if (!trailerDetails) return '';
 
   return (
-    trailerDetails.hls_path ||
+    trailerDetails.mpeg_path ||
     trailerDetails.file_url ||
+    trailerDetails.hls_path ||
     trailerDetails.third_party_url ||
     ''
   );
+}
+
+/**
+ * Get a direct downloadable mp4 URL from MUVI video details.
+ * Picks the highest resolution from encoded_url or offline_url arrays.
+ * Returns undefined if no direct file URL is available.
+ */
+function getDirectVideoUrl(videoDetails?: MuviVideoAsset | null): string | undefined {
+  if (!videoDetails) return undefined;
+
+  // Try encoded_url first (transcoded mp4 files), then offline_url
+  const candidates = [
+    ...(videoDetails.encoded_url || []),
+    ...(videoDetails.offline_url || []),
+  ];
+
+  // Pick the first available URL (typically highest resolution listed first)
+  const directUrl = candidates.find(c => c.url)?.url;
+  if (directUrl) return directUrl;
+
+  // file_url is sometimes a direct file
+  if (videoDetails.file_url) return videoDetails.file_url;
+
+  return undefined;
 }
 
 /**
@@ -321,6 +348,7 @@ function mapMediaAssets(movie: MuviMovieDetails): MediaAsset[] {
         name: 'Trailer',
         url: trailerUrl,
         thumbnailUrl: posterUrl,
+        downloadUrl: getDirectVideoUrl(movie.trailer_details),
       });
     }
   }
@@ -328,8 +356,9 @@ function mapMediaAssets(movie: MuviMovieDetails): MediaAsset[] {
   // Add main video as asset
   if (movie.video_details) {
     const videoUrl =
-      movie.video_details.hls_path ||
+      movie.video_details.mpeg_path ||
       movie.video_details.file_url ||
+      movie.video_details.hls_path ||
       movie.video_details.third_party_url ||
       '';
     if (videoUrl) {
@@ -339,6 +368,7 @@ function mapMediaAssets(movie: MuviMovieDetails): MediaAsset[] {
         name: 'Video Principal',
         url: videoUrl,
         thumbnailUrl: posterUrl,
+        downloadUrl: getDirectVideoUrl(movie.video_details),
       });
     }
   }
@@ -370,7 +400,7 @@ function mapMuviToFilm(movie: MuviMovie): Film {
 
   return {
     id: movie.content_uuid,
-    title: movie.content_name,
+    title: movie.content_name || 'Sin título',
     description: movie.content_desc || '',
     duration: parseDuration(movieDetails.video_details?.duration),
     year: extractYear(movie.content_created_date),
@@ -379,7 +409,7 @@ function mapMuviToFilm(movie: MuviMovie): Film {
     posterUrl: getPosterUrl(movie),
     trailerUrl: getTrailerUrl(movieDetails.trailer_details),
     rentalUrl: movie.content_permalink || '',
-    isPublished: movie.content_status === 'active',
+    isPublished: movie.content_status === 2 || movie.content_status === 'active',
     campaigns: [], // Will be populated by getFilms/getFilmById if needed
     campaignCount: 0,
     mediaAssets: mapMediaAssets(movieDetails),
@@ -496,6 +526,7 @@ export async function getFilmById(
 export async function getAggregateStats() {
   try {
     const result = await prisma.campaign.aggregate({
+      where: { status: { not: 'DRAFT' } },
       _sum: {
         budget: true,
       },

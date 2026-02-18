@@ -33,10 +33,18 @@ export async function refreshAccessToken(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new GoogleAdsAuthError(
-      `Failed to refresh access token: ${error.error_description || response.statusText}`,
-      response.status
-    );
+    clearTokenCache();
+
+    const description = error.error_description || response.statusText;
+    const isExpired =
+      response.status === 400 &&
+      (description.includes('expired') || description.includes('revoked'));
+
+    const message = isExpired
+      ? `Token expired or revoked: ${description}. Run 'yarn google:auth' to generate a new refresh token.`
+      : `Failed to refresh access token: ${description}`;
+
+    throw new GoogleAdsAuthError(message, response.status);
   }
 
   const data = await response.json();

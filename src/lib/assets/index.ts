@@ -185,6 +185,8 @@ export interface MuviMediaAsset {
   name: string;
   url: string;
   thumbnailUrl: string;
+  /** Direct mp4 URL for uploading to YouTube (not a streaming manifest) */
+  downloadUrl?: string;
 }
 
 /**
@@ -235,7 +237,8 @@ async function getOrCreateMuviVideo(
   originalUrl: string,
   filmMuviUuid: string,
   name: string,
-  thumbnailUrl?: string
+  thumbnailUrl?: string,
+  downloadUrl?: string
 ): Promise<Video> {
   // Check if already exists
   const existing = await getVideoByOriginalUrl(originalUrl, filmMuviUuid);
@@ -256,9 +259,10 @@ async function getOrCreateMuviVideo(
         existing.metaVideoId
       );
     }
-    // If exists but no YouTube video ID, trigger YouTube upload
-    if (!existing.youtubeVideoId) {
-      uploadVideoToYouTubeBackground(existing.id, existing.url, existing.name, filmMuviUuid);
+    // If exists but no YouTube video ID, trigger YouTube upload (skip if already failed)
+    if (!existing.youtubeVideoId && existing.status !== 'INVALID' && existing.status !== 'ERROR') {
+      const ytUrl = downloadUrl || existing.url;
+      uploadVideoToYouTubeBackground(existing.id, ytUrl, existing.name, filmMuviUuid);
     }
     return existing;
   }
@@ -271,7 +275,7 @@ async function getOrCreateMuviVideo(
     name,
     originalUrl,
     storageKey: `external:video:${randomUUID()}`,
-    url: originalUrl, // Use MUVI URL directly
+    url: originalUrl, // Use MUVI URL directly (streaming)
     mimeType,
     size: 0, // Unknown for external
     thumbnailUrl,
@@ -282,7 +286,9 @@ async function getOrCreateMuviVideo(
   uploadVideoToMetaBackground(video.id, originalUrl, name, filmMuviUuid);
 
   // Upload to YouTube in background (needed for Google Ads campaigns)
-  uploadVideoToYouTubeBackground(video.id, originalUrl, name, filmMuviUuid);
+  // Use downloadUrl (direct mp4) if available, otherwise fall back to streaming URL
+  const ytUrl = downloadUrl || originalUrl;
+  uploadVideoToYouTubeBackground(video.id, ytUrl, name, filmMuviUuid);
 
   return video;
 }
@@ -411,7 +417,8 @@ export async function syncMuviAssets(
           asset.url,
           filmMuviUuid,
           asset.name,
-          asset.thumbnailUrl
+          asset.thumbnailUrl,
+          asset.downloadUrl
         );
         videos.push(video);
         console.log(`[Assets] Synced video: ${asset.name} (status: ${video.status})`);
@@ -465,7 +472,8 @@ export function syncMuviAssetsInBackground(
             asset.url,
             filmMuviUuid,
             asset.name,
-            asset.thumbnailUrl
+            asset.thumbnailUrl,
+            asset.downloadUrl
           );
           videosCount++;
           console.log(`[Assets] Synced video: ${asset.name}`);

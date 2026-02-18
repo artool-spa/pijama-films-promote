@@ -12,6 +12,7 @@ export type AdFormat = {
   width: number;
   height: number;
   maxDuration: string;
+  note: string | null;
   mediaTypes: readonly ('image' | 'video')[];
   placements: string;
   recommended: boolean;
@@ -25,8 +26,9 @@ export const AD_FORMATS: readonly AdFormat[] = [
     width: 1080,
     height: 1920,
     maxDuration: '60 sec',
+    note: null,
     mediaTypes: ['image', 'video'],
-    placements: 'Instagram Stories, Reels, TikTok, YouTube Shorts',
+    placements: 'Instagram: Reels, Stories · Facebook: Reels, Stories · TikTok: Feed (For You), Stories · YouTube: Shorts',
     recommended: true,
   },
   {
@@ -34,9 +36,10 @@ export const AD_FORMATS: readonly AdFormat[] = [
     ratio: 16 / 9,
     width: 1920,
     height: 1080,
-    maxDuration: '60 sec',
+    maxDuration: '3 min+',
+    note: 'Ideal for Trailers',
     mediaTypes: ['image', 'video'],
-    placements: 'YouTube, Facebook Feed, Facebook In-Stream',
+    placements: 'YouTube: In-Stream (Pre-roll ads), Home Feed · Facebook: Feed, In-Stream, Instant Articles · (Not compatible with Instagram or TikTok)',
     recommended: false,
   },
   {
@@ -44,9 +47,10 @@ export const AD_FORMATS: readonly AdFormat[] = [
     ratio: 4 / 5,
     width: 1080,
     height: 1350,
-    maxDuration: '60 sec',
+    maxDuration: 'N/A',
+    note: 'Ideal for Poster',
     mediaTypes: ['image'],
-    placements: 'Instagram Feed, Facebook Feed',
+    placements: 'Instagram: Feed · Facebook: Feed · (Not compatible with TikTok or YouTube)',
     recommended: false,
   },
   {
@@ -54,9 +58,10 @@ export const AD_FORMATS: readonly AdFormat[] = [
     ratio: 1,
     width: 1080,
     height: 1080,
-    maxDuration: '60 sec',
+    maxDuration: 'No limit',
+    note: null,
     mediaTypes: ['image', 'video'],
-    placements: 'Instagram Feed, Facebook Feed, Facebook Marketplace',
+    placements: 'Instagram: Feed, Explore · Facebook: Feed, Marketplace, Video Feeds · (Not recommended for TikTok or YouTube)',
     recommended: false,
   },
 ] as const;
@@ -109,5 +114,29 @@ export function hasAssetForRatio(
   const allAssets = [...images, ...videos];
   return allAssets.some(
     (asset) => asset.status === 'READY' && asset.aspectRatio === ratio
+  );
+}
+
+/**
+ * Check if a film has a READY image matching a specific aspect ratio
+ */
+export function hasImageForRatio(
+  images: Pick<Image, 'status' | 'aspectRatio'>[],
+  ratio: string
+): boolean {
+  return images.some(
+    (image) => image.status === 'READY' && image.aspectRatio === ratio
+  );
+}
+
+/**
+ * Check if a film has a READY video matching a specific aspect ratio
+ */
+export function hasVideoForRatio(
+  videos: Pick<Video, 'status' | 'aspectRatio'>[],
+  ratio: string
+): boolean {
+  return videos.some(
+    (video) => video.status === 'READY' && video.aspectRatio === ratio
   );
 }

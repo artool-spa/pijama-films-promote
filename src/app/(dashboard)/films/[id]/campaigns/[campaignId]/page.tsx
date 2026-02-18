@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getFilmById } from '@/models/film';
 import { getCampaignById } from '@/models/campaign';
 import CampaignDetailClient from './client';
@@ -14,6 +14,10 @@ export default async function CampaignDetailPage({
 
   if (!film || !campaign) {
     notFound();
+  }
+
+  if (campaign.status === 'DRAFT') {
+    redirect(`/films/${id}/campaigns/new?draft=${campaignId}`);
   }
 
   return <CampaignDetailClient film={film} campaign={campaign} />;

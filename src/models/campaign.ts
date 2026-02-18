@@ -247,7 +247,7 @@ export async function getCampaignsByFilmMuviUuid(filmMuviUuid: string) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
   const results = await prisma.campaign.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid },
+    where: { filmMuviUuid: validFilmMuviUuid, status: { not: 'DRAFT' } },
     include: {
       ads: {
         include: {

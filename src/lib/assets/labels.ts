@@ -31,6 +31,7 @@ export const PLATFORM_LABELS = {
 // Filter options labels
 export const FILTER_LABELS = {
   all: 'All',
+  promotable: 'Promotable',
   ready: 'Ready',
   validating: 'Validating',
   invalid: 'Invalid',

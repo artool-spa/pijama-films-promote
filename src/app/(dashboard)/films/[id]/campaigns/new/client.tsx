@@ -64,6 +64,7 @@ import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
+import { AD_FORMATS } from '@/lib/assets/formats';
 
 // Asset status type
 type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
@@ -113,7 +114,7 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 };
 
 // Filter type for assets
-type AssetFilter = 'all' | 'ready' | 'validating' | 'invalid';
+type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating' | 'invalid';
 
 type DraftFormState = {
   selectedPlatforms?: string[];
@@ -299,7 +300,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   // Platform and ad style
   const [selectedAdStyle, setSelectedAdStyle] = useState(draft?.selectedAdStyle ?? 'Feed');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(draft?.selectedPlatforms ?? ['facebook', 'instagram']);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(draft?.selectedPlatforms ?? ['facebook', 'instagram', 'youtube']);
 
   // Form state - Demographics & Budget
   const [ageMin, setAgeMin] = useState(draft?.ageMin ?? existingDraft?.targetAgeMin ?? 18);
@@ -368,8 +369,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
     if (draft?.selectedAssets) return draft.selectedAssets;
     return [
-      ...localImages.map((asset) => asset.id),
-      ...localVideos.map((asset) => asset.id),
+      ...localImages.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
+      ...localVideos.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
     ];
   });
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -381,7 +382,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Asset filter state
-  const [assetFilter, setAssetFilter] = useState<AssetFilter>('ready');
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>('promotable');
+
+  // Asset detail collapse state
+  const [showAssetDetails, setShowAssetDetails] = useState(false);
 
   // Preview state
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -419,6 +423,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   // Filter assets by status
   const filterAsset = useCallback((asset: LocalAsset | UploadedAsset) => {
     switch (assetFilter) {
+      case 'promotable':
+        return asset.status === 'READY' || asset.status === 'PENDING' || asset.status === 'VALIDATING';
       case 'ready':
         return asset.status === 'READY';
       case 'validating':
@@ -1486,7 +1492,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                       error={budgetAmount > 0 && !budgetValidation.valid}
                       helperText={budgetAmount > 0 && !budgetValidation.valid
                         ? budgetValidation.errorMessage
-                        : budgetValidation.helperMessage}
+                        : undefined}
                     />
                   </Grid>
 
@@ -1775,37 +1781,86 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {/* Tab 3: Media Assets */}
             {leftTab === 2 && (
               <Box>
-                {/* Manage Assets Link */}
-                <Box
-                  sx={{
-                    mb: 3,
-                    p: 3,
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                    borderRadius: 1,
-                    textAlign: 'center',
-                  }}
-                >
-                  <Typography gutterBottom>
-                    Manage your media assets on the Assets page
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    startIcon={<ImageIcon />}
-                    onClick={async () => {
-                      const savedDraftId = await saveDraft();
-                      router.push(`/films/${film.id}/assets?returnTo=campaign&draft=${savedDraftId || draftId || ''}`);
-                    }}
-                  >
-                    Manage Assets
-                  </Button>
-                </Box>
+                {/* Summary Bar */}
+                <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                    <Typography variant="subtitle1">
+                      {selectedVideos.length} Video{selectedVideos.length !== 1 ? 's' : ''}, {selectedImages.length} Image{selectedImages.length !== 1 ? 's' : ''} selected
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {AD_FORMATS.map((format) => {
+                        const ratioStr = format.name.match(/\(([^)]+)\)/)?.[1] || '';
+                        const selectedAllAssets = [...selectedVideos, ...selectedImages];
+                        const covered = selectedAllAssets.some(
+                          (a) => a.aspectRatio === ratioStr && (a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING')
+                        );
+                        return (
+                          <Chip
+                            key={format.name}
+                            label={ratioStr}
+                            size="small"
+                            color={covered ? 'success' : 'default'}
+                            variant={covered ? 'filled' : 'outlined'}
+                          />
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1.5, alignItems: 'center' }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => setShowAssetDetails(!showAssetDetails)}
+                      endIcon={showAssetDetails ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                    >
+                      {showAssetDetails ? 'Hide Details' : 'Show Details'}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ImageIcon />}
+                      onClick={async () => {
+                        const savedDraftId = await saveDraft();
+                        router.push(`/films/${film.id}/assets?returnTo=campaign&draft=${savedDraftId || draftId || ''}`);
+                      }}
+                    >
+                      Manage Assets
+                    </Button>
+                  </Box>
+                </Paper>
+
+                <Collapse in={showAssetDetails}>
+                  <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                    <Typography variant="subtitle2" gutterBottom>Ad Format Specs</Typography>
+                    {AD_FORMATS.map((format) => {
+                      const ratioStr = format.name.match(/\(([^)]+)\)/)?.[1] || '';
+                      const selectedAllAssets = [...selectedVideos, ...selectedImages];
+                      const covered = selectedAllAssets.some(
+                        (a) => a.aspectRatio === ratioStr && (a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING')
+                      );
+                      return (
+                        <Box key={format.name} sx={{ mb: 1.5, pl: 1, borderLeft: 3, borderColor: covered ? 'success.main' : 'divider' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" fontWeight={500}>{format.name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{format.width}x{format.height}</Typography>
+                            {format.mediaTypes.map((t) => (
+                              <Chip key={t} label={t === 'video' ? 'Video' : 'Image'} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                            ))}
+                          </Box>
+                          {format.note && (
+                            <Typography variant="caption" color="text.secondary">{format.note}</Typography>
+                          )}
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Max duration: {format.maxDuration} · {format.placements}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Paper>
+                </Collapse>
 
                 {/* Filter Controls */}
                 <Box sx={{ mb: 3 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Filter by Status
-                  </Typography>
                   <ToggleButtonGroup
                     value={assetFilter}
                     exclusive
@@ -1813,6 +1868,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                     size="small"
                   >
                     <ToggleButton value="all">All</ToggleButton>
+                    <ToggleButton value="promotable">Promotable</ToggleButton>
                     <ToggleButton value="ready">Ready</ToggleButton>
                     <ToggleButton value="validating">Validating</ToggleButton>
                     <ToggleButton value="invalid">Invalid</ToggleButton>

@@ -74,7 +74,18 @@ export async function uploadVideoToYouTube(
   }
 
   const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
-  const contentType = videoResponse.headers.get('content-type') || 'video/mp4';
+  const rawContentType = videoResponse.headers.get('content-type') || '';
+
+  // YouTube only accepts actual video files, not streaming manifests (HLS/DASH)
+  const unsupportedTypes = ['application/x-mpegurl', 'application/dash+xml', 'application/vnd.apple.mpegurl'];
+  if (unsupportedTypes.includes(rawContentType.toLowerCase().split(';')[0])) {
+    throw new Error(
+      `Cannot upload to YouTube: source is a streaming manifest (${rawContentType}), not a video file. ` +
+      `Provide a direct video URL (mp4, webm, etc.) instead.`
+    );
+  }
+
+  const contentType = rawContentType.startsWith('video/') ? rawContentType : 'video/mp4';
 
   // Step 2: Initiate resumable upload
   const metadata = {

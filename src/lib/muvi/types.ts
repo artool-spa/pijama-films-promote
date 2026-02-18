@@ -116,7 +116,7 @@ export type MuviMediaImages = z.infer<typeof MuviMediaImagesSchema>;
 export const MuviMovieSchema = z.object({
   content_uuid: z.string(),
   content_id: z.string().nullable().optional(),
-  content_name: z.string(),
+  content_name: z.string().nullable(),
   content_desc: z.string().nullable().optional(),
   content_permalink: z.string().nullable().optional(),
   content_search_tag: z.string().nullable().optional(),
@@ -138,7 +138,8 @@ export const MuviMovieSchema = z.object({
   content_status: z.union([z.string(), z.number()]).nullable().optional(),
   // is_encoded can be 0/1 (number) or boolean
   is_encoded: z.union([z.boolean(), z.number()]).nullable().optional(),
-  is_free_content: z.boolean().nullable().optional(),
+  // is_free_content can be 0/1 (number) or boolean (like is_encoded, is_parent)
+  is_free_content: z.union([z.boolean(), z.number()]).nullable().optional(),
   // is_parent can be 0/1 (number) or boolean
   is_parent: z.union([z.boolean(), z.number()]).nullable().optional(),
   no_of_child_content: z.number().nullable().optional(),
@@ -185,7 +186,7 @@ export const MuviContentListResponseSchema = z.object({
   message: z.string().optional(),
   data: z.object({
     contentList: z.object({
-      page_info: MuviPageInfoSchema.optional(),
+      page_info: MuviPageInfoSchema.nullable().optional(),
       content_list: z.array(MuviMovieDetailsSchema),
     }),
   }),

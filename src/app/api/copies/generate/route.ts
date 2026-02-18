@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     // Prepare film data for prompt
     const filmData: FilmDataForPrompt = {
       id: movie.content_uuid,
-      title: movie.content_name,
+      title: movie.content_name || 'Sin título',
       description: movie.content_desc || '',
       genre: genres,
       director,
