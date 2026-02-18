@@ -82,7 +82,11 @@ export {
   createDemandGenImageAd,
   createDemandGenCampaignWithAdGroup,
   getDisplayInsights,
+  getAllCustomAudiences,
 } from './api';
+
+// Re-export custom audience type
+export type { GoogleCustomAudience } from './api';
 
 // Re-export YouTube upload functions
 export { uploadVideoToYouTube } from './youtube';
@@ -125,6 +129,7 @@ export { GoogleAdsClient } from './client';
 export {
   buildGoogleTargeting,
   toGoogleTargetingSchema,
+  clearGoogleAudienceCache,
 } from './targeting';
 
 // Re-export targeting types

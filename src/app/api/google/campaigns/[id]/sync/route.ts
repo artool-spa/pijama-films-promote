@@ -38,7 +38,7 @@ export async function POST(
     }
 
     // Build targeting
-    const targeting = buildGoogleTargeting({
+    const targeting = await buildGoogleTargeting(google, {
       countries: campaign.targetCountries,
       ageMin: campaign.targetAgeMin,
       ageMax: campaign.targetAgeMax,

@@ -21,6 +21,57 @@ import { GoogleAdsApiError } from './errors';
 import type { GoogleTargetingResult } from './targeting';
 
 // ============================================================================
+// CUSTOM AUDIENCE TYPES & FETCHING
+// ============================================================================
+
+export interface GoogleCustomAudience {
+  id: string;
+  name: string;
+  resourceName: string;
+  type: string;
+}
+
+/**
+ * Fetch all custom audiences from the Google Ads account via GAQL.
+ * Mirrors Meta's getAllSavedAudiences() pattern.
+ */
+export async function getAllCustomAudiences(
+  client: GoogleAdsClient
+): Promise<GoogleCustomAudience[]> {
+  const query = `
+    SELECT
+      custom_audience.id,
+      custom_audience.name,
+      custom_audience.type,
+      custom_audience.resource_name
+    FROM custom_audience
+    ORDER BY custom_audience.name
+  `;
+
+  const response = await client.query<{
+    results?: Array<{
+      customAudience?: {
+        id: string;
+        name: string;
+        type: string;
+        resourceName: string;
+      };
+    }>;
+  }>(query);
+
+  if (!response.results) return [];
+
+  return response.results
+    .filter((row) => row.customAudience)
+    .map((row) => ({
+      id: row.customAudience!.id,
+      name: row.customAudience!.name,
+      resourceName: row.customAudience!.resourceName,
+      type: row.customAudience!.type,
+    }));
+}
+
+// ============================================================================
 // CAMPAIGN OPERATIONS
 // ============================================================================
 
@@ -316,7 +367,20 @@ async function applyTargetingToCampaign(
     }
   }
 
-  // Add affinity audiences
+  // Add custom audiences (dynamically fetched from the account)
+  if (targeting.customAudiences) {
+    for (const audienceResourceName of targeting.customAudiences) {
+      operations.push({
+        create: {
+          campaign: campaignResourceName,
+          type: 'CUSTOM_AUDIENCE',
+          customAudience: { customAudience: audienceResourceName },
+        },
+      });
+    }
+  }
+
+  // Add affinity audiences (legacy, kept for backward compatibility)
   for (const audience of targeting.affinityAudiences) {
     operations.push({
       create: {

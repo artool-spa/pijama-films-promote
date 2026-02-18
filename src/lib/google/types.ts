@@ -93,6 +93,7 @@ export const GoogleTargetingSchema = z.object({
   ageMax: z.number().int().min(18).max(65).optional(),
   genders: z.array(z.enum(['MALE', 'FEMALE', 'UNDETERMINED'])).optional(),
   affinityAudiences: z.array(z.string()).optional(), // Affinity audience resource names
+  customAudiences: z.array(z.string()).optional(), // Custom audience resource names
   topicIds: z.array(z.string()).optional(), // Topic targeting
   keywordTexts: z.array(z.string()).optional(), // Keyword targeting
 });

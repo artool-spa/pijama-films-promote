@@ -1,11 +1,19 @@
 /**
  * Google Ads Targeting Builder
  *
- * Maps film genres to Google affinity audiences and topics for YouTube video campaigns.
- * Builds demographic and geo targeting using geo_target_constants.
+ * Builds targeting specifications for campaigns by combining:
+ * - BASE audiences (core film enthusiast custom audiences)
+ * - Genre-specific audiences (GÉNEROS CINEMATOGRÁFICOS)
+ * - LGBT audience (optional)
+ *
+ * Audiences are fetched dynamically from Google Ads custom audiences,
+ * mirroring Meta's targeting approach with the same naming convention.
  */
 
 import type { GoogleTargeting } from './types';
+import type { GoogleAdsClient } from './client';
+import type { GoogleCustomAudience } from './api';
+import { getAllCustomAudiences } from './api';
 
 // ============================================================================
 // TYPES
@@ -24,7 +32,8 @@ export interface GoogleTargetingResult {
   geoTargets: string[]; // geo_target_constant resource names
   ageRange?: { min: string; max: string };
   genders: string[]; // MALE, FEMALE, UNDETERMINED
-  affinityAudiences: string[]; // User interest resource names
+  affinityAudiences: string[]; // Kept for backward compatibility (empty)
+  customAudiences: string[]; // Custom audience resource names
   topicIds: string[]; // Topic constant resource names
 }
 
@@ -53,40 +62,112 @@ const COUNTRY_GEO_TARGETS: Record<string, string> = {
 };
 
 // ============================================================================
-// GENRE TO AFFINITY AUDIENCE MAPPING
+// AUDIENCE NAME PATTERNS (same convention as Meta)
 // ============================================================================
 
-// Maps film genres to Google Ads affinity audience resource names
-// These are standard Google Ads affinity categories for movie/entertainment targeting
-const GENRE_AFFINITY_AUDIENCES: Record<string, string[]> = {
-  Drama: ['/affinityUserInterests/80432'], // Movie Lovers
-  Comedia: ['/affinityUserInterests/80432', '/affinityUserInterests/80530'], // Movie Lovers, Comedy Fans
-  'Acción': ['/affinityUserInterests/80432', '/affinityUserInterests/80502'], // Movie Lovers, Action & Adventure
-  Terror: ['/affinityUserInterests/80432'], // Movie Lovers
-  Suspenso: ['/affinityUserInterests/80432'], // Movie Lovers
-  Romance: ['/affinityUserInterests/80432'], // Movie Lovers
-  'Ciencia Ficción': ['/affinityUserInterests/80432', '/affinityUserInterests/80502'], // Movie Lovers, Sci-Fi
-  Documental: ['/affinityUserInterests/80432', '/affinityUserInterests/80509'], // Movie Lovers, Documentary
-  'Animación': ['/affinityUserInterests/80432', '/affinityUserInterests/80526'], // Movie Lovers, Animation
-  Aventura: ['/affinityUserInterests/80432', '/affinityUserInterests/80502'], // Movie Lovers, Action & Adventure
-  'Fantasía': ['/affinityUserInterests/80432'], // Movie Lovers
-  Musical: ['/affinityUserInterests/80432', '/affinityUserInterests/80438'], // Movie Lovers, Music Lovers
-  Crimen: ['/affinityUserInterests/80432'], // Movie Lovers
-  'Biografía': ['/affinityUserInterests/80432', '/affinityUserInterests/80509'], // Movie Lovers, Documentary
-  Historia: ['/affinityUserInterests/80432'], // Movie Lovers
-  Guerra: ['/affinityUserInterests/80432'], // Movie Lovers
-  Western: ['/affinityUserInterests/80432'], // Movie Lovers
-  Familia: ['/affinityUserInterests/80432', '/affinityUserInterests/80526'], // Movie Lovers, Family
-  Deportes: ['/affinityUserInterests/80432', '/affinityUserInterests/80496'], // Movie Lovers, Sports Fans
-  Misterio: ['/affinityUserInterests/80432'], // Movie Lovers
+const BASE_AUDIENCE_PREFIX = 'BASE +';
+const GENRE_AUDIENCE_PREFIX = 'GÉNEROS CINEMATOGRÁFICOS +';
+// Genre name mappings (Spanish genre names to audience name patterns)
+// Identical to Meta's GENRE_MAPPINGS for consistency
+const GENRE_MAPPINGS: Record<string, string[]> = {
+  'Drama': ['Drama', 'Dramático'],
+  'Comedia': ['Comedia', 'Comedy'],
+  'Acción': ['Acción', 'Action'],
+  'Terror': ['Terror', 'Horror'],
+  'Suspenso': ['Suspenso', 'Thriller'],
+  'Romance': ['Romance', 'Romántico'],
+  'Ciencia Ficción': ['Ciencia Ficción', 'Sci-Fi'],
+  'Documental': ['Documental', 'Documentary'],
+  'Animación': ['Animación', 'Animation'],
+  'Aventura': ['Aventura', 'Adventure'],
+  'Fantasía': ['Fantasía', 'Fantasy'],
+  'Musical': ['Musical'],
+  'Crimen': ['Crimen', 'Crime'],
+  'Biografía': ['Biografía', 'Biography'],
+  'Historia': ['Historia', 'Historical'],
+  'Guerra': ['Guerra', 'War'],
+  'Western': ['Western'],
+  'Familia': ['Familia', 'Family'],
+  'Deportes': ['Deportes', 'Sports'],
+  'Misterio': ['Misterio', 'Mystery'],
 };
 
-// Base affinity audiences for all film campaigns
-const BASE_AFFINITY_AUDIENCES = [
-  '/affinityUserInterests/80432', // Movie Lovers
-  '/affinityUserInterests/80433', // TV Lovers
-  '/affinityUserInterests/80431', // Entertainment Fans
-];
+// ============================================================================
+// AUDIENCE CACHING
+// ============================================================================
+
+let cachedAudiences: GoogleCustomAudience[] | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Get all custom audiences with caching
+ */
+async function getCachedAudiences(client: GoogleAdsClient): Promise<GoogleCustomAudience[]> {
+  const now = Date.now();
+
+  if (cachedAudiences && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    return cachedAudiences;
+  }
+
+  cachedAudiences = await getAllCustomAudiences(client);
+  cacheTimestamp = now;
+
+  return cachedAudiences;
+}
+
+/**
+ * Clear the audience cache (useful for testing or forced refresh)
+ */
+export function clearGoogleAudienceCache(): void {
+  cachedAudiences = null;
+  cacheTimestamp = 0;
+}
+
+// ============================================================================
+// AUDIENCE FILTERING
+// ============================================================================
+
+/**
+ * Filter audiences by name prefix
+ */
+function filterAudiencesByPrefix(
+  audiences: GoogleCustomAudience[],
+  prefix: string
+): GoogleCustomAudience[] {
+  return audiences.filter((a) => a.name.startsWith(prefix));
+}
+
+/**
+ * Find genre audiences that match any of the requested genres
+ */
+function findGenreAudiences(
+  audiences: GoogleCustomAudience[],
+  genres: string[]
+): GoogleCustomAudience[] {
+  const genreAudiences = filterAudiencesByPrefix(audiences, GENRE_AUDIENCE_PREFIX);
+
+  return genreAudiences.filter((audience) => {
+    const audienceName = audience.name.replace(GENRE_AUDIENCE_PREFIX, '').trim();
+
+    return genres.some((requestedGenre) => {
+      // Check direct match
+      if (audienceName.toLowerCase().includes(requestedGenre.toLowerCase())) {
+        return true;
+      }
+
+      // Check mapped variations
+      const mappings = GENRE_MAPPINGS[requestedGenre];
+      if (mappings) {
+        return mappings.some((mapping) =>
+          audienceName.toLowerCase().includes(mapping.toLowerCase())
+        );
+      }
+
+      return false;
+    });
+  });
+}
 
 // ============================================================================
 // AGE RANGE MAPPING
@@ -94,8 +175,6 @@ const BASE_AFFINITY_AUDIENCES = [
 
 // Google Ads age range enum values
 function mapAgeToGoogleRange(ageMin: number, ageMax: number): { min: string; max: string } {
-  const ranges = ['AGE_RANGE_18_24', 'AGE_RANGE_25_34', 'AGE_RANGE_35_44', 'AGE_RANGE_45_54', 'AGE_RANGE_55_64', 'AGE_RANGE_65_UP'];
-
   let min = 'AGE_RANGE_18_24';
   let max = 'AGE_RANGE_65_UP';
 
@@ -139,9 +218,18 @@ function mapGenders(metaGenders: number[]): string[] {
 // ============================================================================
 
 /**
- * Build Google Ads targeting for a YouTube video campaign
+ * Build Google Ads targeting by dynamically fetching custom audiences
+ * from the account, mirroring Meta's targeting approach.
  */
-export function buildGoogleTargeting(config: GoogleTargetingConfig): GoogleTargetingResult {
+export async function buildGoogleTargeting(
+  client: GoogleAdsClient,
+  config: GoogleTargetingConfig
+): Promise<GoogleTargetingResult> {
+  const audiences = await getCachedAudiences(client);
+
+  // Log available audiences for debugging
+  console.log('[Google] Available custom audiences:', audiences.map(a => a.name));
+
   // Geo targeting
   const geoTargets = config.countries
     .map((code) => COUNTRY_GEO_TARGETS[code])
@@ -154,23 +242,27 @@ export function buildGoogleTargeting(config: GoogleTargetingConfig): GoogleTarge
   // Genders
   const genders = mapGenders(config.genders);
 
-  // Affinity audiences
-  const affinitySet = new Set<string>();
+  // Custom audiences
+  const customAudienceSet = new Set<string>();
 
-  // Add base audiences if enabled
+  // Add BASE audiences if enabled
   if (config.includeBaseAudiences) {
-    for (const audience of BASE_AFFINITY_AUDIENCES) {
-      affinitySet.add(audience);
+    const baseAudiences = filterAudiencesByPrefix(audiences, BASE_AUDIENCE_PREFIX);
+    console.log('[Google] Found BASE audiences:', baseAudiences.map(a => a.name));
+
+    for (const audience of baseAudiences) {
+      customAudienceSet.add(audience.resourceName);
     }
   }
 
   // Add genre-specific audiences
-  for (const genre of config.filmGenres) {
-    const audiences = GENRE_AFFINITY_AUDIENCES[genre];
-    if (audiences) {
-      for (const audience of audiences) {
-        affinitySet.add(audience);
-      }
+  if (config.filmGenres.length > 0) {
+    console.log('[Google] Looking for genres:', config.filmGenres);
+    const genreAudiences = findGenreAudiences(audiences, config.filmGenres);
+    console.log('[Google] Found genre audiences:', genreAudiences.map(a => a.name));
+
+    for (const audience of genreAudiences) {
+      customAudienceSet.add(audience.resourceName);
     }
   }
 
@@ -178,7 +270,8 @@ export function buildGoogleTargeting(config: GoogleTargetingConfig): GoogleTarge
     geoTargets,
     ageRange,
     genders,
-    affinityAudiences: Array.from(affinitySet),
+    affinityAudiences: [], // No longer used; kept for backward compatibility
+    customAudiences: Array.from(customAudienceSet),
     topicIds: [], // Can be extended with topic targeting
   };
 }
@@ -192,6 +285,7 @@ export function toGoogleTargetingSchema(result: GoogleTargetingResult): GoogleTa
     ageMin: undefined, // Age is set via campaign criteria
     ageMax: undefined,
     genders: result.genders.length > 0 ? result.genders as Array<'MALE' | 'FEMALE' | 'UNDETERMINED'> : undefined,
-    affinityAudiences: result.affinityAudiences,
+    affinityAudiences: result.affinityAudiences.length > 0 ? result.affinityAudiences : undefined,
+    customAudiences: result.customAudiences.length > 0 ? result.customAudiences : undefined,
   };
 }
