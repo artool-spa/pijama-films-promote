@@ -538,7 +538,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           headline: copy.headline,
           description: copy.description,
           primaryText: copy.description || copy.headline,
-          linkUrl: film.trailerUrl || 'https://pijama.film',
+          linkUrl: film.rentalUrl || film.trailerUrl || 'https://pijama.film',
           mediaUrl: mediaAsset.url,
           mediaType: isVideo ? 'VIDEO' : 'IMAGE',
           metaVideoId: metaVideoId || undefined,
@@ -1202,7 +1202,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
       descriptions: [],
       callToAction: 'LEARN_MORE',
-      linkUrl: film.trailerUrl || `https://pijama.film/films/${film.id}`,
+      linkUrl: film.rentalUrl || film.trailerUrl || `https://pijama.film/films/${film.id}`,
       imageIds,
       videoIds,
     };
