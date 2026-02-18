@@ -76,6 +76,12 @@ export {
   updateCampaignStatus,
   updateAdGroupStatus,
   getCampaignStatus,
+  createDemandGenCampaign,
+  createDemandGenAdGroup,
+  uploadImageAsset,
+  createDemandGenImageAd,
+  createDemandGenCampaignWithAdGroup,
+  getDisplayInsights,
 } from './api';
 
 // Re-export YouTube upload functions
@@ -92,6 +98,10 @@ export type {
   YouTubeAdFormat,
   GoogleMutateResponse,
   GoogleSearchResponse,
+  DemandGenCampaignCreate,
+  DemandGenAdGroupCreate,
+  DemandGenImageAdCreate,
+  DisplayInsightsResponse,
 } from './types';
 
 // Re-export schemas

@@ -8,6 +8,14 @@ import {
   GoogleVideoAdCreateSchema,
   GoogleInsightsResponse,
   GoogleInsightsResponseSchema,
+  DemandGenCampaignCreate,
+  DemandGenCampaignCreateSchema,
+  DemandGenAdGroupCreate,
+  DemandGenAdGroupCreateSchema,
+  DemandGenImageAdCreate,
+  DemandGenImageAdCreateSchema,
+  DisplayInsightsResponse,
+  DisplayInsightsResponseSchema,
 } from './types';
 import { GoogleAdsApiError } from './errors';
 import type { GoogleTargetingResult } from './targeting';
@@ -413,6 +421,297 @@ export async function getYouTubeInsights(
     videoQuartile50Rate: weightedQ50 / avgDivisor,
     videoQuartile75Rate: weightedQ75 / avgDivisor,
     videoQuartile100Rate: weightedQ100 / avgDivisor,
+    dateStart: startDate,
+    dateEnd: endDate,
+  });
+}
+
+// ============================================================================
+// DEMAND GEN CAMPAIGN OPERATIONS
+// ============================================================================
+
+/**
+ * Create a Demand Gen campaign in Google Ads
+ */
+export async function createDemandGenCampaign(
+  client: GoogleAdsClient,
+  data: DemandGenCampaignCreate
+): Promise<{ resourceName: string }> {
+  const validated = DemandGenCampaignCreateSchema.parse(data);
+
+  // Create campaign budget first
+  const budgetResult = await client.mutate('campaignBudgets', [
+    {
+      create: {
+        name: `Budget - ${validated.name}`,
+        amountMicros: validated.budgetAmountMicros.toString(),
+        deliveryMethod: 'STANDARD',
+        ...(validated.budgetType === 'TOTAL'
+          ? { explicitlyShared: false }
+          : {}),
+      },
+    },
+  ]);
+
+  const budgetResourceName = budgetResult.results[0].resourceName;
+  console.log('[Google] Budget created:', budgetResourceName);
+
+  // Build bidding strategy
+  const biddingConfig: Record<string, unknown> = {};
+  if (validated.biddingStrategy === 'MAXIMIZE_CLICKS') {
+    biddingConfig.maximizeClicks = {};
+  } else if (validated.biddingStrategy === 'MAXIMIZE_CONVERSIONS') {
+    biddingConfig.maximizeConversions = {};
+  } else if (validated.biddingStrategy === 'TARGET_CPA') {
+    biddingConfig.targetCpa = {};
+  }
+
+  // Create the Demand Gen campaign
+  const campaignResult = await client.mutate('campaigns', [
+    {
+      create: {
+        name: validated.name,
+        status: validated.status,
+        advertisingChannelType: 'DEMAND_GEN',
+        campaignBudget: budgetResourceName,
+        startDate: validated.startDate,
+        endDate: validated.endDate,
+        ...biddingConfig,
+      },
+    },
+  ]);
+
+  const resourceName = campaignResult.results[0].resourceName;
+  console.log('[Google] Demand Gen campaign created:', resourceName);
+
+  return { resourceName };
+}
+
+/**
+ * Create an ad group for a Demand Gen campaign
+ */
+export async function createDemandGenAdGroup(
+  client: GoogleAdsClient,
+  data: DemandGenAdGroupCreate
+): Promise<{ resourceName: string }> {
+  const validated = DemandGenAdGroupCreateSchema.parse(data);
+
+  const adGroupData: Record<string, unknown> = {
+    name: validated.name,
+    campaign: validated.campaignResourceName,
+    status: validated.status,
+    type: 'DISPLAY_STANDARD',
+  };
+
+  if (validated.cpcBidMicros) {
+    adGroupData.cpcBidMicros = validated.cpcBidMicros.toString();
+  }
+
+  const result = await client.mutate('adGroups', [
+    { create: adGroupData },
+  ]);
+
+  const resourceName = result.results[0].resourceName;
+  console.log('[Google] Demand Gen ad group created:', resourceName);
+
+  return { resourceName };
+}
+
+/**
+ * Upload an image asset to Google Ads from a URL
+ */
+export async function uploadImageAsset(
+  client: GoogleAdsClient,
+  imageUrl: string,
+  assetName: string
+): Promise<{ resourceName: string }> {
+  // Download image and convert to base64
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new GoogleAdsApiError(`Failed to download image from ${imageUrl}: ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+  const result = await client.mutate('assets', [
+    {
+      create: {
+        name: assetName,
+        type: 'IMAGE',
+        imageAsset: {
+          data: base64Data,
+        },
+      },
+    },
+  ]);
+
+  const resourceName = result.results[0].resourceName;
+  console.log('[Google] Image asset uploaded:', resourceName);
+
+  return { resourceName };
+}
+
+/**
+ * Create a Demand Gen multi-asset image ad
+ */
+export async function createDemandGenImageAd(
+  client: GoogleAdsClient,
+  data: DemandGenImageAdCreate
+): Promise<{ resourceName: string }> {
+  const validated = DemandGenImageAdCreateSchema.parse(data);
+
+  const marketingImages = validated.imageAssetResourceNames.map(resourceName => ({
+    asset: resourceName,
+  }));
+
+  const headlines = validated.headlines.map(text => ({
+    text,
+  }));
+
+  const descriptions = validated.descriptions.map(text => ({
+    text,
+  }));
+
+  const result = await client.mutate('adGroupAds', [
+    {
+      create: {
+        adGroup: validated.adGroupResourceName,
+        status: 'PAUSED',
+        ad: {
+          name: validated.name,
+          finalUrls: [validated.finalUrl],
+          demandGenMultiAssetAd: {
+            marketingImages,
+            headlines,
+            descriptions,
+            businessName: validated.businessName,
+            callToActionText: validated.callToAction,
+          },
+        },
+      },
+    },
+  ]);
+
+  const resourceName = result.results[0].resourceName;
+  console.log('[Google] Demand Gen image ad created:', resourceName);
+
+  return { resourceName };
+}
+
+/**
+ * Create a complete Demand Gen campaign with ad group and targeting
+ */
+export async function createDemandGenCampaignWithAdGroup(
+  client: GoogleAdsClient,
+  config: {
+    name: string;
+    budget: number; // In currency units (e.g., dollars)
+    budgetType: 'DAILY' | 'TOTAL';
+    startDate: string; // YYYY-MM-DD
+    endDate?: string;
+    biddingStrategy: string;
+    targeting: GoogleTargetingResult;
+  }
+): Promise<{ campaignResourceName: string; adGroupResourceName: string }> {
+  // Convert budget to micros
+  const budgetMicros = BigInt(Math.round(config.budget * 1_000_000));
+
+  // Step 1: Create Demand Gen campaign
+  const campaign = await createDemandGenCampaign(client, {
+    name: config.name,
+    budgetAmountMicros: budgetMicros,
+    budgetType: config.budgetType === 'DAILY' ? 'DAILY' : 'TOTAL',
+    startDate: config.startDate,
+    endDate: config.endDate,
+    status: 'PAUSED',
+    biddingStrategy: config.biddingStrategy as DemandGenCampaignCreate['biddingStrategy'],
+  });
+
+  // Step 2: Apply targeting criteria to campaign
+  await applyTargetingToCampaign(client, campaign.resourceName, config.targeting);
+
+  // Step 3: Create ad group
+  const adGroup = await createDemandGenAdGroup(client, {
+    name: `${config.name} - Ad Group`,
+    campaignResourceName: campaign.resourceName,
+    status: 'PAUSED',
+  });
+
+  return {
+    campaignResourceName: campaign.resourceName,
+    adGroupResourceName: adGroup.resourceName,
+  };
+}
+
+// ============================================================================
+// DISPLAY INSIGHTS / METRICS
+// ============================================================================
+
+/**
+ * Get Demand Gen / Display campaign insights using GAQL
+ */
+export async function getDisplayInsights(
+  client: GoogleAdsClient,
+  campaignResourceName: string,
+  startDate: string,
+  endDate: string
+): Promise<DisplayInsightsResponse> {
+  const query = `
+    SELECT
+      metrics.impressions,
+      metrics.clicks,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.cost_micros,
+      metrics.conversions,
+      segments.date
+    FROM campaign
+    WHERE campaign.resource_name = '${campaignResourceName}'
+      AND segments.date BETWEEN '${startDate}' AND '${endDate}'
+    ORDER BY segments.date
+  `;
+
+  const response = await client.query<{
+    results?: Array<{
+      metrics?: Record<string, string>;
+      segments?: { date: string };
+    }>;
+  }>(query);
+
+  // Aggregate results
+  let totalImpressions = 0;
+  let totalClicks = 0;
+  let totalCostMicros = BigInt(0);
+  let totalConversions = 0;
+  let weightedCtr = 0;
+  let weightedCpc = 0;
+  let count = 0;
+
+  if (response.results) {
+    for (const row of response.results) {
+      const m = row.metrics;
+      if (!m) continue;
+
+      totalImpressions += parseInt(m.impressions || '0', 10);
+      totalClicks += parseInt(m.clicks || '0', 10);
+      totalCostMicros += BigInt(m.cost_micros || '0');
+      totalConversions += parseFloat(m.conversions || '0');
+      weightedCtr += parseFloat(m.ctr || '0');
+      weightedCpc += parseFloat(m.average_cpc || '0');
+      count++;
+    }
+  }
+
+  const avgDivisor = count || 1;
+
+  return DisplayInsightsResponseSchema.parse({
+    impressions: totalImpressions,
+    clicks: totalClicks,
+    ctr: weightedCtr / avgDivisor,
+    averageCpc: weightedCpc / avgDivisor,
+    costMicros: totalCostMicros,
+    conversions: totalConversions,
     dateStart: startDate,
     dateEnd: endDate,
   });

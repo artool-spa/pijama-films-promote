@@ -122,6 +122,73 @@ export const GoogleInsightsResponseSchema = z.object({
 export type GoogleInsightsResponse = z.infer<typeof GoogleInsightsResponseSchema>;
 
 // ============================================================================
+// DEMAND GEN CAMPAIGN
+// ============================================================================
+
+export const DemandGenCampaignCreateSchema = z.object({
+  name: z.string().min(1).max(255),
+  budgetAmountMicros: z.bigint().positive(),
+  budgetType: z.enum(['DAILY', 'TOTAL']).default('TOTAL'),
+  startDate: z.string(), // YYYY-MM-DD format
+  endDate: z.string().optional(),
+  status: z.enum(['ENABLED', 'PAUSED']).default('PAUSED'),
+  biddingStrategy: z.enum([
+    'MAXIMIZE_CLICKS',
+    'MAXIMIZE_CONVERSIONS',
+    'TARGET_CPA',
+  ]).default('MAXIMIZE_CLICKS'),
+});
+
+export type DemandGenCampaignCreate = z.infer<typeof DemandGenCampaignCreateSchema>;
+
+// ============================================================================
+// DEMAND GEN AD GROUP
+// ============================================================================
+
+export const DemandGenAdGroupCreateSchema = z.object({
+  name: z.string().min(1).max(255),
+  campaignResourceName: z.string(),
+  status: z.enum(['ENABLED', 'PAUSED']).default('PAUSED'),
+  cpcBidMicros: z.bigint().optional(),
+});
+
+export type DemandGenAdGroupCreate = z.infer<typeof DemandGenAdGroupCreateSchema>;
+
+// ============================================================================
+// DEMAND GEN IMAGE AD
+// ============================================================================
+
+export const DemandGenImageAdCreateSchema = z.object({
+  name: z.string().min(1).max(255),
+  adGroupResourceName: z.string(),
+  imageAssetResourceNames: z.array(z.string()).min(1),
+  headlines: z.array(z.string().min(1).max(30)).min(1).max(5),
+  descriptions: z.array(z.string().min(1).max(90)).min(1).max(5),
+  finalUrl: z.string().url(),
+  businessName: z.string().min(1).max(25),
+  callToAction: z.string().optional(),
+});
+
+export type DemandGenImageAdCreate = z.infer<typeof DemandGenImageAdCreateSchema>;
+
+// ============================================================================
+// DISPLAY INSIGHTS / METRICS
+// ============================================================================
+
+export const DisplayInsightsResponseSchema = z.object({
+  impressions: z.number().default(0),
+  clicks: z.number().default(0),
+  ctr: z.number().default(0),
+  averageCpc: z.number().default(0), // In currency (not micros)
+  costMicros: z.bigint().default(BigInt(0)),
+  conversions: z.number().default(0),
+  dateStart: z.string(),
+  dateEnd: z.string(),
+});
+
+export type DisplayInsightsResponse = z.infer<typeof DisplayInsightsResponseSchema>;
+
+// ============================================================================
 // API RESPONSE TYPES
 // ============================================================================
 

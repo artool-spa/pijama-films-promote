@@ -13,6 +13,9 @@ import {
   google,
   createYouTubeCampaignWithAdGroup,
   createVideoAd,
+  createDemandGenCampaignWithAdGroup,
+  uploadImageAsset,
+  createDemandGenImageAd,
   updateCampaignStatus,
   updateAdGroupStatus,
   buildGoogleTargeting,
@@ -78,6 +81,13 @@ export function areGoogleAssetsReady(ads: Ad[]): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Check if ads have at least one image (images are ready immediately, no upload needed)
+ */
+export function areGoogleImageAssetsReady(ads: Ad[]): boolean {
+  return ads.some(ad => ad.images.length > 0);
 }
 
 /**
@@ -427,14 +437,13 @@ export async function syncCampaignToGoogle(
     });
 
     const campaignName = `camp_${partnerName}_${campaign.name}`;
-    const googleResult = await createYouTubeCampaignWithAdGroup(google, {
+    const googleResult = await createDemandGenCampaignWithAdGroup(google, {
       name: campaignName,
       budget: campaign.budget,
       budgetType: campaign.budgetType === 'DAILY' ? 'DAILY' : 'TOTAL',
       startDate: campaign.startDate.toISOString().split('T')[0],
       endDate: campaign.endDate?.toISOString().split('T')[0],
-      biddingStrategy: options?.googleBidStrategy || 'TARGET_CPV',
-      targetCpvMicros: options?.targetCpvMicros,
+      biddingStrategy: options?.googleBidStrategy || 'MAXIMIZE_CLICKS',
       targeting,
     });
 
@@ -466,58 +475,46 @@ export async function syncCampaignToGoogle(
     };
   }
 
-  // Create video ads
+  // Create image ads (Demand Gen)
   const syncedAds: Ad[] = [];
   const adErrors: Array<{ adId: string; error: string }> = [];
 
   for (const ad of ads) {
-    const video = ad.videos[0];
-    if (!video) {
-      adErrors.push({ adId: ad.id, error: 'No video found for this ad' });
+    if (ad.images.length === 0) {
+      adErrors.push({ adId: ad.id, error: 'No images found for this ad' });
       continue;
     }
 
-    if (!video.youtubeVideoId) {
-      adErrors.push({ adId: ad.id, error: `Video "${video.name}" no tiene ID de YouTube` });
-      continue;
-    }
+    try {
+      // Upload images as Google Ads assets
+      await emitProgress(filmId, campaign.id, 'image_upload', 70, `Subiendo imágenes: ${ad.name}...`);
 
-    const youtubeVideoId = video.youtubeVideoId;
-    const duration = video.duration || 30;
-    const eligibleFormats = getEligibleYouTubeFormats(duration);
-
-    let firstGoogleAdResourceName: string | undefined;
-
-    for (const adFormat of eligibleFormats) {
-      try {
-        await emitProgress(filmId, campaign.id, 'video_ad', 75, `Creando anuncio: ${ad.name} (${adFormat})...`);
-
-        const googleAd = await createVideoAd(google, {
-          name: `${ad.name} - ${adFormat}`,
-          adGroupResourceName: googleAdGroupId,
-          youtubeVideoId,
-          adFormat,
-          headline: ad.headlines[0],
-          description1: ad.bodies[0]?.substring(0, 90),
-          description2: ad.bodies[1]?.substring(0, 90),
-          finalUrl: ad.linkUrl,
-          callToAction: ad.callToAction,
-        });
-
-        if (!firstGoogleAdResourceName) {
-          firstGoogleAdResourceName = googleAd.resourceName;
-          await markGoogleAdSynced(ad.id, googleAd.resourceName, adFormat);
-        }
-      } catch (error) {
-        const errorMsg = error instanceof GoogleAdsApiError ? error.message : `Error creating ${adFormat} ad`;
-        console.error(`Failed to create Google ad (${adFormat}) for ${ad.id}:`, error);
-        adErrors.push({ adId: ad.id, error: errorMsg });
+      const imageAssetResourceNames: string[] = [];
+      for (const image of ad.images) {
+        const asset = await uploadImageAsset(google, image.url, `${ad.name} - ${image.name}`);
+        imageAssetResourceNames.push(asset.resourceName);
       }
-    }
 
-    if (firstGoogleAdResourceName) {
-      syncedAds.push({ ...ad, googleAdId: firstGoogleAdResourceName });
-    } else {
+      // Create Demand Gen image ad
+      await emitProgress(filmId, campaign.id, 'image_ad', 80, `Creando anuncio: ${ad.name}...`);
+
+      const googleAd = await createDemandGenImageAd(google, {
+        name: ad.name,
+        adGroupResourceName: googleAdGroupId,
+        imageAssetResourceNames,
+        headlines: ad.headlines.map(h => h.substring(0, 30)).slice(0, 5),
+        descriptions: ad.bodies.map(b => b.substring(0, 90)).slice(0, 5),
+        finalUrl: ad.linkUrl,
+        businessName: partnerName.substring(0, 25),
+        callToAction: ad.callToAction,
+      });
+
+      await markGoogleAdSynced(ad.id, googleAd.resourceName);
+      syncedAds.push({ ...ad, googleAdId: googleAd.resourceName });
+    } catch (error) {
+      const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
+      console.error(`Failed to create Google ad for ${ad.id}:`, error);
+      adErrors.push({ adId: ad.id, error: errorMsg });
       await markAdError(ad.id).catch(() => {});
     }
   }
@@ -538,7 +535,7 @@ export async function syncCampaignToGoogle(
       adErrors.push({ adId: 'campaign', error: 'Campaign created but could not be enabled' });
     }
 
-    await emitProgress(filmId, campaign.id, 'complete', 100, 'Campana de YouTube creada exitosamente!');
+    await emitProgress(filmId, campaign.id, 'complete', 100, 'Campaña de Google Ads creada exitosamente!');
   }
 
   return {

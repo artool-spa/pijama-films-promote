@@ -11,12 +11,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { google, getYouTubeInsights, GoogleAdsApiError } from '#google';
+import { google, getYouTubeInsights, getDisplayInsights, GoogleAdsApiError } from '#google';
 import prisma from '#prisma';
 
 // In-memory cache for insights
 interface CachedInsights {
-  data: YouTubeInsightsResponse;
+  data: YouTubeInsightsResponse | DisplayInsightsData;
   timestamp: number;
   ttl: number;
 }
@@ -42,7 +42,18 @@ interface YouTubeInsightsResponse {
   dateEnd: string;
 }
 
-function getCachedInsights(campaignId: string): YouTubeInsightsResponse | null {
+interface DisplayInsightsData {
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  averageCpc: number;
+  spend: number;
+  conversions: number;
+  dateStart: string;
+  dateEnd: string;
+}
+
+function getCachedInsights(campaignId: string): YouTubeInsightsResponse | DisplayInsightsData | null {
   const cached = insightsCache.get(campaignId);
   if (!cached) return null;
 
@@ -57,7 +68,7 @@ function getCachedInsights(campaignId: string): YouTubeInsightsResponse | null {
 
 function setCachedInsights(
   campaignId: string,
-  data: YouTubeInsightsResponse,
+  data: YouTubeInsightsResponse | DisplayInsightsData,
   isActive: boolean
 ): void {
   insightsCache.set(campaignId, {
@@ -84,6 +95,12 @@ export async function GET(
         status: true,
         startDate: true,
         endDate: true,
+        ads: {
+          select: {
+            adSetType: true,
+          },
+          take: 1,
+        },
       },
     });
 
@@ -103,31 +120,46 @@ export async function GET(
       });
     }
 
+    // Detect if this is a Demand Gen (image) campaign
+    const isDemandGen = campaign.ads[0]?.adSetType === 'IMAGE';
+
     // Check if campaign start date is in the future
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const startDateStr = campaign.startDate.toISOString().split('T')[0];
 
     if (campaign.startDate > now) {
-      const scheduledResponse: YouTubeInsightsResponse = {
-        impressions: 0,
-        videoViews: 0,
-        videoViewRate: 0,
-        averageCpv: 0,
-        spend: 0,
-        clicks: 0,
-        ctr: 0,
-        videoQuartile25Rate: 0,
-        videoQuartile50Rate: 0,
-        videoQuartile75Rate: 0,
-        videoQuartile100Rate: 0,
-        dateStart: startDateStr,
-        dateEnd: campaign.endDate?.toISOString().split('T')[0] || startDateStr,
-      };
+      const scheduledResponse = isDemandGen
+        ? {
+            impressions: 0,
+            clicks: 0,
+            ctr: 0,
+            averageCpc: 0,
+            spend: 0,
+            conversions: 0,
+            dateStart: startDateStr,
+            dateEnd: campaign.endDate?.toISOString().split('T')[0] || startDateStr,
+          } satisfies DisplayInsightsData
+        : {
+            impressions: 0,
+            videoViews: 0,
+            videoViewRate: 0,
+            averageCpv: 0,
+            spend: 0,
+            clicks: 0,
+            ctr: 0,
+            videoQuartile25Rate: 0,
+            videoQuartile50Rate: 0,
+            videoQuartile75Rate: 0,
+            videoQuartile100Rate: 0,
+            dateStart: startDateStr,
+            dateEnd: campaign.endDate?.toISOString().split('T')[0] || startDateStr,
+          } satisfies YouTubeInsightsResponse;
 
       return NextResponse.json({
         synced: true,
         scheduled: true,
+        campaignType: isDemandGen ? 'DEMAND_GEN' : 'VIDEO',
         message: 'Campaign has not started yet',
         data: scheduledResponse,
       });
@@ -139,6 +171,7 @@ export async function GET(
       return NextResponse.json({
         synced: true,
         cached: true,
+        campaignType: isDemandGen ? 'DEMAND_GEN' : 'VIDEO',
         data: cached,
       });
     }
@@ -148,6 +181,37 @@ export async function GET(
     const endDateStr = campaign.endDate?.toISOString().split('T')[0] || today;
     const effectiveEndDate = endDateStr > today ? today : endDateStr;
 
+    if (isDemandGen) {
+      // Fetch display metrics for Demand Gen campaigns
+      const displayInsights = await getDisplayInsights(
+        google,
+        campaign.googleCampaignId,
+        startDateStr,
+        effectiveEndDate
+      );
+
+      const response: DisplayInsightsData = {
+        impressions: displayInsights.impressions,
+        clicks: displayInsights.clicks,
+        ctr: displayInsights.ctr,
+        averageCpc: displayInsights.averageCpc,
+        spend: Number(displayInsights.costMicros) / 1_000_000,
+        conversions: displayInsights.conversions,
+        dateStart: displayInsights.dateStart,
+        dateEnd: displayInsights.dateEnd,
+      };
+
+      setCachedInsights(id, response, isActive);
+
+      return NextResponse.json({
+        synced: true,
+        cached: false,
+        campaignType: 'DEMAND_GEN',
+        data: response,
+      });
+    }
+
+    // Fetch video metrics for YouTube campaigns (legacy)
     const googleInsights = await getYouTubeInsights(
       google,
       campaign.googleCampaignId,
@@ -177,6 +241,7 @@ export async function GET(
     return NextResponse.json({
       synced: true,
       cached: false,
+      campaignType: 'VIDEO',
       data: response,
     });
   } catch (error) {

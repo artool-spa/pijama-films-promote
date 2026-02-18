@@ -62,6 +62,7 @@ import {
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
+import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
@@ -184,7 +185,7 @@ type UploadedAsset = {
 const PLATFORMS = [
   { id: 'facebook', name: 'Facebook', adStyles: ['Feed', 'Stories'], platform: 'META' as const },
   { id: 'instagram', name: 'Instagram', adStyles: ['Feed', 'Stories'], platform: 'META' as const },
-  { id: 'youtube', name: 'YouTube', adStyles: ['In-Stream', 'In-Feed', 'Bumper', 'Shorts'], platform: 'GOOGLE' as const },
+  { id: 'google', name: 'Google Ads', adStyles: ['Demand Gen'], platform: 'GOOGLE' as const },
 ];
 
 // Location type from Meta API
@@ -300,7 +301,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   // Platform and ad style
   const [selectedAdStyle, setSelectedAdStyle] = useState(draft?.selectedAdStyle ?? 'Feed');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(draft?.selectedPlatforms ?? ['facebook', 'instagram', 'youtube']);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(draft?.selectedPlatforms ?? ['facebook', 'instagram', 'google']);
 
   // Form state - Demographics & Budget
   const [ageMin, setAgeMin] = useState(draft?.ageMin ?? existingDraft?.targetAgeMin ?? 18);
@@ -1245,8 +1246,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         throw new Error('Select at least one image or video for your campaign');
       }
 
-      const hasMetaPlatform = selectedPlatforms.some(p => p !== 'youtube');
-      const hasGoogle = selectedPlatforms.includes('youtube');
+      const hasMetaPlatform = selectedPlatforms.some(p => p !== 'google');
+      const hasGoogle = selectedPlatforms.includes('google');
 
       // Include draftId if resuming from a draft
       const payloadWithDraft = draftId ? { ...payload, draftId } : payload;
@@ -1281,7 +1282,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           const googlePayload = {
             ...payload,
             campaignId, // Reuse existing campaign
-            googleBidStrategy: 'TARGET_CPV',
+            googleBidStrategy: 'MAXIMIZE_CLICKS',
           };
 
           const googleResponse = await fetch('/api/google/campaigns/create-and-sync', {
@@ -1304,7 +1305,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         // Only Google selected
         const googlePayload = {
           ...payloadWithDraft,
-          googleBidStrategy: 'TARGET_CPV',
+          googleBidStrategy: 'MAXIMIZE_CLICKS',
         };
 
         const googleResponse = await fetch('/api/google/campaigns/create-and-sync', {
@@ -1418,7 +1419,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 {platform.id === 'facebook' && <FacebookIcon sx={{ fontSize: 18, color: '#1877F2' }} />}
                                 {platform.id === 'instagram' && <InstagramIcon sx={{ fontSize: 18, color: '#E4405F' }} />}
-                                {platform.id === 'youtube' && <YouTubeIcon sx={{ fontSize: 18, color: '#FF0000' }} />}
+                                {platform.id === 'google' && <YouTubeIcon sx={{ fontSize: 18, color: '#FF0000' }} />}
                                 {platform.name}
                               </Box>
                             }
@@ -2495,7 +2496,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                   </Button>
                 </Box>
               ) : currentPlatform.platform === 'GOOGLE' ? (
-                // YouTube preview rendered client-side
+                // Google Ads preview rendered client-side
                 (() => {
                   const hasMedia = selectedAssets.length > 0;
                   const hasCopy = copies[previewVariant]?.headline;
@@ -2517,18 +2518,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         }}
                       >
                         <Typography color="text.secondary" align="center">
-                          {!hasMedia ? 'Select media to see YouTube preview' : 'Add copy text to see YouTube preview'}
+                          {!hasMedia ? 'Selecciona medios para ver la vista previa' : 'Agrega texto del anuncio para ver la vista previa'}
                         </Typography>
                       </Box>
                     );
                   }
                   return (
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                      <YouTubeAdPreview
-                        adFormat={getYouTubeFormat(selectedAdStyle)}
+                      <GoogleDisplayAdPreview
                         headline={copies[previewVariant]?.headline}
                         description={copies[previewVariant]?.description}
-                        thumbnailUrl={previewableAssets[previewAssetIndex]?.thumbnailUrl || previewableAssets[previewAssetIndex]?.url}
+                        imageUrl={previewableAssets[previewAssetIndex]?.thumbnailUrl || previewableAssets[previewAssetIndex]?.url}
                       />
                     </Box>
                   );

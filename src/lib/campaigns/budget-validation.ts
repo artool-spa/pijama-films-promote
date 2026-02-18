@@ -45,7 +45,7 @@ export function validateCampaignBudget(input: BudgetValidationInput): BudgetVali
   }
 
   const hasMeta = platforms.some(p => p === 'facebook' || p === 'instagram');
-  const hasGoogle = platforms.includes('youtube');
+  const hasGoogle = platforms.includes('youtube') || platforms.includes('google');
 
   const metaAdsets = languages * META_ASSET_TYPES;
   const metaDaily = hasMeta ? metaAdsets * META_MIN_DAILY_PER_ADSET : 0;

@@ -6,7 +6,7 @@ import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { publish } from '@/lib/events';
 import { GoogleAdsApiError } from '#google';
-import { areGoogleAssetsReady, syncCampaignToGoogle } from '@/lib/campaigns/sync';
+import { areGoogleImageAssetsReady, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 
 // Helper to publish campaign progress
@@ -28,8 +28,12 @@ const AdInputSchema = z.object({
   descriptions: z.array(z.string().max(90)).max(5).default([]),
   callToAction: z.string().default('LEARN_MORE'),
   linkUrl: z.string().url(),
-  videoIds: z.array(z.string().cuid()).min(1).max(10), // YouTube campaigns require videos
-});
+  imageIds: z.array(z.string().cuid()).max(10).default([]),
+  videoIds: z.array(z.string().cuid()).max(10).default([]),
+}).refine(
+  data => data.imageIds.length > 0 || data.videoIds.length > 0,
+  { message: 'At least one image or video is required' }
+);
 
 // Combined schema for Google campaign + ads + auto-sync
 const GoogleCampaignWithAdsCreateSchema = z.object({
@@ -49,8 +53,8 @@ const GoogleCampaignWithAdsCreateSchema = z.object({
   filmGenres: z.array(z.string()).default([]),
   includeLgbtAudience: z.boolean().default(false),
   filmMuviUuid: z.string().min(1),
-  // YouTube specific
-  googleBidStrategy: z.string().default('TARGET_CPV'),
+  // Google Ads specific
+  googleBidStrategy: z.string().default('MAXIMIZE_CLICKS'),
   targetCpvMicros: z.number().int().positive().optional(), // In micros
   // Reuse existing campaign (for multi-platform sync)
   campaignId: z.string().cuid().optional(),
@@ -90,7 +94,7 @@ export async function POST(req: NextRequest) {
     // Validate budget meets platform minimums
     const budgetCheck = validateCampaignBudget({
       budget: data.budget,
-      platforms: ['youtube'],
+      platforms: ['google'],
       languages: 1,
       startDate: data.startDate.toISOString().split('T')[0],
       endDate: data.endDate ? data.endDate.toISOString().split('T')[0] : '',
@@ -145,9 +149,9 @@ export async function POST(req: NextRequest) {
         descriptions: ad.descriptions,
         callToAction: ad.callToAction,
         linkUrl: ad.linkUrl,
-        imageIds: [],
+        imageIds: ad.imageIds,
         videoIds: ad.videoIds,
-        adSetType: 'VIDEO' as const,
+        adSetType: 'IMAGE' as const,
       }));
 
       ads = await createAdsForCampaign(campaign.id, adsToCreate);
@@ -181,9 +185,9 @@ export async function POST(req: NextRequest) {
         descriptions: ad.descriptions,
         callToAction: ad.callToAction,
         linkUrl: ad.linkUrl,
-        imageIds: [],
+        imageIds: ad.imageIds,
         videoIds: ad.videoIds,
-        adSetType: 'VIDEO' as const,
+        adSetType: 'IMAGE' as const,
       }));
 
       ads = await createAdsForCampaign(campaign.id, adsToCreate);
@@ -199,13 +203,13 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    // Step 3: Check if all video assets have YouTube IDs
-    if (!areGoogleAssetsReady(ads)) {
-      // Videos are still uploading to YouTube — defer sync
+    // Step 3: Check if image assets are available (images are ready immediately)
+    if (!areGoogleImageAssetsReady(ads)) {
+      // No images available — defer sync
       await markCampaignPendingAssets(campaign.id);
 
       await emitProgress(data.filmMuviUuid, campaign.id, 'pending_assets', 25,
-        'Videos are still uploading to YouTube. Sync will complete automatically.');
+        'No images available yet. Sync will complete automatically when assets are ready.');
 
       return NextResponse.json({
         success: true,
@@ -213,7 +217,7 @@ export async function POST(req: NextRequest) {
         ads,
         synced: false,
         pendingAssets: true,
-        message: 'Campaña guardada. Los videos aún se están subiendo a YouTube — la sincronización se completará automáticamente.',
+        message: 'Campaña guardada. Las imágenes aún no están disponibles — la sincronización se completará automáticamente.',
       }, { status: 201 });
     }
 

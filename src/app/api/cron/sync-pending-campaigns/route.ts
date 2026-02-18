@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCampaignsPendingAssets } from '@/models/campaign';
-import { areMetaAssetsReady, areGoogleAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
+import { areMetaAssetsReady, areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 
 /**
  * GET /api/cron/sync-pending-campaigns
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
       // Check if assets are ready for each platform
       const metaReady = !hasMeta || areMetaAssetsReady(campaign.ads);
-      const googleReady = !hasGoogle || areGoogleAssetsReady(campaign.ads);
+      const googleReady = !hasGoogle || areGoogleImageAssetsReady(campaign.ads);
 
       if (!metaReady || !googleReady) {
         stillPendingCount++;
