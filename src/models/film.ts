@@ -14,6 +14,7 @@ import type {
   MuviMovieDetails,
   MuviCast,
   MuviVideoAsset,
+  MuviCustomField,
 } from '#muvi';
 import prisma from '#prisma';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
@@ -212,9 +213,27 @@ export function generateAllAdCopiesForFilm(film: MuviMovie): AdCopies {
 }
 
 /**
- * Extract year from ISO date string
+ * Extract "Year of Production" from custom_field_data array.
+ * Falls back to parsing the date string (content_created_date).
  */
-function extractYear(dateString?: string | null): number {
+function extractYear(
+  customFields?: MuviCustomField[] | null,
+  dateString?: string | null,
+): number {
+  // Try custom field first
+  if (customFields) {
+    const yearField = customFields.find(
+      (f) => f.custom_field_name === 'Year of Production'
+    );
+    if (yearField?.custom_field_value) {
+      const parsed = parseInt(yearField.custom_field_value, 10);
+      if (!isNaN(parsed) && parsed > 1800 && parsed < 2200) {
+        return parsed;
+      }
+    }
+  }
+
+  // Fallback to date string
   if (!dateString) return new Date().getFullYear();
   const date = new Date(dateString);
   return isNaN(date.getTime()) ? new Date().getFullYear() : date.getFullYear();
@@ -403,12 +422,12 @@ function mapMuviToFilm(movie: MuviMovie): Film {
     title: movie.content_name || 'Sin título',
     description: movie.content_desc || '',
     duration: parseDuration(movieDetails.video_details?.duration),
-    year: extractYear(movie.content_created_date),
+    year: extractYear(movie.custom_field_data, movie.content_created_date),
     genre: extractGenres(movie),
     director: extractDirector(movieDetails.cast_details),
     posterUrl: getPosterUrl(movie),
     trailerUrl: getTrailerUrl(movieDetails.trailer_details),
-    rentalUrl: movie.content_permalink || '',
+    rentalUrl: `https://pijamafilms.com/watch/${movie.content_uuid}`,
     isPublished: movie.content_status === 2 || movie.content_status === 'active',
     campaigns: [], // Will be populated by getFilms/getFilmById if needed
     campaignCount: 0,

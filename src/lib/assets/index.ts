@@ -361,6 +361,8 @@ function uploadVideoToYouTubeBackground(
   videoName: string,
   filmMuviUuid: string
 ): void {
+  if (process.env.ENABLE_YOUTUBE_UPLOAD !== 'true') return;
+
   // Fire and forget - don't await
   (async () => {
     try {

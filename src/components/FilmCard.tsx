@@ -64,7 +64,7 @@ export default function FilmCard({ film }: FilmCardProps) {
           {film.title}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          {film.director} - {film.year}
+          {(film.genre[0] === 'Video' ? film.genre[1] : film.genre[0]) || film.director} - {film.year}
         </Typography>
 
         {hasCampaigns && (

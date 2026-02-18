@@ -65,6 +65,7 @@ const MOVIES_LIST_QUERY = `
       }
       app_poster_details { image_uuid file_name file_url }
       no_image_available_url
+      custom_field_data { custom_field_name custom_field_value }
     }
   }
 `;
@@ -131,6 +132,7 @@ const MOVIE_DETAILS_QUERY = `
       }
       app_poster_details { image_uuid file_name file_url }
       no_image_available_url
+      custom_field_data { custom_field_name custom_field_value }
       video_details {
         video_uuid
         file_name

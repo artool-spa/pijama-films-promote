@@ -100,6 +100,14 @@ export const MuviCategorySchema = z.object({
 
 export type MuviCategory = z.infer<typeof MuviCategorySchema>;
 
+// Custom field data schema (key-value pairs for CMS custom fields)
+export const MuviCustomFieldSchema = z.object({
+  custom_field_name: z.string().nullable().optional(),
+  custom_field_value: z.string().nullable().optional(),
+});
+
+export type MuviCustomField = z.infer<typeof MuviCustomFieldSchema>;
+
 // Posters/Banners schema
 // Note: The API returns arrays for each platform (e.g., website: [...])
 // Arrays can be null when no images are uploaded
@@ -150,6 +158,7 @@ export const MuviMovieSchema = z.object({
   banners: MuviMediaImagesSchema.nullable().optional(),
   app_poster_details: MuviImageAssetSchema.nullable().optional(),
   no_image_available_url: z.string().nullable().optional(),
+  custom_field_data: z.array(MuviCustomFieldSchema).nullable().optional(),
 });
 
 export type MuviMovie = z.infer<typeof MuviMovieSchema>;

@@ -65,6 +65,7 @@ export type {
   MuviImageAsset,
   MuviCast,
   MuviCategory,
+  MuviCustomField,
   GetMoviesOptions,
   GetMoviesResult,
 } from './types';

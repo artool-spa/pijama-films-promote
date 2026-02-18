@@ -67,12 +67,25 @@ type YouTubeInsightsData = {
   dateEnd: string;
 };
 
+type DisplayInsightsData = {
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  averageCpc: number;
+  spend: number;
+  conversions: number;
+  dateStart: string;
+  dateEnd: string;
+};
+
 export default function CampaignDetailClient({ film, campaign }: CampaignDetailClientProps) {
   const router = useRouter();
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [insights, setInsights] = useState<InsightsData | null>(null);
   const [youtubeInsights, setYoutubeInsights] = useState<YouTubeInsightsData | null>(null);
+  const [displayInsights, setDisplayInsights] = useState<DisplayInsightsData | null>(null);
+  const [googleCampaignType, setGoogleCampaignType] = useState<'DEMAND_GEN' | 'VIDEO' | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
@@ -104,7 +117,13 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         const googleResponse = await fetch(`/api/google/campaigns/${campaign.id}/insights`);
         const googleData = await googleResponse.json();
         if (googleData.synced && googleData.data) {
-          setYoutubeInsights(googleData.data);
+          const type = googleData.campaignType as 'DEMAND_GEN' | 'VIDEO' | undefined;
+          setGoogleCampaignType(type || 'VIDEO');
+          if (type === 'DEMAND_GEN') {
+            setDisplayInsights(googleData.data);
+          } else {
+            setYoutubeInsights(googleData.data);
+          }
         } else if (googleData.message) {
           setInsightsError(googleData.message);
         }
@@ -321,8 +340,62 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             </Grid>
           )}
 
-          {/* YouTube Metrics */}
-          {hasGoogle && (
+          {/* Google Metrics */}
+          {hasGoogle && googleCampaignType === 'DEMAND_GEN' && (
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Budget
+                </Typography>
+                <Typography variant="h5" color="primary">
+                  ${campaign.budget.toLocaleString()}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Spend
+                </Typography>
+                <Typography variant="h5">
+                  {displayInsights ? `$${displayInsights.spend.toLocaleString()}` : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Impressions
+                </Typography>
+                <Typography variant="h5" color="success.main">
+                  {displayInsights ? displayInsights.impressions.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Clicks
+                </Typography>
+                <Typography variant="h5">
+                  {displayInsights ? displayInsights.clicks.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  CTR
+                </Typography>
+                <Typography variant="h5">
+                  {displayInsights ? `${displayInsights.ctr.toFixed(2)}%` : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Avg. CPC
+                </Typography>
+                <Typography variant="h5">
+                  {displayInsights ? `$${displayInsights.averageCpc.toFixed(3)}` : '-'}
+                </Typography>
+              </Grid>
+            </Grid>
+          )}
+
+          {/* YouTube Video Metrics (legacy) */}
+          {hasGoogle && googleCampaignType === 'VIDEO' && (
             <Grid container spacing={3} sx={{ mt: 1 }}>
               <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
