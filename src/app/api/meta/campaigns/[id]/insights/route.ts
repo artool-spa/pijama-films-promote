@@ -2,9 +2,13 @@
  * Meta Campaign Insights API Endpoint
  *
  * GET /api/meta/campaigns/[id]/insights
+ * GET /api/meta/campaigns/[id]/insights?breakdown=platform
  *
  * Fetches real-time metrics from Meta Ads Insights API for a CBO campaign.
  * With CBO, we fetch insights at the campaign level which aggregates all AdSets.
+ *
+ * When breakdown=platform is specified, returns per-platform metrics alongside
+ * aggregated totals computed from the breakdown rows.
  *
  * Caching:
  * - Active campaigns: 1-hour cache
@@ -13,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { meta, getInsights, MetaApiError } from '@/lib/meta';
+import type { MetaInsightData } from '@/lib/meta/types';
 import prisma from '#prisma';
 
 // In-memory cache for insights
@@ -22,7 +27,14 @@ interface CachedInsights {
   ttl: number;
 }
 
+interface CachedPlatformInsights {
+  data: PlatformBreakdownResponse;
+  timestamp: number;
+  ttl: number;
+}
+
 const insightsCache = new Map<string, CachedInsights>();
+const platformCache = new Map<string, CachedPlatformInsights>();
 
 // Cache TTLs in milliseconds
 const ACTIVE_CAMPAIGN_TTL = 60 * 60 * 1000; // 1 hour
@@ -43,13 +55,36 @@ interface InsightsResponse {
   dateEnd: string;
 }
 
-function getCachedInsights(campaignId: string): InsightsResponse | null {
-  const cached = insightsCache.get(campaignId);
+interface PlatformInsights {
+  platform: string;
+  platformLabel: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  conversions: number;
+  costPerConversion: number;
+  ctr: number;
+}
+
+interface PlatformBreakdownResponse {
+  aggregate: InsightsResponse;
+  platforms: PlatformInsights[];
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  audience_network: 'Audience Network',
+  messenger: 'Messenger',
+};
+
+function getCachedInsights(cacheKey: string): InsightsResponse | null {
+  const cached = insightsCache.get(cacheKey);
   if (!cached) return null;
 
   const now = Date.now();
   if (now - cached.timestamp > cached.ttl) {
-    insightsCache.delete(campaignId);
+    insightsCache.delete(cacheKey);
     return null;
   }
 
@@ -57,15 +92,58 @@ function getCachedInsights(campaignId: string): InsightsResponse | null {
 }
 
 function setCachedInsights(
-  campaignId: string,
+  cacheKey: string,
   data: InsightsResponse,
   isActive: boolean
 ): void {
-  insightsCache.set(campaignId, {
+  insightsCache.set(cacheKey, {
     data,
     timestamp: Date.now(),
     ttl: isActive ? ACTIVE_CAMPAIGN_TTL : COMPLETED_CAMPAIGN_TTL,
   });
+}
+
+function getCachedPlatformInsights(cacheKey: string): PlatformBreakdownResponse | null {
+  const cached = platformCache.get(cacheKey);
+  if (!cached) return null;
+
+  const now = Date.now();
+  if (now - cached.timestamp > cached.ttl) {
+    platformCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.data;
+}
+
+function setCachedPlatformInsights(
+  cacheKey: string,
+  data: PlatformBreakdownResponse,
+  isActive: boolean
+): void {
+  platformCache.set(cacheKey, {
+    data,
+    timestamp: Date.now(),
+    ttl: isActive ? ACTIVE_CAMPAIGN_TTL : COMPLETED_CAMPAIGN_TTL,
+  });
+}
+
+function parseInsightRow(row: MetaInsightData): {
+  impressions: number;
+  clicks: number;
+  spend: number;
+  conversions: number;
+} {
+  const purchaseAction = row.actions?.find(
+    (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+  );
+
+  return {
+    impressions: parseInt(row.impressions || '0', 10),
+    clicks: parseInt(row.clicks || '0', 10),
+    spend: parseFloat(row.spend || '0'),
+    conversions: purchaseAction ? parseInt(purchaseAction.value, 10) : 0,
+  };
 }
 
 export async function GET(
@@ -73,6 +151,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const wantsPlatformBreakdown = request.nextUrl.searchParams.get('breakdown') === 'platform';
 
   try {
     // First, get the campaign from our database
@@ -132,7 +211,136 @@ export async function GET(
       });
     }
 
-    // Check cache first
+    const isActive = campaign.status === 'ACTIVE';
+    const endDateStr = campaign.endDate?.toISOString().split('T')[0] || today;
+    const dateRange = {
+      since: startDateStr,
+      // Don't request future dates - use today if end date is in the future
+      until: endDateStr > today ? today : endDateStr,
+    };
+
+    const insightsFields = [
+      'impressions',
+      'clicks',
+      'spend',
+      'reach',
+      'frequency',
+      'cpm',
+      'cpc',
+      'ctr',
+      'actions',
+      'cost_per_action_type',
+    ];
+
+    // Platform breakdown path
+    if (wantsPlatformBreakdown) {
+      const platformCacheKey = `${id}:platform`;
+      const cachedPlatform = getCachedPlatformInsights(platformCacheKey);
+      if (cachedPlatform) {
+        return NextResponse.json({
+          synced: true,
+          cached: true,
+          data: cachedPlatform.aggregate,
+          platforms: cachedPlatform.platforms,
+        });
+      }
+
+      const metaInsights = await getInsights(meta, campaign.metaCampaignId, {
+        level: 'campaign',
+        time_range: dateRange,
+        fields: insightsFields,
+        breakdowns: ['publisher_platform'],
+      });
+
+      if (metaInsights.data.length === 0) {
+        const emptyResponse: InsightsResponse = {
+          impressions: 0,
+          clicks: 0,
+          spend: 0,
+          reach: 0,
+          frequency: 0,
+          conversions: 0,
+          costPerConversion: 0,
+          ctr: 0,
+          cpm: 0,
+          cpc: 0,
+          dateStart: dateRange.since,
+          dateEnd: dateRange.until,
+        };
+
+        return NextResponse.json({
+          synced: true,
+          cached: false,
+          message: 'No metrics data available yet',
+          data: emptyResponse,
+          platforms: [],
+        });
+      }
+
+      // Build per-platform metrics
+      const platforms: PlatformInsights[] = metaInsights.data.map((row) => {
+        const parsed = parseInsightRow(row);
+        const platform = row.publisher_platform || 'unknown';
+        return {
+          platform,
+          platformLabel: PLATFORM_LABELS[platform] || platform,
+          impressions: parsed.impressions,
+          clicks: parsed.clicks,
+          spend: parsed.spend,
+          conversions: parsed.conversions,
+          costPerConversion: parsed.conversions > 0
+            ? parsed.spend / parsed.conversions
+            : 0,
+          ctr: parsed.impressions > 0
+            ? (parsed.clicks / parsed.impressions) * 100
+            : 0,
+        };
+      });
+
+      // Compute aggregate by summing additive metrics
+      const totals = platforms.reduce(
+        (acc, p) => ({
+          impressions: acc.impressions + p.impressions,
+          clicks: acc.clicks + p.clicks,
+          spend: acc.spend + p.spend,
+          conversions: acc.conversions + p.conversions,
+        }),
+        { impressions: 0, clicks: 0, spend: 0, conversions: 0 }
+      );
+
+      const aggregate: InsightsResponse = {
+        impressions: totals.impressions,
+        clicks: totals.clicks,
+        spend: totals.spend,
+        reach: 0, // Not available in breakdown
+        frequency: 0,
+        conversions: totals.conversions,
+        costPerConversion: totals.conversions > 0
+          ? totals.spend / totals.conversions
+          : 0,
+        ctr: totals.impressions > 0
+          ? (totals.clicks / totals.impressions) * 100
+          : 0,
+        cpm: totals.impressions > 0
+          ? (totals.spend / totals.impressions) * 1000
+          : 0,
+        cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
+        dateStart: metaInsights.data[0].date_start || dateRange.since,
+        dateEnd: metaInsights.data[0].date_stop || dateRange.until,
+      };
+
+      const breakdownResponse: PlatformBreakdownResponse = { aggregate, platforms };
+      setCachedPlatformInsights(platformCacheKey, breakdownResponse, isActive);
+
+      return NextResponse.json({
+        synced: true,
+        cached: false,
+        data: aggregate,
+        platforms,
+      });
+    }
+
+    // Standard (non-breakdown) path
     const cached = getCachedInsights(id);
     if (cached) {
       return NextResponse.json({
@@ -143,29 +351,10 @@ export async function GET(
     }
 
     // Fetch insights from Meta API at campaign level (aggregates all AdSets)
-    const isActive = campaign.status === 'ACTIVE';
-    const endDateStr = campaign.endDate?.toISOString().split('T')[0] || today;
-    const dateRange = {
-      since: startDateStr,
-      // Don't request future dates - use today if end date is in the future
-      until: endDateStr > today ? today : endDateStr,
-    };
-
     const metaInsights = await getInsights(meta, campaign.metaCampaignId, {
       level: 'campaign',
       time_range: dateRange,
-      fields: [
-        'impressions',
-        'clicks',
-        'spend',
-        'reach',
-        'frequency',
-        'cpm',
-        'cpc',
-        'ctr',
-        'actions',
-        'cost_per_action_type',
-      ],
+      fields: insightsFields,
     });
 
     // Parse the insights data

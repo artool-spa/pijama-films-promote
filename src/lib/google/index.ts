@@ -14,7 +14,7 @@ function createGoogleAdsConfig() {
   const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
-  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || 'v18';
+  const apiVersion = process.env.GOOGLE_ADS_API_VERSION || 'v23';
   const baseUrl = process.env.GOOGLE_ADS_BASE_URL || 'https://googleads.googleapis.com';
 
   const missingVars: string[] = [];

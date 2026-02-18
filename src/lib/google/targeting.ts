@@ -65,25 +65,25 @@ const COUNTRY_GEO_TARGETS: Record<string, string> = {
 // AUDIENCE NAME PATTERNS (same convention as Meta)
 // ============================================================================
 
-const BASE_AUDIENCE_PREFIX = 'BASE +';
-const GENRE_AUDIENCE_PREFIX = 'GÉNEROS CINEMATOGRÁFICOS +';
-// Genre name mappings (Spanish genre names to audience name patterns)
-// Identical to Meta's GENRE_MAPPINGS for consistency
+const BASE_AUDIENCE_PREFIX = 'Base_';
+const GENRE_AUDIENCE_PREFIX = 'GENEROS_CINEMATOGRAFICOS_';
+
+// Genre name mappings (frontend Spanish genre → Google Ads audience name suffixes)
 const GENRE_MAPPINGS: Record<string, string[]> = {
-  'Drama': ['Drama', 'Dramático'],
+  'Drama': ['Drama'],
   'Comedia': ['Comedia', 'Comedy'],
-  'Acción': ['Acción', 'Action'],
+  'Acción': ['Accion', 'Action'],
   'Terror': ['Terror', 'Horror'],
   'Suspenso': ['Suspenso', 'Thriller'],
-  'Romance': ['Romance', 'Romántico'],
-  'Ciencia Ficción': ['Ciencia Ficción', 'Sci-Fi'],
+  'Romance': ['Romance'],
+  'Ciencia Ficción': ['Ciencia_Ficcion', 'Sci_Fi', 'SciFi'],
   'Documental': ['Documental', 'Documentary'],
-  'Animación': ['Animación', 'Animation'],
+  'Animación': ['Animacion', 'Animation'],
   'Aventura': ['Aventura', 'Adventure'],
-  'Fantasía': ['Fantasía', 'Fantasy'],
+  'Fantasía': ['Fantasia', 'Fantasy'],
   'Musical': ['Musical'],
   'Crimen': ['Crimen', 'Crime'],
-  'Biografía': ['Biografía', 'Biography'],
+  'Biografía': ['Biografia', 'Biography'],
   'Historia': ['Historia', 'Historical'],
   'Guerra': ['Guerra', 'War'],
   'Western': ['Western'],

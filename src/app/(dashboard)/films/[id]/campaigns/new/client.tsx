@@ -1575,11 +1575,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                           label={
                             <Box>
                               <Typography variant="subtitle1" component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                                Pijama Audience
+                                Pijama Audience: Promote your film globally — connect locally
                               </Typography>
                               <Typography variant="body2" display="block" color="text.secondary">
                                 {usePijamaAudience
-                                  ? 'Optimize your campaign using our specialized data for independent film. We take care of finding the best audience for your film.'
+                                  ? 'Our specialized audience engine blends global data intelligence with local cultural insight to find the perfect viewers for your story. Using advanced analytics across Meta, YouTube, and TikTok, we define your film\'s true audience — then adapt your campaign country by country to maximize reach and results.'
                                   : 'Manually configure your audience targeting. Define age, gender, and film categories.'}
                               </Typography>
                             </Box>
@@ -2854,7 +2854,32 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                 <Typography variant="body2">${(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)}</Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography variant="body2" color="text.secondary">Stripe fee (estimated):</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  Stripe fee (estimated):
+                  <Tooltip
+                    title={
+                      <Box>
+                        <Typography variant="caption" display="block">
+                          2.9% + 30¢ per successful domestic card transaction.
+                          +0.5% for manually entered cards.
+                          +1.5% for international cards.
+                          +1% if currency conversion is required.
+                        </Typography>
+                        <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                          We estimate worst-case to avoid surprises.
+                        </Typography>
+                        <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                          <a href="https://stripe.com/pricing" target="_blank" rel="noopener noreferrer" style={{ color: '#90caf9' }}>
+                            stripe.com/pricing
+                          </a>
+                        </Typography>
+                      </Box>
+                    }
+                    arrow
+                  >
+                    <HelpIcon sx={{ fontSize: 16, cursor: 'pointer' }} />
+                  </Tooltip>
+                </Typography>
                 <Typography variant="body2" color="text.secondary">${calculateWorstCaseFee(fundAmount || parseFloat(fundCustomAmount) || 0).toFixed(2)}</Typography>
               </Box>
               <Divider sx={{ my: 1 }} />

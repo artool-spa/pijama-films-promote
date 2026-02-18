@@ -166,6 +166,14 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
         height: Math.round(completedCrop.height * scaleY),
       };
 
+      // Clamp to image bounds (Math.round can overshoot by 1-2px)
+      const natW = displayedImg.naturalWidth;
+      const natH = displayedImg.naturalHeight;
+      pixelCrop.x = Math.min(pixelCrop.x, natW - 1);
+      pixelCrop.y = Math.min(pixelCrop.y, natH - 1);
+      pixelCrop.width = Math.min(pixelCrop.width, natW - pixelCrop.x);
+      pixelCrop.height = Math.min(pixelCrop.height, natH - pixelCrop.y);
+
       const res = await fetch('/api/assets/crop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

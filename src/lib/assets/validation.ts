@@ -16,8 +16,10 @@ export const META_IMAGE_REQUIREMENTS = {
   recommendedFacebookSize: 1080,
   maxFileSizeMB: 30,
   validAspectRatios: ['1:1', '4:5', '1.91:1'] as const,
-  // Aspect ratio range: between 4:5 (0.8) and 1.91:1 (1.91)
-  minAspectRatio: 0.8, // 4:5
+  // Aspect ratio range: between 9:16 (0.5625) and 1.91:1 (1.91)
+  // Stories/Reels support 9:16; feed supports 4:5 to 1.91:1
+  minAspectRatio: 0.5625, // 9:16
+  minFeedAspectRatio: 0.8, // 4:5 (minimum for feed placements)
   maxAspectRatio: 1.91, // 1.91:1
 } as const;
 
@@ -107,7 +109,7 @@ export function isAspectRatioValidForMeta(
   const ratio = getAspectRatioValue(width, height);
   const minRatio = allowStories
     ? META_VIDEO_REQUIREMENTS.minAspectRatio
-    : META_IMAGE_REQUIREMENTS.minAspectRatio;
+    : META_IMAGE_REQUIREMENTS.minFeedAspectRatio;
 
   return ratio >= minRatio && ratio <= META_IMAGE_REQUIREMENTS.maxAspectRatio;
 }
@@ -145,12 +147,14 @@ export function validateImageForMeta(input: ImageValidationInput): ValidationRes
   }
 
   // Check aspect ratio
+  const isStoryRatio = ratioValue < META_IMAGE_REQUIREMENTS.minFeedAspectRatio;
   if (ratioValue < META_IMAGE_REQUIREMENTS.minAspectRatio) {
-    errors.push(`Aspect ratio too tall. Must be between 4:5 and 1.91:1 (current: ${aspectRatio})`);
+    errors.push(`Aspect ratio too tall. Must be at least 9:16 (current: ${aspectRatio})`);
+    facebookEligible = false;
     instagramEligible = false;
   }
   if (ratioValue > META_IMAGE_REQUIREMENTS.maxAspectRatio) {
-    errors.push(`Aspect ratio too wide. Must be between 4:5 and 1.91:1 (current: ${aspectRatio})`);
+    errors.push(`Aspect ratio too wide. Must not exceed 1.91:1 (current: ${aspectRatio})`);
     instagramEligible = false;
   }
 
@@ -160,6 +164,11 @@ export function validateImageForMeta(input: ImageValidationInput): ValidationRes
     errors.push(`File size exceeds ${META_IMAGE_REQUIREMENTS.maxFileSizeMB}MB limit (current: ${sizeMB.toFixed(1)}MB)`);
     facebookEligible = false;
     instagramEligible = false;
+  }
+
+  // Warning for story-only aspect ratios
+  if (isStoryRatio && errors.length === 0) {
+    warnings.push('This aspect ratio is only suitable for Stories/Reels placement');
   }
 
   // Warnings for recommendations
@@ -214,7 +223,7 @@ export function validateVideoForMeta(input: VideoValidationInput): ValidationRes
   }
 
   // Check aspect ratio for stream ads (not stories)
-  const isStoryRatio = ratioValue < META_IMAGE_REQUIREMENTS.minAspectRatio;
+  const isStoryRatio = ratioValue < META_IMAGE_REQUIREMENTS.minFeedAspectRatio;
   if (ratioValue < META_VIDEO_REQUIREMENTS.minAspectRatio) {
     errors.push(`Aspect ratio too tall. Must be at least 9:16 (current: ${aspectRatio})`);
     facebookEligible = false;

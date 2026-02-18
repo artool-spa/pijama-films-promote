@@ -18,16 +18,19 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Refresh as RefreshIcon,
   YouTube as YouTubeIcon,
   Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
+import type { ReactNode } from 'react';
 
 type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
 
@@ -78,6 +81,61 @@ type DisplayInsightsData = {
   dateEnd: string;
 };
 
+type PlatformInsights = {
+  platform: string;
+  platformLabel: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  conversions: number;
+  costPerConversion: number;
+  ctr: number;
+};
+
+type MetricRowProps = {
+  label: string;
+  value: string;
+};
+
+function MetricRow({ label, value }: MetricRowProps) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight="medium">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+type PlatformCardProps = {
+  icon: ReactNode;
+  label: string;
+  color: string;
+  metrics: { label: string; value: string }[];
+};
+
+function PlatformCard({ icon, label, color, metrics }: PlatformCardProps) {
+  return (
+    <Card variant="outlined" sx={{ borderTop: 3, borderTopColor: color }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          {icon}
+          <Typography variant="subtitle1" fontWeight="bold">
+            {label}
+          </Typography>
+        </Box>
+        <Divider sx={{ mb: 1.5 }} />
+        {metrics.map((m) => (
+          <MetricRow key={m.label} label={m.label} value={m.value} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CampaignDetailClient({ film, campaign }: CampaignDetailClientProps) {
   const router = useRouter();
   const [startDate, setStartDate] = useState('');
@@ -85,6 +143,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
   const [insights, setInsights] = useState<InsightsData | null>(null);
   const [youtubeInsights, setYoutubeInsights] = useState<YouTubeInsightsData | null>(null);
   const [displayInsights, setDisplayInsights] = useState<DisplayInsightsData | null>(null);
+  const [platformInsights, setPlatformInsights] = useState<PlatformInsights[] | null>(null);
   const [googleCampaignType, setGoogleCampaignType] = useState<'DEMAND_GEN' | 'VIDEO' | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
@@ -103,12 +162,17 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     setInsightsError(null);
 
     try {
-      // Fetch Meta insights if Meta platform is present and synced
+      // Fetch Meta insights with platform breakdown if Meta platform is present and synced
       if (hasMeta && campaign.metaCampaignId) {
-        const metaResponse = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
+        const metaResponse = await fetch(
+          `/api/meta/campaigns/${campaign.id}/insights?breakdown=platform`
+        );
         const metaData = await metaResponse.json();
         if (metaData.synced && metaData.data) {
           setInsights(metaData.data);
+          if (metaData.platforms && metaData.platforms.length > 0) {
+            setPlatformInsights(metaData.platforms);
+          }
         }
       }
 
@@ -180,6 +244,31 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         return status;
     }
   };
+
+  // Build platform cards for the breakdown section
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'facebook':
+        return <FacebookIcon sx={{ color: '#1877F2' }} />;
+      case 'instagram':
+        return <InstagramIcon sx={{ color: '#E4405F' }} />;
+      default:
+        return <FacebookIcon sx={{ color: '#666' }} />;
+    }
+  };
+
+  const getPlatformColor = (platform: string) => {
+    switch (platform) {
+      case 'facebook':
+        return '#1877F2';
+      case 'instagram':
+        return '#E4405F';
+      default:
+        return '#666';
+    }
+  };
+
+  const hasPlatformCards = platformInsights || displayInsights || youtubeInsights;
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -258,11 +347,11 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         </CardContent>
       </Card>
 
-      {/* Campaign Summary Stats */}
+      {/* Campaign Summary Stats - Resumen general */}
       <Card sx={{ mb: 4 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">Campaign Metrics</Typography>
+            <Typography variant="h6">Resumen general</Typography>
             {isSynced && (
               <Button
                 size="small"
@@ -446,6 +535,89 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
                 </Typography>
               </Grid>
             </Grid>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Resultados por plataforma */}
+      <Card sx={{ mb: 4 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Resultados por plataforma
+          </Typography>
+          {hasPlatformCards ? (
+            <Grid container spacing={3} sx={{ mt: 1 }}>
+              {/* Meta platform breakdown cards */}
+              {platformInsights?.map((p) => (
+                <Grid key={p.platform} size={{ xs: 12, sm: 6, md: 4 }}>
+                  <PlatformCard
+                    icon={getPlatformIcon(p.platform)}
+                    label={p.platformLabel}
+                    color={getPlatformColor(p.platform)}
+                    metrics={[
+                      { label: 'Impresiones', value: p.impressions.toLocaleString() },
+                      { label: 'Clicks', value: p.clicks.toLocaleString() },
+                      { label: 'Gasto', value: `$${p.spend.toFixed(2)}` },
+                      { label: 'CTR', value: `${p.ctr.toFixed(2)}%` },
+                      { label: 'Conversiones', value: p.conversions.toLocaleString() },
+                      {
+                        label: 'Costo/Conv.',
+                        value: p.costPerConversion > 0
+                          ? `$${p.costPerConversion.toFixed(2)}`
+                          : '-',
+                      },
+                    ]}
+                  />
+                </Grid>
+              ))}
+
+              {/* Google Ads card - Demand Gen */}
+              {displayInsights && (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <PlatformCard
+                    icon={<YouTubeIcon sx={{ color: '#FF0000' }} />}
+                    label="Google Ads"
+                    color="#FF0000"
+                    metrics={[
+                      { label: 'Impresiones', value: displayInsights.impressions.toLocaleString() },
+                      { label: 'Clicks', value: displayInsights.clicks.toLocaleString() },
+                      { label: 'Gasto', value: `$${displayInsights.spend.toFixed(2)}` },
+                      { label: 'CTR', value: `${displayInsights.ctr.toFixed(2)}%` },
+                      { label: 'Conversiones', value: displayInsights.conversions.toLocaleString() },
+                      {
+                        label: 'Costo/Conv.',
+                        value: displayInsights.conversions > 0
+                          ? `$${(displayInsights.spend / displayInsights.conversions).toFixed(2)}`
+                          : '-',
+                      },
+                    ]}
+                  />
+                </Grid>
+              )}
+
+              {/* Google Ads card - Video */}
+              {youtubeInsights && (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <PlatformCard
+                    icon={<YouTubeIcon sx={{ color: '#FF0000' }} />}
+                    label="Google Ads"
+                    color="#FF0000"
+                    metrics={[
+                      { label: 'Impresiones', value: youtubeInsights.impressions.toLocaleString() },
+                      { label: 'Clicks', value: youtubeInsights.clicks.toLocaleString() },
+                      { label: 'Gasto', value: `$${youtubeInsights.spend.toFixed(2)}` },
+                      { label: 'CTR', value: `${youtubeInsights.ctr.toFixed(2)}%` },
+                      { label: 'Views', value: youtubeInsights.videoViews.toLocaleString() },
+                      { label: 'Avg. CPV', value: `$${youtubeInsights.averageCpv.toFixed(3)}` },
+                    ]}
+                  />
+                </Grid>
+              )}
+            </Grid>
+          ) : (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Sin datos disponibles aún
+            </Typography>
           )}
         </CardContent>
       </Card>

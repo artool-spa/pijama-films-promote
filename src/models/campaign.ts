@@ -571,7 +571,7 @@ export async function markGoogleCampaignSynced(
 ) {
   const validId = IdSchema.parse(id);
   const validGoogleCampaignId = z.string().min(1).parse(googleCampaignId);
-  const validGoogleAdGroupId = z.string().min(1).parse(googleAdGroupId);
+  const validGoogleAdGroupId = googleAdGroupId && googleAdGroupId.length > 0 ? googleAdGroupId : 'pending';
 
   const result = await prisma.campaign.update({
     where: { id: validId },

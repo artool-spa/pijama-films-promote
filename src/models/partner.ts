@@ -5,7 +5,7 @@ import { z } from 'zod';
 // SHARED SCHEMAS
 // ============================================================================
 
-const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
+const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING_ASSETS', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 

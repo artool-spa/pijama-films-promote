@@ -436,7 +436,7 @@ export async function syncCampaignToGoogle(
       includeBaseAudiences: campaign.includeBaseAudiences,
     });
 
-    const campaignName = `camp_${partnerName}_${campaign.name}`;
+    const campaignName = `camp_${partnerName}_${campaign.name}_${Date.now()}`;
     const googleResult = await createDemandGenCampaignWithAdGroup(google, {
       name: campaignName,
       budget: campaign.budget,

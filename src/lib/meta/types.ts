@@ -243,6 +243,7 @@ export const MetaInsightsRequestSchema = z.object({
 });
 
 export const MetaInsightDataSchema = z.object({
+  publisher_platform: z.string().optional(),
   impressions: z.string().optional(),
   clicks: z.string().optional(),
   spend: z.string().optional(),

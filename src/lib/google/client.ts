@@ -107,9 +107,22 @@ export class GoogleAdsClient {
       },
     });
 
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const body = await response.text();
+      console.error(`[Google] Non-JSON response (${response.status}) from ${url}:`, body.substring(0, 500));
+      throw new GoogleAdsApiError(`Google Ads API returned non-JSON response (${response.status})`, {
+        statusCode: response.status,
+        endpoint: url,
+      });
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
+      // Log full error response for debugging
+      console.error(`[Google] API error (${response.status}) from ${url}:`, JSON.stringify(data, null, 2));
+
       const errorResult = GoogleErrorResponseSchema.safeParse(data);
       if (errorResult.success) {
         const err = errorResult.data.error;
@@ -140,7 +153,7 @@ export class GoogleAdsClient {
   }
 
   /**
-   * Execute a GAQL (Google Ads Query Language) query
+   * Execute a GAQL (Google Ads Query Language) query via searchStream
    */
   async query<T>(gaqlQuery: string): Promise<T> {
     const url = this.buildCustomerUrl('googleAds:searchStream');

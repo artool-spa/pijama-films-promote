@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "db:seed": "npx tsx prisma/seed.ts",
     "deploy:coolify": "npx tsx scripts/coolify-deploy.ts",
+    "deploy:env": "npx tsx scripts/coolify-push-env.ts",
     "deploy:mercure": "npx tsx scripts/coolify-deploy-mercure.ts",
     "google:auth": "npx tsx scripts/google-oauth.ts"
   },

@@ -11,7 +11,7 @@ export const GoogleAdsConfigSchema = z.object({
   refreshToken: z.string().min(1, 'GOOGLE_ADS_REFRESH_TOKEN is required'),
   customerId: z.string().min(1, 'GOOGLE_ADS_CUSTOMER_ID is required'),
   loginCustomerId: z.string().optional(), // For MCC accounts
-  apiVersion: z.string().default('v18'),
+  apiVersion: z.string().default('v23'),
   baseUrl: z.string().url().default('https://googleads.googleapis.com'),
 });
 

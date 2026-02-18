@@ -73,6 +73,15 @@ export async function POST(req: NextRequest) {
 
     const imageBuffer = Buffer.from(await response.arrayBuffer());
 
+    // Clamp crop to actual image bounds (client rounding may overshoot by 1-2px)
+    const metadata = await sharp(imageBuffer).metadata();
+    const imgWidth = metadata.width ?? 0;
+    const imgHeight = metadata.height ?? 0;
+    crop.x = Math.min(crop.x, imgWidth - 1);
+    crop.y = Math.min(crop.y, imgHeight - 1);
+    crop.width = Math.min(crop.width, imgWidth - crop.x);
+    crop.height = Math.min(crop.height, imgHeight - crop.y);
+
     // Crop with sharp
     const croppedBuffer = await sharp(imageBuffer)
       .extract({
