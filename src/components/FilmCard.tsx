@@ -51,10 +51,10 @@ export default function FilmCard({ film }: FilmCardProps) {
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardMedia
         component="img"
-        image={film.posterUrl || `https://picsum.photos/seed/${film.id}/300/450`}
+        image={film.posterUrl || `https://picsum.photos/seed/${film.id}/300/400`}
         alt={film.title}
         sx={{
-          aspectRatio: '2/3',
+          aspectRatio: '3/4',
           objectFit: 'cover',
           width: '100%',
         }}
