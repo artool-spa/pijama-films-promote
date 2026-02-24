@@ -603,7 +603,6 @@ export async function createDemandGenAdGroup(
     name: validated.name,
     campaign: validated.campaignResourceName,
     status: validated.status,
-    type: 'DISPLAY_STANDARD',
   };
 
   if (validated.cpcBidMicros) {
@@ -734,14 +733,16 @@ export async function createDemandGenCampaignWithAdGroup(
   // Step 2: Apply targeting criteria (Demand Gen only supports geo at campaign level)
   await applyTargetingToCampaign(client, campaign.resourceName, config.targeting, 'DEMAND_GEN');
 
-  // Step 3: Create ad group
-  // TODO: Demand Gen ad group type needs investigation — DISPLAY_STANDARD is not valid.
-  // For now, skip ad group creation so the campaign sync completes.
-  console.log('[Google] Skipping ad group creation for Demand Gen (ad group type TBD)');
+  // Step 3: Create ad group (Demand Gen ad groups have no type per Google Ads docs)
+  const adGroup = await createDemandGenAdGroup(client, {
+    name: `${config.name} - Ad Group`,
+    campaignResourceName: campaign.resourceName,
+    status: 'PAUSED',
+  });
 
   return {
     campaignResourceName: campaign.resourceName,
-    adGroupResourceName: '', // Placeholder until ad group creation is resolved
+    adGroupResourceName: adGroup.resourceName,
   };
 }
 
