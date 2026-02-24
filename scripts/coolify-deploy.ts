@@ -142,7 +142,12 @@ function buildAndPushImage(): string {
   console.log("\n🔨 Building Docker image...");
   console.log(`   Tag: ${imageTag}\n`);
 
-  if (!execLive(`docker build -t ${imageTag} .`)) {
+  const buildArgs = [
+    `NEXT_PUBLIC_MERCURE_URL=https://promote.pijamafilms.com/.well-known/mercure`,
+    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''}`,
+  ].map(arg => `--build-arg "${arg}"`).join(' ');
+
+  if (!execLive(`docker build ${buildArgs} -t ${imageTag} .`)) {
     throw new Error("Docker build failed");
   }
 
