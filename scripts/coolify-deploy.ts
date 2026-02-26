@@ -144,7 +144,7 @@ function buildAndPushImage(): string {
 
   const buildArgs = [
     `NEXT_PUBLIC_MERCURE_URL=https://promote.pijamafilms.com/.well-known/mercure`,
-    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''}`,
+    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${process.env.BUILD_NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''}`,
   ].map(arg => `--build-arg "${arg}"`).join(' ');
 
   if (!execLive(`docker build ${buildArgs} -t ${imageTag} .`)) {

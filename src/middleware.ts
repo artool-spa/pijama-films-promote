@@ -8,7 +8,7 @@ const SECRET_KEY = new TextEncoder().encode(
 );
 
 // Routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/api/auth/login', '/privacy-policy', '/terms-of-service'];
+const PUBLIC_ROUTES = ['/login', '/api/auth/login', '/privacy-policy', '/terms-of-service', '/auth'];
 
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
