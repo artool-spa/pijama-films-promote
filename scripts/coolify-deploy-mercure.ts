@@ -7,6 +7,7 @@
  * and adds Mercure env vars to the existing pijamafilms-app service.
  *
  * Usage: yarn deploy:mercure
+ *        yarn deploy:mercure --force-rotate-secret  # Regenerate JWT secret
  *
  * Required environment variables:
  * - COOLIFY_TOKEN: API token from Coolify
@@ -151,12 +152,29 @@ async function configureMercureTraefikLabels(appUuid: string): Promise<void> {
   console.log('   Traefik labels configured');
 }
 
+async function setMercureEnvVars(appUuid: string, jwtSecret: string): Promise<void> {
+  console.log('   Setting Mercure env vars...');
+  const envVars = [
+    { key: 'SERVER_NAME', value: ':3001' },
+    { key: 'MERCURE_PUBLISHER_JWT_KEY', value: jwtSecret },
+    { key: 'MERCURE_SUBSCRIBER_JWT_KEY', value: jwtSecret },
+    { key: 'MERCURE_EXTRA_DIRECTIVES', value: `anonymous\ncors_origins https://${APP_DOMAIN}` },
+  ];
+
+  for (const env of envVars) {
+    await coolifyFetch(`/applications/${appUuid}/envs`, {
+      method: 'POST',
+      body: JSON.stringify(env),
+    });
+  }
+  console.log('   Env vars configured');
+}
+
 async function getOrCreateMercureApp(
   serverUuid: string,
   projectUuid: string,
-  environmentName: string,
-  jwtSecret: string
-): Promise<Application> {
+  environmentName: string
+): Promise<{ app: Application; isNew: boolean }> {
   console.log('\n   Checking Mercure application...');
 
   const applications = await coolifyFetch<Application[]>('/applications');
@@ -165,7 +183,7 @@ async function getOrCreateMercureApp(
   if (existing) {
     console.log(`   Found: ${MERCURE_SERVICE_NAME} (${existing.uuid})`);
     await configureMercureTraefikLabels(existing.uuid);
-    return existing;
+    return { app: existing, isNew: false };
   }
 
   console.log(`   Creating: ${MERCURE_SERVICE_NAME}`);
@@ -187,26 +205,9 @@ async function getOrCreateMercureApp(
 
   console.log(`   Created: ${MERCURE_SERVICE_NAME} (${newApp.uuid})`);
 
-  // Set environment variables
-  console.log('   Setting Mercure env vars...');
-  const envVars = [
-    { key: 'SERVER_NAME', value: ':3001' },
-    { key: 'MERCURE_PUBLISHER_JWT_KEY', value: jwtSecret },
-    { key: 'MERCURE_SUBSCRIBER_JWT_KEY', value: jwtSecret },
-    { key: 'MERCURE_EXTRA_DIRECTIVES', value: `anonymous\ncors_origins https://${APP_DOMAIN}` },
-  ];
-
-  for (const env of envVars) {
-    await coolifyFetch(`/applications/${newApp.uuid}/envs`, {
-      method: 'POST',
-      body: JSON.stringify(env),
-    });
-  }
-  console.log('   Env vars configured');
-
   await configureMercureTraefikLabels(newApp.uuid);
 
-  return newApp;
+  return { app: newApp, isNew: true };
 }
 
 async function addMercureEnvToApp(jwtSecret: string): Promise<void> {
@@ -265,18 +266,24 @@ async function main() {
     const environment = await getEnvironment(project.uuid);
     const server = await getServer();
 
-    // Generate a shared JWT secret for publisher/subscriber auth
-    const jwtSecret = generatePassword(48);
-    console.log(`\n   Generated JWT secret for Mercure`);
-
-    const mercureApp = await getOrCreateMercureApp(
+    const { app: mercureApp, isNew } = await getOrCreateMercureApp(
       server.uuid,
       project.uuid,
-      environment.name,
-      jwtSecret
+      environment.name
     );
 
-    await addMercureEnvToApp(jwtSecret);
+    const forceRotate = process.argv.includes('--force-rotate-secret');
+
+    if (isNew || forceRotate) {
+      const jwtSecret = generatePassword(48);
+      console.log(`\n   Generated JWT secret for Mercure`);
+      await setMercureEnvVars(mercureApp.uuid, jwtSecret);
+      await addMercureEnvToApp(jwtSecret);
+    } else {
+      console.log('\n   Existing app — skipping JWT secret generation');
+      console.log('   (use --force-rotate-secret to regenerate)');
+    }
+
     await triggerDeployment(mercureApp.uuid);
 
     console.log('\n===================================================================');
