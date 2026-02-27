@@ -124,6 +124,33 @@ async function getServer(): Promise<Server> {
   return servers[0];
 }
 
+async function configureMercureTraefikLabels(appUuid: string): Promise<void> {
+  console.log('   Configuring Traefik labels for path-based routing...');
+
+  const labels = [
+    'traefik.enable=true',
+    `traefik.http.routers.mercure.rule=Host(\`${APP_DOMAIN}\`) && PathPrefix(\`/.well-known/mercure\`)`,
+    'traefik.http.routers.mercure.entrypoints=https',
+    'traefik.http.routers.mercure.tls=true',
+    'traefik.http.routers.mercure.tls.certresolver=letsencrypt',
+    'traefik.http.routers.mercure.priority=100',
+    'traefik.http.routers.mercure.service=mercure',
+    'traefik.http.services.mercure.loadbalancer.server.port=3001',
+    `traefik.http.routers.mercure-http.rule=Host(\`${APP_DOMAIN}\`) && PathPrefix(\`/.well-known/mercure\`)`,
+    'traefik.http.routers.mercure-http.entrypoints=http',
+    'traefik.http.routers.mercure-http.middlewares=redirect-to-https',
+    'traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https',
+  ].join('\n');
+
+  await coolifyFetch(`/applications/${appUuid}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      custom_labels: Buffer.from(labels).toString('base64'),
+    }),
+  });
+  console.log('   Traefik labels configured');
+}
+
 async function getOrCreateMercureApp(
   serverUuid: string,
   projectUuid: string,
@@ -137,6 +164,7 @@ async function getOrCreateMercureApp(
 
   if (existing) {
     console.log(`   Found: ${MERCURE_SERVICE_NAME} (${existing.uuid})`);
+    await configureMercureTraefikLabels(existing.uuid);
     return existing;
   }
 
@@ -176,25 +204,7 @@ async function getOrCreateMercureApp(
   }
   console.log('   Env vars configured');
 
-  // Configure Traefik labels for path-based routing
-  // Route promote.pijamafilms.com/.well-known/mercure -> Mercure container
-  console.log('   Configuring Traefik labels for path-based routing...');
-
-  await coolifyFetch(`/applications/${newApp.uuid}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      custom_labels: [
-        'traefik.enable=true',
-        `traefik.http.routers.mercure.rule=Host(\`${APP_DOMAIN}\`) && PathPrefix(\`/.well-known/mercure\`)`,
-        'traefik.http.routers.mercure.entrypoints=https',
-        'traefik.http.routers.mercure.tls=true',
-        'traefik.http.routers.mercure.tls.certresolver=letsencrypt',
-        'traefik.http.routers.mercure.priority=100',
-        'traefik.http.services.mercure.loadbalancer.server.port=3001',
-      ].join('\n'),
-    }),
-  });
-  console.log('   Traefik labels configured');
+  await configureMercureTraefikLabels(newApp.uuid);
 
   return newApp;
 }
