@@ -23,6 +23,7 @@ const API_BASE = `${COOLIFY_URL}/api/v1`;
 
 const APP_SERVICE_NAME = "pijamafilms-app";
 const APP_DOMAIN = "promote.pijamafilms.com";
+const MERCURE_SERVICE_NAME = "pijama-mercure";
 
 // Variables to push to production (grouped by service)
 const ENV_KEYS = [
@@ -143,7 +144,7 @@ async function setEnvVar(
 
 function getMercureOverrides(): Record<string, string> {
   return {
-    MERCURE_URL: `https://${APP_DOMAIN}/.well-known/mercure`,
+    MERCURE_URL: `http://${MERCURE_SERVICE_NAME}:3001/.well-known/mercure`,
     NEXT_PUBLIC_MERCURE_URL: `https://${APP_DOMAIN}/.well-known/mercure`,
   };
 }

@@ -26,7 +26,7 @@ const API_BASE = `${COOLIFY_URL}/api/v1`;
 const PROJECT_NAME = 'PijamaFilms';
 const ENVIRONMENT_NAME = 'production';
 const APP_DOMAIN = 'promote.pijamafilms.com';
-const MERCURE_SERVICE_NAME = 'pijamafilms-mercure';
+const MERCURE_SERVICE_NAME = 'pijama-mercure';
 const APP_SERVICE_NAME = 'pijamafilms-app';
 
 interface Project {

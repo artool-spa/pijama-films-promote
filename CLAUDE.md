@@ -34,6 +34,11 @@ npx prisma generate      # Generate client
 npx prisma migrate dev   # Create migration
 npx prisma studio        # Open Prisma Studio
 
+# Deployment
+npm run deploy:coolify   # Deploy app to production (Coolify)
+npm run deploy:mercure   # Deploy Mercure SSE hub
+npm run deploy:env       # Push env vars to Coolify
+
 # Docker
 docker compose up        # Start PostgreSQL
 docker compose down      # Stop database
