@@ -1535,7 +1535,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         transition: 'all 0.2s ease-in-out',
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                         <FormControlLabel
                           control={
                             <Switch
@@ -1567,6 +1567,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                           size="small"
                           sx={{
                             ml: 2,
+                            mt: 5,
                             flexShrink: 0,
                             fontWeight: 'bold',
                             bgcolor: usePijamaAudience ? 'primary.main' : 'grey.400',
