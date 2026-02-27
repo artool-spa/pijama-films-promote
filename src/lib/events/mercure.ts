@@ -2,10 +2,26 @@ import { SignJWT } from 'jose';
 
 import type { SSEEvent } from './index';
 
-const MERCURE_URL = process.env.MERCURE_URL!;
-const MERCURE_JWT_SECRET = process.env.MERCURE_JWT_SECRET!;
-
 const TOPIC_PREFIX = 'https://promote.pijamafilms.com/films';
+
+let configWarned = false;
+
+function getConfig(): { mercureUrl: string; jwtSecret: string } | null {
+  const mercureUrl = process.env.MERCURE_URL;
+  const jwtSecret = process.env.MERCURE_JWT_SECRET;
+
+  if (!mercureUrl || !jwtSecret) {
+    if (!configWarned) {
+      console.warn(
+        '[Mercure] Publishing disabled: MERCURE_URL or MERCURE_JWT_SECRET not configured',
+      );
+      configWarned = true;
+    }
+    return null;
+  }
+
+  return { mercureUrl, jwtSecret };
+}
 
 /**
  * Build a Mercure topic URL for a film's event channel
@@ -18,8 +34,8 @@ function buildTopic(filmMuviUuid: string): string {
  * Sign a publisher JWT for Mercure
  * The JWT authorizes publishing to any topic under our prefix
  */
-async function signPublisherJwt(): Promise<string> {
-  const secret = new TextEncoder().encode(MERCURE_JWT_SECRET);
+async function signPublisherJwt(jwtSecret: string): Promise<string> {
+  const secret = new TextEncoder().encode(jwtSecret);
   return new SignJWT({ mercure: { publish: ['*'] } })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -34,15 +50,18 @@ async function signPublisherJwt(): Promise<string> {
  * This matches the previous in-memory broadcaster behavior.
  */
 export async function publish(filmMuviUuid: string, data: SSEEvent): Promise<void> {
+  const config = getConfig();
+  if (!config) return;
+
   try {
-    const jwt = await signPublisherJwt();
+    const jwt = await signPublisherJwt(config.jwtSecret);
     const topic = buildTopic(filmMuviUuid);
 
     const body = new URLSearchParams();
     body.append('topic', topic);
     body.append('data', JSON.stringify(data));
 
-    const response = await fetch(MERCURE_URL, {
+    const response = await fetch(config.mercureUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${jwt}`,
@@ -56,6 +75,8 @@ export async function publish(filmMuviUuid: string, data: SSEEvent): Promise<voi
       console.warn(`[Mercure] Publish failed (${response.status}): ${text}`);
     }
   } catch (error) {
-    console.warn('[Mercure] Publish error:', error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : error;
+    const cause = error instanceof Error && error.cause ? ` cause=${error.cause}` : '';
+    console.warn(`[Mercure] Publish error: ${message}${cause}`);
   }
 }
