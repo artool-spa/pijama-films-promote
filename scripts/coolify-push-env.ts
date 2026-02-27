@@ -22,7 +22,6 @@ const COOLIFY_TOKEN = process.env.COOLIFY_TOKEN;
 const API_BASE = `${COOLIFY_URL}/api/v1`;
 
 const APP_SERVICE_NAME = "pijamafilms-app";
-const MERCURE_SERVICE_NAME = "pijamafilms-mercure";
 const APP_DOMAIN = "promote.pijamafilms.com";
 
 // Variables to push to production (grouped by service)
@@ -142,9 +141,9 @@ async function setEnvVar(
   return "created";
 }
 
-function getMercureOverrides(mercureUuid: string): Record<string, string> {
+function getMercureOverrides(): Record<string, string> {
   return {
-    MERCURE_URL: `http://${mercureUuid}:3001/.well-known/mercure`,
+    MERCURE_URL: `https://${APP_DOMAIN}/.well-known/mercure`,
     NEXT_PUBLIC_MERCURE_URL: `https://${APP_DOMAIN}/.well-known/mercure`,
   };
 }
@@ -164,15 +163,8 @@ async function main() {
   const app = await findApp(APP_SERVICE_NAME);
   console.log(`   Found: ${APP_SERVICE_NAME} (${app.uuid})`);
 
-  // Find pijamafilms-mercure for internal URL
-  let mercureOverrides: Record<string, string> = {};
-  try {
-    const mercureApp = await findApp(MERCURE_SERVICE_NAME);
-    console.log(`   Found: ${MERCURE_SERVICE_NAME} (${mercureApp.uuid})`);
-    mercureOverrides = getMercureOverrides(mercureApp.uuid);
-  } catch {
-    console.warn(`   Warning: ${MERCURE_SERVICE_NAME} not found. Mercure URLs will use .env values.`);
-  }
+  // Mercure URLs route through Traefik (public URL)
+  const mercureOverrides = getMercureOverrides();
 
   // Get existing env vars to determine create vs update
   const existingEnvs = await getExistingEnvs(app.uuid);

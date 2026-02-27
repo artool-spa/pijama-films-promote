@@ -209,7 +209,7 @@ async function getOrCreateMercureApp(
   return newApp;
 }
 
-async function addMercureEnvToApp(jwtSecret: string, mercureAppUuid: string): Promise<void> {
+async function addMercureEnvToApp(jwtSecret: string): Promise<void> {
   console.log('\n   Adding Mercure env vars to app service...');
 
   const applications = await coolifyFetch<Application[]>('/applications');
@@ -221,7 +221,7 @@ async function addMercureEnvToApp(jwtSecret: string, mercureAppUuid: string): Pr
   }
 
   const envVars = [
-    { key: 'MERCURE_URL', value: `http://${mercureAppUuid}:3001/.well-known/mercure` },
+    { key: 'MERCURE_URL', value: `https://${APP_DOMAIN}/.well-known/mercure` },
     { key: 'NEXT_PUBLIC_MERCURE_URL', value: `https://${APP_DOMAIN}/.well-known/mercure` },
     { key: 'MERCURE_JWT_SECRET', value: jwtSecret },
   ];
@@ -276,7 +276,7 @@ async function main() {
       jwtSecret
     );
 
-    await addMercureEnvToApp(jwtSecret, mercureApp.uuid);
+    await addMercureEnvToApp(jwtSecret);
     await triggerDeployment(mercureApp.uuid);
 
     console.log('\n===================================================================');
