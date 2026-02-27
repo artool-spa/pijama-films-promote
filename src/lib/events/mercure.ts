@@ -73,6 +73,9 @@ export async function publish(filmMuviUuid: string, data: SSEEvent): Promise<voi
     if (!response.ok) {
       const text = await response.text();
       console.warn(`[Mercure] Publish failed (${response.status}): ${text}`);
+    } else {
+      const eventId = await response.text();
+      console.log(`[Mercure] Published to ${topic} → ${eventId}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : error;

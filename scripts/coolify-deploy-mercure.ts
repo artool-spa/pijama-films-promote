@@ -222,7 +222,7 @@ async function addMercureEnvToApp(jwtSecret: string): Promise<void> {
   }
 
   const envVars = [
-    { key: 'MERCURE_URL', value: `https://${APP_DOMAIN}/.well-known/mercure` },
+    { key: 'MERCURE_URL', value: `http://${MERCURE_SERVICE_NAME}:3001/.well-known/mercure` },
     { key: 'NEXT_PUBLIC_MERCURE_URL', value: `https://${APP_DOMAIN}/.well-known/mercure` },
     { key: 'MERCURE_JWT_SECRET', value: jwtSecret },
   ];
