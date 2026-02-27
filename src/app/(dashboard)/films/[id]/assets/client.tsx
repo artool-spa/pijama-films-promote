@@ -64,7 +64,7 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 type LocalImage = ImageWithUsage;
 type LocalVideo = VideoWithUsage;
 
-type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating' | 'invalid';
+type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating';
 
 type AssetsClientProps = {
   film: Film;
@@ -100,21 +100,23 @@ export default function AssetsClient({ film, images: initialImages, videos: init
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  // Filter assets
+  // Filter assets (INVALID assets are always hidden)
   const filteredImages = useMemo(() => {
-    if (assetFilter === 'all') return imageAssets;
-    if (assetFilter === 'promotable') return imageAssets.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
-    if (assetFilter === 'ready') return imageAssets.filter((a) => a.status === 'READY');
-    if (assetFilter === 'validating') return imageAssets.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
-    return imageAssets.filter((a) => a.status === 'INVALID' || a.status === 'ERROR');
+    const visible = imageAssets.filter((a) => a.status !== 'INVALID');
+    if (assetFilter === 'all') return visible;
+    if (assetFilter === 'promotable') return visible.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
+    if (assetFilter === 'ready') return visible.filter((a) => a.status === 'READY');
+    if (assetFilter === 'validating') return visible.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
+    return visible;
   }, [imageAssets, assetFilter]);
 
   const filteredVideos = useMemo(() => {
-    if (assetFilter === 'all') return videoAssets;
-    if (assetFilter === 'promotable') return videoAssets.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
-    if (assetFilter === 'ready') return videoAssets.filter((a) => a.status === 'READY');
-    if (assetFilter === 'validating') return videoAssets.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
-    return videoAssets.filter((a) => a.status === 'INVALID' || a.status === 'ERROR');
+    const visible = videoAssets.filter((a) => a.status !== 'INVALID');
+    if (assetFilter === 'all') return visible;
+    if (assetFilter === 'promotable') return visible.filter((a) => a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING');
+    if (assetFilter === 'ready') return visible.filter((a) => a.status === 'READY');
+    if (assetFilter === 'validating') return visible.filter((a) => a.status === 'VALIDATING' || a.status === 'PENDING');
+    return visible;
   }, [videoAssets, assetFilter]);
 
   // All assets combined for format checking
@@ -593,7 +595,6 @@ export default function AssetsClient({ film, images: initialImages, videos: init
           <ToggleButton value="promotable">Promotable</ToggleButton>
           <ToggleButton value="ready">Ready</ToggleButton>
           <ToggleButton value="validating">Validating</ToggleButton>
-          <ToggleButton value="invalid">Invalid</ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
@@ -709,6 +710,11 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                     </Tooltip>
                   )}
                 </Box>
+                {(asset.status === 'ERROR') && (asset.validationError || asset.eligibilityError) && (
+                  <Alert severity="warning" sx={{ mt: 0.5, py: 0, px: 0.5, fontSize: '0.65rem', '& .MuiAlert-message': { fontSize: '0.65rem', p: 0.25 }, '& .MuiAlert-icon': { fontSize: '0.85rem', mr: 0.5, p: 0 } }}>
+                    {asset.validationError || asset.eligibilityError}
+                  </Alert>
+                )}
                 {/* Usage badge */}
                 {asset._count.ads > 0 && (
                   <Chip
@@ -827,6 +833,11 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                     </Tooltip>
                   )}
                 </Box>
+                {(asset.status === 'ERROR') && (asset.validationError || asset.eligibilityError) && (
+                  <Alert severity="warning" sx={{ mt: 0.5, py: 0, px: 0.5, fontSize: '0.65rem', '& .MuiAlert-message': { fontSize: '0.65rem', p: 0.25 }, '& .MuiAlert-icon': { fontSize: '0.85rem', mr: 0.5, p: 0 } }}>
+                    {asset.validationError || asset.eligibilityError}
+                  </Alert>
+                )}
                 {/* Usage badge */}
                 {asset._count.ads > 0 && (
                   <Chip

@@ -148,6 +148,7 @@ export async function searchLocations(
     location_types: JSON.stringify(types),
     q: query,
     limit: limit.toString(),
+    locale: 'en_US',
   });
 
   if (countryCode) {

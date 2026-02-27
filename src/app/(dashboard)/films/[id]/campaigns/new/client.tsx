@@ -41,6 +41,9 @@ import {
   LinearProgress,
   Alert,
   Tooltip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -59,6 +62,10 @@ import {
   TextFields as TextFieldsIcon,
   HourglassEmpty as HourglassIcon,
   HelpOutline as HelpIcon,
+  CheckCircle as CheckCircleIcon,
+  ExpandMore as ExpandMoreIcon,
+  AttachMoney as AttachMoneyIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
@@ -115,7 +122,7 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 };
 
 // Filter type for assets
-type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating' | 'invalid';
+type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating';
 
 type DraftFormState = {
   selectedPlatforms?: string[];
@@ -197,16 +204,6 @@ type MetaLocation = {
   country_name?: string;
   region?: string;
 };
-
-// Default countries for initial load and fallback
-const DEFAULT_COUNTRIES: MetaLocation[] = [
-  { key: 'CL', name: 'Chile', type: 'country', country_code: 'CL' },
-  { key: 'AR', name: 'Argentina', type: 'country', country_code: 'AR' },
-  { key: 'MX', name: 'Mexico', type: 'country', country_code: 'MX' },
-  { key: 'ES', name: 'Spain', type: 'country', country_code: 'ES' },
-  { key: 'US', name: 'United States', type: 'country', country_code: 'US' },
-  { key: 'BR', name: 'Brazil', type: 'country', country_code: 'BR' },
-];
 
 const LANGUAGES = [
   { code: 'es', name: 'Spanish' },
@@ -307,8 +304,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const [ageMin, setAgeMin] = useState(draft?.ageMin ?? existingDraft?.targetAgeMin ?? 18);
   const [ageMax, setAgeMax] = useState(draft?.ageMax ?? existingDraft?.targetAgeMax ?? 65);
   const [gender, setGender] = useState(draft?.gender ?? 'ALL');
-  const [selectedLocations, setSelectedLocations] = useState<MetaLocation[]>(draft?.selectedLocations ?? [DEFAULT_COUNTRIES[0]]);
-  const [locationOptions, setLocationOptions] = useState<MetaLocation[]>(DEFAULT_COUNTRIES);
+  const [selectedLocations, setSelectedLocations] = useState<MetaLocation[]>(draft?.selectedLocations ?? []);
+  const [locationOptions, setLocationOptions] = useState<MetaLocation[]>([]);
   const [locationSearch, setLocationSearch] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
   const [budget, setBudget] = useState(draft?.budget ?? (existingDraft ? String(existingDraft.budget) : '100'));
@@ -421,8 +418,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     [localImageAssets, uploadedAssets]
   );
 
-  // Filter assets by status
+  // Filter assets by status (INVALID assets are always hidden)
   const filterAsset = useCallback((asset: LocalAsset | UploadedAsset) => {
+    if (asset.status === 'INVALID') return false;
     switch (assetFilter) {
       case 'promotable':
         return asset.status === 'READY' || asset.status === 'PENDING' || asset.status === 'VALIDATING';
@@ -430,8 +428,6 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         return asset.status === 'READY';
       case 'validating':
         return asset.status === 'VALIDATING' || asset.status === 'PENDING';
-      case 'invalid':
-        return asset.status === 'INVALID' || asset.status === 'ERROR';
       default:
         return true;
     }
@@ -775,9 +771,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   }, [availableVariants, previewVariant]);
 
-  // Auto-generate copies for any languages missing copies when entering the Ad Copy tab
+  // Auto-generate copies for any languages missing copies when entering the Copies tab
   useEffect(() => {
-    if (leftTab === 1) {
+    if (leftTab === 2) {
       generateAllCopies();
     }
   }, [leftTab, selectedLanguages]);
@@ -869,45 +865,27 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   }, [paymentStatus, paymentSessionId]);
 
-  // Debounced location search
+  // Debounced location search (always fetches from API)
   useEffect(() => {
-    if (!locationSearch.trim()) {
-      setLocationOptions(DEFAULT_COUNTRIES);
-      return;
-    }
-
     setLocationLoading(true);
+    const query = locationSearch.trim();
     const timeoutId = setTimeout(async () => {
       try {
-        const response = await fetch(
-          `/api/meta/locations?q=${encodeURIComponent(locationSearch)}&types=country&limit=20`
-        );
+        const params = new URLSearchParams({ types: 'country', limit: '20' });
+        if (query) params.set('q', query);
+        const response = await fetch(`/api/meta/locations?${params.toString()}`);
         if (response.ok) {
           const data = await response.json();
           setLocationOptions(data.data || []);
         } else {
-          // Fallback to filtering defaults
-          setLocationOptions(
-            DEFAULT_COUNTRIES.filter(
-              (c) =>
-                c.name.toLowerCase().includes(locationSearch.toLowerCase()) ||
-                c.country_code?.toLowerCase() === locationSearch.toLowerCase()
-            )
-          );
+          setLocationOptions([]);
         }
       } catch {
-        // Fallback to filtering defaults on error
-        setLocationOptions(
-          DEFAULT_COUNTRIES.filter(
-            (c) =>
-              c.name.toLowerCase().includes(locationSearch.toLowerCase()) ||
-              c.country_code?.toLowerCase() === locationSearch.toLowerCase()
-          )
-        );
+        setLocationOptions([]);
       } finally {
         setLocationLoading(false);
       }
-    }, 300);
+    }, query ? 300 : 0);
 
     return () => clearTimeout(timeoutId);
   }, [locationSearch]);
@@ -1384,14 +1362,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         <Grid size={{ xs: 12, md: 7 }}>
           <Paper sx={{ p: 3 }}>
             <Tabs value={leftTab} onChange={(e, v) => setLeftTab(v)} sx={{ mb: 3 }}>
-              <Tab label="Schedule" />
-              <Tab label="Ad Copy" disabled={!isScheduleValid} />
-              <Tab label="Media" disabled={!isScheduleValid || !isCopiesValid} />
-              <Tab label="Summary" disabled={!isScheduleValid || !isCopiesValid || !isMediaValid} />
+              <Tab label="Media" />
+              <Tab label="Schedule" disabled={!isMediaValid} />
+              <Tab label="Copies" disabled={!isMediaValid || !isScheduleValid} />
+              <Tab label="Review" disabled={!isMediaValid || !isScheduleValid || !isCopiesValid} />
             </Tabs>
 
-            {/* Tab 1: Programming */}
-            {leftTab === 0 && (
+            {/* Tab 2: Schedule (was Tab 1) */}
+            {leftTab === 1 && (
               <Box>
                 <Grid container spacing={3}>
                   <Grid size={{ xs: 12 }}>
@@ -1579,7 +1557,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                               </Typography>
                               <Typography variant="body2" display="block" color="text.secondary">
                                 {usePijamaAudience
-                                  ? 'Our specialized audience engine blends global data intelligence with local cultural insight to find the perfect viewers for your story. Using advanced analytics across Meta, YouTube, and TikTok, we define your film\'s true audience — then adapt your campaign country by country to maximize reach and results.'
+                                  ? 'Our specialized audience engine blends global data intelligence with local cultural insight to find the viewers for your story. Using advanced analytics across Meta, YouTube, and TikTok, we define your film\'s audience — then adapt your campaign country by country to maximize reach and results.'
                                   : 'Manually configure your audience targeting. Define age, gender, and film categories.'}
                               </Typography>
                             </Box>
@@ -1674,8 +1652,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               </Box>
             )}
 
-            {/* Tab 2: Creatives */}
-            {leftTab === 1 && (
+            {/* Tab 3: Copies (was Tab 2) */}
+            {leftTab === 2 && (
               <Box>
                 {selectedLanguages.length > 1 && (
                   <FormControl fullWidth sx={{ mb: 3 }}>
@@ -1779,8 +1757,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               </Box>
             )}
 
-            {/* Tab 3: Media Assets */}
-            {leftTab === 2 && (
+            {/* Tab 1: Media Assets (was Tab 3) */}
+            {leftTab === 0 && (
               <Box>
                 {/* Summary Bar */}
                 <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
@@ -1872,7 +1850,6 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                     <ToggleButton value="promotable">Promotable</ToggleButton>
                     <ToggleButton value="ready">Ready</ToggleButton>
                     <ToggleButton value="validating">Validating</ToggleButton>
-                    <ToggleButton value="invalid">Invalid</ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
 
@@ -2134,7 +2111,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               </Box>
             )}
 
-            {/* Tab 4: Summary */}
+            {/* Tab 4: Review */}
             {leftTab === 3 && (
               <Box>
                 {/* Editable Campaign Name */}
@@ -2303,11 +2280,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {/* Action Buttons */}
             <Box sx={{ mt: 4, display: 'flex', gap: 2, justifyContent: 'space-between' }}>
               <Box>
-                {leftTab > 0 && (
-                  <Button variant="outlined" onClick={() => setLeftTab(leftTab - 1)}>
-                    Back
-                  </Button>
-                )}
+                <Button
+                  variant="outlined"
+                  startIcon={<ChevronLeftIcon />}
+                  onClick={async () => {
+                    await saveDraft();
+                    router.push(`/films/${film.id}/campaigns`);
+                  }}
+                  disabled={savingDraft}
+                >
+                  Back to campaigns
+                </Button>
               </Box>
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <Button
@@ -2331,9 +2314,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                     size="large"
                     onClick={() => setLeftTab(leftTab + 1)}
                     disabled={
-                      (leftTab === 0 && !isScheduleValid) ||
-                      (leftTab === 1 && !isCopiesValid) ||
-                      (leftTab === 2 && !isMediaValid)
+                      (leftTab === 0 && !isMediaValid) ||
+                      (leftTab === 1 && !isScheduleValid) ||
+                      (leftTab === 2 && !isCopiesValid)
                     }
                   >
                     Next
@@ -2353,365 +2336,514 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           </Paper>
         </Grid>
 
-        {/* Right Column - Ad Preview with Platform Tabs */}
+        {/* Right Column - Context Panel (changes per tab) */}
         <Grid size={{ xs: 12, md: 5 }}>
           <Paper sx={{ p: 3, position: 'sticky', top: 20 }}>
-            <Typography variant="h6" gutterBottom>
-              Ad Preview
-            </Typography>
-
-            {/* Platform Tabs */}
-            <Tabs value={rightTab} onChange={(e, v) => {
-              setRightTab(v);
-              // Reset ad style when switching to a platform with different styles
-              const newPlatform = previewTabs[v];
-              if (newPlatform && !newPlatform.adStyles.includes(selectedAdStyle)) {
-                setSelectedAdStyle(newPlatform.adStyles[0]);
-              }
-            }} sx={{ mb: 2 }}>
-              {previewTabs.map((p) => (
-                <Tab key={p.id} label={p.name} />
-              ))}
-            </Tabs>
-
-            {/* Ad Style Selector for Current Platform */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Ad Style
-              </Typography>
-              <ToggleButtonGroup
-                value={selectedAdStyle}
-                exclusive
-                onChange={(e, value) => value && setSelectedAdStyle(value)}
-                size="small"
-                fullWidth
-              >
-                {currentPlatform.adStyles.map(style => (
-                  <ToggleButton key={style} value={style}>
-                    {style}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Box>
-
-            {/* Preview Navigation Controls */}
-            {(previewableAssets.length > 1 || availableVariants.length > 1) && (
-              <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-                {previewableAssets.length > 1 && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => setPreviewAssetIndex((prev) =>
-                        prev === 0 ? previewableAssets.length - 1 : prev - 1
-                      )}
-                    >
-                      <ChevronLeftIcon fontSize="small" />
-                    </IconButton>
-                    <Typography variant="caption" color="text.secondary">
-                      {previewAssetIndex + 1}/{previewableAssets.length}
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={() => setPreviewAssetIndex((prev) =>
-                        prev === previewableAssets.length - 1 ? 0 : prev + 1
-                      )}
-                    >
-                      <ChevronRightIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                )}
-                {availableVariants.length > 1 && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => setPreviewVariant((prev) => {
-                        const currentIdx = availableVariants.indexOf(prev);
-                        const newIdx = currentIdx === 0 ? availableVariants.length - 1 : currentIdx - 1;
-                        return availableVariants[newIdx];
-                      })}
-                    >
-                      <KeyboardArrowUpIcon fontSize="small" />
-                    </IconButton>
-                    <Typography variant="caption" color="text.secondary">
-                      {previewVariant}
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={() => setPreviewVariant((prev) => {
-                        const currentIdx = availableVariants.indexOf(prev);
-                        const newIdx = currentIdx === availableVariants.length - 1 ? 0 : currentIdx + 1;
-                        return availableVariants[newIdx];
-                      })}
-                    >
-                      <KeyboardArrowDownIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                )}
+            {/* Tab 0: Media — Format Coverage Checklist */}
+            {leftTab === 0 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Format Coverage
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Check which ad formats are covered by your selected assets. More formats mean wider reach.
+                </Typography>
+                {AD_FORMATS.map((format) => {
+                  const ratioStr = format.name.match(/\(([^)]+)\)/)?.[1] || '';
+                  const selectedAllAssets = [...selectedVideos, ...selectedImages];
+                  const covered = selectedAllAssets.some(
+                    (a) => a.aspectRatio === ratioStr && (a.status === 'READY' || a.status === 'PENDING' || a.status === 'VALIDATING')
+                  );
+                  return (
+                    <Accordion key={format.name} disableGutters sx={{ '&:before': { display: 'none' } }}>
+                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <Checkbox checked={covered} readOnly size="small" sx={{ p: 0 }} />
+                          <Typography variant="body2" fontWeight={500} sx={{ flex: 1 }}>
+                            {format.name}
+                          </Typography>
+                          {format.recommended && (
+                            <Chip label="Recommended" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                          )}
+                          {covered ? (
+                            <CheckCircleIcon color="success" fontSize="small" />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">Missing</Typography>
+                          )}
+                        </Box>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Dimensions:</strong> {format.width} x {format.height}px
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Max duration:</strong> {format.maxDuration}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Media types:</strong> {format.mediaTypes.join(', ')}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          <strong>Placements:</strong> {format.placements}
+                        </Typography>
+                        {format.note && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                            {format.note}
+                          </Typography>
+                        )}
+                      </AccordionDetails>
+                    </Accordion>
+                  );
+                })}
               </Box>
             )}
 
-            {/* Ad Preview Content */}
-            <Box sx={{ minHeight: 400, display: 'flex', flexDirection: 'column' }}>
-              {previewLoading ? (
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'column',
-                    gap: 2,
-                    bgcolor: 'background.default',
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 1,
-                  }}
-                >
-                  <CircularProgress />
-                  <Typography color="text.secondary">
-                    Generating preview...
-                  </Typography>
-                </Box>
-              ) : previewError ? (
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'column',
-                    gap: 2,
-                    bgcolor: 'background.default',
-                    border: '1px solid',
-                    borderColor: 'error.main',
-                    borderRadius: 1,
-                    p: 3,
-                  }}
-                >
-                  <Typography color="error" align="center">
-                    {previewError}
-                  </Typography>
-                  <Button variant="outlined" size="small" onClick={fetchPreview}>
-                    Retry
-                  </Button>
-                </Box>
-              ) : currentPlatform.platform === 'GOOGLE' ? (
-                // Google Ads preview rendered client-side
-                (() => {
-                  const hasMedia = selectedAssets.length > 0;
-                  const hasCopy = copies[previewVariant]?.headline;
-                  if (!hasMedia || !hasCopy) {
-                    return (
-                      <Box
-                        sx={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'column',
-                          gap: 2,
-                          bgcolor: 'background.default',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 1,
-                          p: 3,
-                        }}
-                      >
-                        <Typography color="text.secondary" align="center">
-                          {!hasMedia ? 'Selecciona medios para ver la vista previa' : 'Agrega texto del anuncio para ver la vista previa'}
-                        </Typography>
-                      </Box>
-                    );
-                  }
-                  return (
-                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                      <GoogleDisplayAdPreview
-                        headline={copies[previewVariant]?.headline}
-                        description={copies[previewVariant]?.description}
-                        imageUrl={previewableAssets[previewAssetIndex]?.thumbnailUrl || previewableAssets[previewAssetIndex]?.url}
-                      />
+            {/* Tab 1: Schedule — Budget & Platform Recommendations */}
+            {leftTab === 1 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Budget & Schedule Tips
+                </Typography>
+                <Accordion defaultExpanded disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AttachMoneyIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">Minimum Budget Requirements</Typography>
                     </Box>
-                  );
-                })()
-              ) : previewHtml ? (
-                <Box
-                  sx={{
-                    flex: 1,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    '& iframe': {
-                      border: 'none',
-                      maxWidth: '100%',
-                    },
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: previewHtml
-                      .replace(/&amp;/g, '&')
-                      .replace(/&lt;/g, '<')
-                      .replace(/&gt;/g, '>')
-                      .replace(/&quot;/g, '"'),
-                  }}
-                />
-              ) : (
-                (() => {
-                  // Determine the reason for empty preview
-                  const hasMedia = selectedAssets.length > 0;
-                  const hasCopy = copies[previewVariant]?.headline;
-                  const currentAsset = previewableAssets[previewAssetIndex];
-                  const isVideoWithoutMetaId = currentAsset?.type === 'video' && !currentAsset.metaVideoId;
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Each platform has minimum daily spend requirements:
+                    </Typography>
+                    <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>Meta (Facebook/Instagram):</strong> $1/day minimum per ad set
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>Google Ads:</strong> $5/day recommended for meaningful results
+                      </Typography>
+                    </Box>
+                    <Alert severity="info" sx={{ mt: 1.5 }}>
+                      We recommend a minimum of $100 total budget for campaigns running 7+ days.
+                    </Alert>
+                  </AccordionDetails>
+                </Accordion>
+                <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HelpIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">Duration Recommendations</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>Minimum 3 days</strong> for the algorithm to optimize delivery
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>7-14 days</strong> is ideal for most film campaigns
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>30+ days</strong> for sustained awareness campaigns
+                      </Typography>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+                <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HelpIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">Platform Recommendations</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>Instagram + Facebook:</strong> Best for visual storytelling and reaching broad audiences
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>Google Ads:</strong> Great for intent-based discovery and YouTube pre-roll ads
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        <strong>All platforms:</strong> Maximizes reach but requires higher budget
+                      </Typography>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              </Box>
+            )}
 
-                  // No media selected
-                  if (!hasMedia) {
-                    return (
-                      <Box
-                        sx={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'column',
-                          gap: 2,
-                          bgcolor: 'background.default',
-                          border: '1px dashed',
-                          borderColor: 'divider',
-                          borderRadius: 1,
-                          p: 4,
-                          minHeight: 300,
-                        }}
-                      >
-                        <ImageIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
-                        <Typography color="text.secondary" align="center">
-                          Select at least one image or video to see the preview
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          onClick={() => setLeftTab(2)}
-                        >
-                          Go to Media
-                        </Button>
-                      </Box>
-                    );
+            {/* Tab 2: Copies — How Copies Work */}
+            {leftTab === 2 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Ad Copies Guide
+                </Typography>
+                <Accordion defaultExpanded disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HelpIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">How do ad copies work?</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary">
+                      Ad copies are the text that appears alongside your visual assets. Each copy has a <strong>title</strong> (headline) and a <strong>description</strong> (body text). The platform algorithm tests different combinations to find what resonates best with your audience.
+                    </Typography>
+                  </AccordionDetails>
+                </Accordion>
+                <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HelpIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">Why multiple variations?</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary">
+                      A/B testing is essential in digital marketing. By providing 2-3 variations, the ad platforms can automatically optimize delivery towards the best-performing copy. This typically improves click-through rates by 20-40%.
+                    </Typography>
+                  </AccordionDetails>
+                </Accordion>
+                <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <EditIcon fontSize="small" color="primary" />
+                      <Typography variant="subtitle2">Editing tips</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      We auto-generate 3 variants from your film metadata. Feel free to edit them:
+                    </Typography>
+                    <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        Keep titles under 40 characters for best display
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        Use emotional hooks: curiosity, urgency, exclusivity
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        Mention the genre or a unique selling point
+                      </Typography>
+                      <Typography component="li" variant="body2" color="text.secondary">
+                        Include a clear call to action in the description
+                      </Typography>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              </Box>
+            )}
+
+            {/* Tab 3: Review — Ad Preview */}
+            {leftTab === 3 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Ad Preview
+                </Typography>
+
+                {/* Platform Tabs */}
+                <Tabs value={rightTab} onChange={(e, v) => {
+                  setRightTab(v);
+                  const newPlatform = previewTabs[v];
+                  if (newPlatform && !newPlatform.adStyles.includes(selectedAdStyle)) {
+                    setSelectedAdStyle(newPlatform.adStyles[0]);
                   }
+                }} sx={{ mb: 2 }}>
+                  {previewTabs.map((p) => (
+                    <Tab key={p.id} label={p.name} />
+                  ))}
+                </Tabs>
 
-                  // No copy text
-                  if (!hasCopy) {
-                    return (
-                      <Box
-                        sx={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'column',
-                          gap: 2,
-                          bgcolor: 'background.default',
-                          border: '1px dashed',
-                          borderColor: 'divider',
-                          borderRadius: 1,
-                          p: 4,
-                          minHeight: 300,
-                        }}
-                      >
-                        <TextFieldsIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
-                        <Typography color="text.secondary" align="center">
-                          Add ad text to generate the preview
-                        </Typography>
-                        <Button
-                          variant="outlined"
+                {/* Ad Style Selector */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Ad Style
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={selectedAdStyle}
+                    exclusive
+                    onChange={(e, value) => value && setSelectedAdStyle(value)}
+                    size="small"
+                    fullWidth
+                  >
+                    {currentPlatform.adStyles.map(style => (
+                      <ToggleButton key={style} value={style}>
+                        {style}
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
+                </Box>
+
+                {/* Preview Navigation Controls */}
+                {(previewableAssets.length > 1 || availableVariants.length > 1) && (
+                  <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
+                    {previewableAssets.length > 1 && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton
                           size="small"
-                          onClick={() => setLeftTab(1)}
+                          onClick={() => setPreviewAssetIndex((prev) =>
+                            prev === 0 ? previewableAssets.length - 1 : prev - 1
+                          )}
                         >
-                          Go to Ad Copy
-                        </Button>
+                          <ChevronLeftIcon fontSize="small" />
+                        </IconButton>
+                        <Typography variant="caption" color="text.secondary">
+                          {previewAssetIndex + 1}/{previewableAssets.length}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPreviewAssetIndex((prev) =>
+                            prev === previewableAssets.length - 1 ? 0 : prev + 1
+                          )}
+                        >
+                          <ChevronRightIcon fontSize="small" />
+                        </IconButton>
                       </Box>
-                    );
-                  }
+                    )}
+                    {availableVariants.length > 1 && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPreviewVariant((prev) => {
+                            const currentIdx = availableVariants.indexOf(prev);
+                            const newIdx = currentIdx === 0 ? availableVariants.length - 1 : currentIdx - 1;
+                            return availableVariants[newIdx];
+                          })}
+                        >
+                          <KeyboardArrowUpIcon fontSize="small" />
+                        </IconButton>
+                        <Typography variant="caption" color="text.secondary">
+                          Copy Version {previewVariant}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPreviewVariant((prev) => {
+                            const currentIdx = availableVariants.indexOf(prev);
+                            const newIdx = currentIdx === availableVariants.length - 1 ? 0 : currentIdx + 1;
+                            return availableVariants[newIdx];
+                          })}
+                        >
+                          <KeyboardArrowDownIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    )}
+                  </Box>
+                )}
 
-                  // Video not ready (no metaVideoId)
-                  if (isVideoWithoutMetaId) {
-                    return (
-                      <Box
-                        sx={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'column',
-                          gap: 2,
-                          bgcolor: 'background.default',
-                          border: '1px dashed',
-                          borderColor: 'warning.main',
-                          borderRadius: 1,
-                          p: 4,
-                          minHeight: 300,
-                        }}
-                      >
-                        <HourglassIcon sx={{ fontSize: 48, color: 'warning.main' }} />
-                        <Typography color="text.secondary" align="center">
-                          The video is being processed by Meta.
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" align="center">
-                          Meanwhile, you can preview with an image or wait for processing to complete.
-                        </Typography>
-                        {selectedImages.length > 0 && (
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            onClick={() => {
-                              // Find first image index in previewable assets
-                              const imageIndex = previewableAssets.findIndex(a => a.type === 'image');
-                              if (imageIndex >= 0) setPreviewAssetIndex(imageIndex);
+                {/* Ad Preview Content */}
+                <Box sx={{ minHeight: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+                  {previewLoading ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexDirection: 'column',
+                        gap: 2,
+                        bgcolor: 'background.default',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                      }}
+                    >
+                      <CircularProgress />
+                      <Typography color="text.secondary">
+                        Generating preview...
+                      </Typography>
+                    </Box>
+                  ) : previewError ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexDirection: 'column',
+                        gap: 2,
+                        bgcolor: 'background.default',
+                        border: '1px solid',
+                        borderColor: 'error.main',
+                        borderRadius: 1,
+                        p: 3,
+                      }}
+                    >
+                      <Typography color="error" align="center">
+                        {previewError}
+                      </Typography>
+                      <Button variant="outlined" size="small" onClick={fetchPreview}>
+                        Retry
+                      </Button>
+                    </Box>
+                  ) : currentPlatform.platform === 'GOOGLE' ? (
+                    (() => {
+                      const hasMedia = selectedAssets.length > 0;
+                      const hasCopy = copies[previewVariant]?.headline;
+                      if (!hasMedia || !hasCopy) {
+                        return (
+                          <Box
+                            sx={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexDirection: 'column',
+                              gap: 2,
+                              bgcolor: 'background.default',
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              borderRadius: 1,
+                              p: 3,
                             }}
                           >
-                            Preview with Image
-                          </Button>
-                        )}
-                      </Box>
-                    );
-                  }
-
-                  // Default fallback - show basic card preview
-                  return (
-                    <Card sx={{ bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-                      <CardMedia
-                        component="img"
-                        height="300"
-                        image={film.posterUrl || 'https://picsum.photos/seed/preview/400/300'}
-                        alt={film.title}
-                        sx={{ objectFit: 'cover' }}
-                      />
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <Chip
-                            label={currentPlatform.name}
-                            size="small"
-                            color="primary"
-                          />
-                          <Chip
-                            label={selectedAdStyle}
-                            size="small"
-                            variant="outlined"
+                            <Typography color="text.secondary" align="center">
+                              {!hasMedia ? 'Selecciona medios para ver la vista previa' : 'Agrega texto del anuncio para ver la vista previa'}
+                            </Typography>
+                          </Box>
+                        );
+                      }
+                      return (
+                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                          <GoogleDisplayAdPreview
+                            headline={copies[previewVariant]?.headline}
+                            description={copies[previewVariant]?.description}
+                            imageUrl={previewableAssets[previewAssetIndex]?.thumbnailUrl || previewableAssets[previewAssetIndex]?.url}
                           />
                         </Box>
-                        <Typography variant="h6" gutterBottom>
-                          {copies[previewVariant]?.headline || 'Ad title'}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {copies[previewVariant]?.description || 'Preview will appear here'}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  );
-                })()
-              )}
-            </Box>
+                      );
+                    })()
+                  ) : previewHtml ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        '& iframe': {
+                          border: 'none',
+                          maxWidth: '100%',
+                        },
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: previewHtml
+                          .replace(/&amp;/g, '&')
+                          .replace(/&lt;/g, '<')
+                          .replace(/&gt;/g, '>')
+                          .replace(/&quot;/g, '"'),
+                      }}
+                    />
+                  ) : (
+                    (() => {
+                      const hasMedia = selectedAssets.length > 0;
+                      const hasCopy = copies[previewVariant]?.headline;
+                      const currentAsset = previewableAssets[previewAssetIndex];
+                      const isVideoWithoutMetaId = currentAsset?.type === 'video' && !currentAsset.metaVideoId;
 
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-              {previewHtml
-                ? 'Preview generated by Meta. Final appearance may vary.'
-                : 'Approximate preview. Final appearance may vary by platform.'}
-            </Typography>
+                      if (!hasMedia) {
+                        return (
+                          <Box
+                            sx={{
+                              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              flexDirection: 'column', gap: 2, bgcolor: 'background.default',
+                              border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 4, minHeight: 300,
+                            }}
+                          >
+                            <ImageIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+                            <Typography color="text.secondary" align="center">
+                              Select at least one image or video to see the preview
+                            </Typography>
+                            <Button variant="outlined" size="small" onClick={() => setLeftTab(0)}>
+                              Go to Media
+                            </Button>
+                          </Box>
+                        );
+                      }
+
+                      if (!hasCopy) {
+                        return (
+                          <Box
+                            sx={{
+                              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              flexDirection: 'column', gap: 2, bgcolor: 'background.default',
+                              border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 4, minHeight: 300,
+                            }}
+                          >
+                            <TextFieldsIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+                            <Typography color="text.secondary" align="center">
+                              Add ad text to generate the preview
+                            </Typography>
+                            <Button variant="outlined" size="small" onClick={() => setLeftTab(2)}>
+                              Go to Copies
+                            </Button>
+                          </Box>
+                        );
+                      }
+
+                      if (isVideoWithoutMetaId) {
+                        return (
+                          <Box
+                            sx={{
+                              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              flexDirection: 'column', gap: 2, bgcolor: 'background.default',
+                              border: '1px dashed', borderColor: 'warning.main', borderRadius: 1, p: 4, minHeight: 300,
+                            }}
+                          >
+                            <HourglassIcon sx={{ fontSize: 48, color: 'warning.main' }} />
+                            <Typography color="text.secondary" align="center">
+                              The video is being processed by Meta.
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" align="center">
+                              Meanwhile, you can preview with an image or wait for processing to complete.
+                            </Typography>
+                            {selectedImages.length > 0 && (
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => {
+                                  const imageIndex = previewableAssets.findIndex(a => a.type === 'image');
+                                  if (imageIndex >= 0) setPreviewAssetIndex(imageIndex);
+                                }}
+                              >
+                                Preview with Image
+                              </Button>
+                            )}
+                          </Box>
+                        );
+                      }
+
+                      return (
+                        <Card sx={{ bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                          <CardMedia
+                            component="img"
+                            height="300"
+                            image={film.posterUrl || 'https://picsum.photos/seed/preview/400/300'}
+                            alt={film.title}
+                            sx={{ objectFit: 'cover' }}
+                          />
+                          <CardContent>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Chip label={currentPlatform.name} size="small" color="primary" />
+                              <Chip label={selectedAdStyle} size="small" variant="outlined" />
+                            </Box>
+                            <Typography variant="h6" gutterBottom>
+                              {copies[previewVariant]?.headline || 'Ad title'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {copies[previewVariant]?.description || 'Preview will appear here'}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      );
+                    })()
+                  )}
+                </Box>
+
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                  {previewHtml
+                    ? 'Preview generated by Meta. Final appearance may vary.'
+                    : 'Approximate preview. Final appearance may vary by platform.'}
+                </Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
       </Grid>
@@ -2965,23 +3097,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
             {[
               {
                 num: 1,
-                title: 'Define your audience',
-                body: 'Select your platforms (Instagram, Facebook, YouTube) and language, set your budget (min. $100), and schedule your campaign. Toggle "Pijama Audience" to leverage our optimized data, or manually segment by age and location.',
-              },
-              {
-                num: 2,
-                title: 'Ad creativity',
-                body: 'We automatically generate 3 ad copy variants based on your movie metadata. Review and edit as needed. In digital marketing, it is always desirable to have multiple copy variations available.',
-              },
-              {
-                num: 3,
                 title: 'Visual Campaign Assets',
                 body: 'Choose from your existing movie library (trailers, posters) or upload new assets. Please check dimension and length restrictions. High-performing social media assets often require different aspect ratios and shorter durations than standard film trailers.',
               },
               {
+                num: 2,
+                title: 'Define your audience',
+                body: 'Select your platforms (Instagram, Facebook, YouTube) and language, set your budget (min. $100), and schedule your campaign. Toggle "Pijama Audience" to leverage our optimized data, or manually segment by age and location.',
+              },
+              {
+                num: 3,
+                title: 'Ad copies',
+                body: 'We automatically generate 3 ad copy variants based on your movie metadata. Review and edit as needed. In digital marketing, it is always desirable to have multiple copy variations available.',
+              },
+              {
                 num: 4,
                 title: 'Review',
-                body: 'Verify your budget, targeting, and creatives in a final summary. Once approved, we handle the technical distribution and delivery.',
+                body: 'Verify your budget, targeting, and assets in a final summary. Once approved, we handle the technical distribution and delivery.',
               },
             ].map((step) => (
               <Grid key={step.num} size={{ xs: 12, sm: 6 }}>

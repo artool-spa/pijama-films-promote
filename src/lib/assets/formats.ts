@@ -72,6 +72,7 @@ export const CROP_ASPECT_RATIOS = [
   { label: 'Landscape (16:9)', value: 16 / 9 },
   { label: 'Portrait (4:5)', value: 4 / 5 },
   { label: 'Square (1:1)', value: 1 },
+  { label: 'Custom', value: 0 },
 ] as const;
 
 // Aspect ratio label map for display
@@ -87,7 +88,7 @@ const ASPECT_RATIO_LABELS: Record<string, string> = {
  */
 export function getAspectRatioLabel(ratio: string | null | undefined): string {
   if (!ratio) return 'Unknown';
-  return ASPECT_RATIO_LABELS[ratio] || ratio;
+  return ASPECT_RATIO_LABELS[ratio] || 'Custom';
 }
 
 /**

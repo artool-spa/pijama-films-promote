@@ -30,6 +30,7 @@ type CropDialogProps = {
 
 // Map aspect ratio value to display string
 function ratioToString(ratio: number): string {
+  if (ratio === 0) return 'custom';
   if (ratio === 9 / 16) return '9:16';
   if (ratio === 16 / 9) return '16:9';
   if (ratio === 4 / 5) return '4:5';
@@ -67,15 +68,15 @@ function calcInitialCrop(
   // If the minimum doesn't fit in the displayed image, the source is too small
   if (minCropW > displayedWidth || minCropH > displayedHeight) return null;
 
-  // Target 80% of the image, but no smaller than the minimum
+  // Target ~98% of the image, but no smaller than the minimum
   let cropHeight: number;
   let cropWidth: number;
 
   if (displayedWidth / displayedHeight > aspectRatio) {
-    cropHeight = Math.max(displayedHeight * 0.8, minCropH);
+    cropHeight = Math.max(displayedHeight * 0.98, minCropH);
     cropWidth = cropHeight * aspectRatio;
   } else {
-    cropWidth = Math.max(displayedWidth * 0.8, minCropW);
+    cropWidth = Math.max(displayedWidth * 0.98, minCropW);
     cropHeight = cropWidth / aspectRatio;
   }
 
@@ -98,6 +99,7 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cropSuccess, setCropSuccess] = useState(false);
   const [sourceTooSmall, setSourceTooSmall] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -121,11 +123,25 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
   const onImageLoad = useCallback(
     (e: React.SyntheticEvent<HTMLImageElement>) => {
       const el = e.currentTarget;
-      const initial = calcInitialCrop(
-        el.width, el.height, el.naturalWidth, el.naturalHeight, selectedRatio,
-      );
-      setSourceTooSmall(initial === null);
-      if (initial) setCrop(initial);
+      if (selectedRatio === 0) {
+        // Custom: free-form crop starting at ~98% of image
+        const cropW = el.width * 0.98;
+        const cropH = el.height * 0.98;
+        setCrop({
+          unit: 'px',
+          x: (el.width - cropW) / 2,
+          y: (el.height - cropH) / 2,
+          width: cropW,
+          height: cropH,
+        });
+        setSourceTooSmall(false);
+      } else {
+        const initial = calcInitialCrop(
+          el.width, el.height, el.naturalWidth, el.naturalHeight, selectedRatio,
+        );
+        setSourceTooSmall(initial === null);
+        if (initial) setCrop(initial);
+      }
     },
     [selectedRatio]
   );
@@ -136,12 +152,26 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
 
     if (imgRef.current) {
       const el = imgRef.current;
-      const initial = calcInitialCrop(
-        el.width, el.height, el.naturalWidth, el.naturalHeight, newRatio,
-      );
-      setSourceTooSmall(initial === null);
-      if (initial) {
-        setCrop(initial);
+      if (newRatio === 0) {
+        // Custom: free-form crop starting at ~98% of image
+        const cropW = el.width * 0.98;
+        const cropH = el.height * 0.98;
+        setCrop({
+          unit: 'px',
+          x: (el.width - cropW) / 2,
+          y: (el.height - cropH) / 2,
+          width: cropW,
+          height: cropH,
+        });
+        setSourceTooSmall(false);
+      } else {
+        const initial = calcInitialCrop(
+          el.width, el.height, el.naturalWidth, el.naturalHeight, newRatio,
+        );
+        setSourceTooSmall(initial === null);
+        if (initial) {
+          setCrop(initial);
+        }
       }
       setCompletedCrop(undefined);
     }
@@ -217,7 +247,11 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
       };
 
       onCropComplete(newImage);
-      onClose();
+      setCropSuccess(true);
+      setTimeout(() => {
+        setCropSuccess(false);
+        onClose();
+      }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to crop image');
     } finally {
@@ -247,6 +281,12 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
             ))}
           </ToggleButtonGroup>
         </Box>
+
+        {cropSuccess && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            Image cropped successfully!
+          </Alert>
+        )}
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -281,7 +321,7 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
             crop={crop}
             onChange={(c) => setCrop(c)}
             onComplete={(c) => setCompletedCrop(c)}
-            aspect={selectedRatio}
+            aspect={selectedRatio === 0 ? undefined : selectedRatio}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
