@@ -162,10 +162,18 @@ async function setMercureEnvVars(appUuid: string, jwtSecret: string): Promise<vo
   ];
 
   for (const env of envVars) {
-    await coolifyFetch(`/applications/${appUuid}/envs`, {
-      method: 'POST',
-      body: JSON.stringify(env),
-    });
+    try {
+      await coolifyFetch(`/applications/${appUuid}/envs`, {
+        method: 'POST',
+        body: JSON.stringify(env),
+      });
+    } catch {
+      // Already exists — update with PATCH
+      await coolifyFetch(`/applications/${appUuid}/envs`, {
+        method: 'PATCH',
+        body: JSON.stringify({ key: env.key, value: env.value, is_preview: false }),
+      });
+    }
   }
   console.log('   Env vars configured');
 }
@@ -234,8 +242,16 @@ async function addMercureEnvToApp(jwtSecret: string): Promise<void> {
         body: JSON.stringify(env),
       });
     } catch (error) {
-      // Env var might already exist
-      console.warn(`   Warning: Could not set ${env.key}: ${error instanceof Error ? error.message : error}`);
+      // Env var already exists — update it with PATCH
+      try {
+        await coolifyFetch(`/applications/${app.uuid}/envs`, {
+          method: 'PATCH',
+          body: JSON.stringify({ key: env.key, value: env.value, is_preview: false }),
+        });
+        console.log(`   ~  ${env.key} (updated)`);
+      } catch (patchError) {
+        console.warn(`   Warning: Could not set ${env.key}: ${patchError instanceof Error ? patchError.message : patchError}`);
+      }
     }
   }
 

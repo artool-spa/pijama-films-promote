@@ -53,10 +53,10 @@ const ENV_KEYS = [
   "GOOGLE_ADS_REFRESH_TOKEN",
   "GOOGLE_ADS_CUSTOMER_ID",
   "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
-  // Mercure (handled with production overrides)
+  // Mercure URLs (handled with production overrides)
+  // Note: MERCURE_JWT_SECRET is managed by deploy:mercure, not pushed from .env
   "MERCURE_URL",
   "NEXT_PUBLIC_MERCURE_URL",
-  "MERCURE_JWT_SECRET",
   // Stripe
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
