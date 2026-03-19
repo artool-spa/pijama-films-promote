@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import Stripe from 'stripe';
 import stripe from '#stripe';
 import { getPartnerFromRequest } from '@/lib/auth';
 import {
@@ -7,7 +8,40 @@ import {
   updateStripeCustomerId,
   createPendingDeposit,
 } from '@/models/account';
+import type { Account } from '@/models/account';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
+
+/**
+ * Resolve a valid Stripe customer ID, recreating if the stored one no longer exists.
+ */
+async function resolveStripeCustomer(
+  account: Account,
+  partner: { id: string; name: string }
+): Promise<string> {
+  if (account.stripeCustomerId) {
+    try {
+      const existing = await stripe.customers.retrieve(account.stripeCustomerId);
+      if (!existing.deleted) {
+        return account.stripeCustomerId;
+      }
+    } catch (error) {
+      if (
+        error instanceof Stripe.errors.StripeInvalidRequestError &&
+        error.code === 'resource_missing'
+      ) {
+        // Customer no longer exists in Stripe — will recreate below
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const customer = await stripe.customers.create({
+    metadata: { partnerId: partner.id, partnerName: partner.name },
+  });
+  await updateStripeCustomerId(partner.id, customer.id);
+  return customer.id;
+}
 
 const CheckoutSchema = z.object({
   amount: z.number().min(5, 'Minimum amount is $5'),
@@ -44,18 +78,8 @@ export async function POST(req: NextRequest) {
     // Get or create account
     const account = await getOrCreateAccount(partner.id);
 
-    // Get or create Stripe customer
-    let stripeCustomerId = account.stripeCustomerId;
-    if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        metadata: {
-          partnerId: partner.id,
-          partnerName: partner.name,
-        },
-      });
-      stripeCustomerId = customer.id;
-      await updateStripeCustomerId(partner.id, stripeCustomerId);
-    }
+    // Resolve Stripe customer (validates existing or creates new)
+    const stripeCustomerId = await resolveStripeCustomer(account, partner);
 
     // Determine base URL from request
     const origin = req.headers.get('origin') || 'http://localhost:3000';
