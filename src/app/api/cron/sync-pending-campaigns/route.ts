@@ -20,8 +20,9 @@ export async function GET(req: NextRequest) {
   }
 
   const authHeader = req.headers.get('authorization');
-  logger.info({ url: req.nextUrl.toString(), authHeader } );
+  
   if (authHeader !== `Bearer ${cronSecret}`) {
+    logger.error({ authHeader }, 'Wrong sync token' );
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
