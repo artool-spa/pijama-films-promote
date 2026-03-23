@@ -21,7 +21,7 @@ import {
   buildGoogleTargeting,
   GoogleAdsApiError,
 } from '#google';
-import { getEligibleYouTubeFormats } from '@/lib/assets/validation';
+import { getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
 
@@ -475,6 +475,23 @@ export async function syncCampaignToGoogle(
     };
   }
 
+  // Upload Pijama Films logo as Google Ads asset (reused across all ads)
+  const logoUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://app.pijamafilms.com'}/logo_pijama_square.png`;
+  let logoAssetResourceName: string;
+  try {
+    const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
+    logoAssetResourceName = logoAsset.resourceName;
+  } catch (error) {
+    console.error('Failed to upload Pijama Films logo:', error);
+    return {
+      synced: false,
+      syncedAds: [],
+      adErrors: [],
+      syncError: 'Error al subir el logo de Pijama Films',
+      syncErrorDetails: error instanceof GoogleAdsApiError ? { code: error.errorCode, response: error.response } : undefined,
+    };
+  }
+
   // Create image ads (Demand Gen)
   const syncedAds: Ad[] = [];
   const adErrors: Array<{ adId: string; error: string }> = [];
@@ -485,12 +502,26 @@ export async function syncCampaignToGoogle(
       continue;
     }
 
+    // Filter images to only those valid for Google Demand Gen (correct aspect ratio + under 5MB)
+    const validImages = ad.images.filter(image => {
+      const valid = isValidGoogleMarketingImage(image);
+      if (!valid) {
+        console.warn(`[Google] Excluding image "${image.name}" (aspect ratio: ${image.aspectRatio}, size: ${(image.size / 1024 / 1024).toFixed(1)}MB)`);
+      }
+      return valid;
+    });
+
+    if (validImages.length === 0) {
+      adErrors.push({ adId: ad.id, error: 'No hay imágenes con formato válido para Google Ads (se requiere 1.91:1, 1:1, o 4:5, máximo 5MB)' });
+      continue;
+    }
+
     try {
-      // Upload images as Google Ads assets
+      // Upload valid images as Google Ads assets
       await emitProgress(filmId, campaign.id, 'image_upload', 70, `Subiendo imágenes: ${ad.name}...`);
 
       const imageAssetResourceNames: string[] = [];
-      for (const image of ad.images) {
+      for (const image of validImages) {
         const asset = await uploadImageAsset(google, image.url, `${ad.name} - ${image.name}`);
         imageAssetResourceNames.push(asset.resourceName);
       }
@@ -502,11 +533,11 @@ export async function syncCampaignToGoogle(
         name: ad.name,
         adGroupResourceName: googleAdGroupId,
         imageAssetResourceNames,
+        logoImageAssetResourceNames: [logoAssetResourceName],
         headlines: ad.headlines.map(h => h.substring(0, 30)).slice(0, 5),
         descriptions: ad.bodies.map(b => b.substring(0, 90)).slice(0, 5),
         finalUrl: ad.linkUrl,
         businessName: partnerName.substring(0, 25),
-        callToAction: ad.callToAction,
       });
 
       await markGoogleAdSynced(ad.id, googleAd.resourceName);

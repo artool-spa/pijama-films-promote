@@ -667,6 +667,10 @@ export async function createDemandGenImageAd(
     asset: resourceName,
   }));
 
+  const logoImages = validated.logoImageAssetResourceNames.map(resourceName => ({
+    asset: resourceName,
+  }));
+
   const headlines = validated.headlines.map(text => ({
     text,
   }));
@@ -684,11 +688,12 @@ export async function createDemandGenImageAd(
           name: validated.name,
           finalUrls: [validated.finalUrl],
           demandGenMultiAssetAd: {
-            marketingImages: marketingImages,
+            marketingImages,
+            logoImages,
             headlines,
             descriptions,
             businessName: validated.businessName,
-            callToActionText: validated.callToAction,
+            callToActionText: 'Watch now',
           },
         },
       },

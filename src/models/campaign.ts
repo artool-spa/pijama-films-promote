@@ -98,6 +98,7 @@ const ImageSchema = z.object({
   size: z.number().int(),
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
+  aspectRatio: z.string().nullable(),
   createdAt: z.coerce.date(),
 });
 

@@ -37,6 +37,44 @@ export const META_VIDEO_REQUIREMENTS = {
 } as const;
 
 // ============================================================================
+// GOOGLE DEMAND GEN REQUIREMENTS CONSTANTS
+// ============================================================================
+
+export const GOOGLE_DEMANDGEN_IMAGE_REQUIREMENTS = {
+  validMarketingAspectRatios: ['1.91:1', '1:1', '4:5'] as const,
+  validLogoAspectRatios: ['1:1'] as const,
+  maxFileSizeBytes: 5 * 1024 * 1024, // 5MB
+} as const;
+
+/**
+ * Check if an image is valid for Google Demand Gen marketing images.
+ * Validates aspect ratio (must be 1.91:1, 1:1, or 4:5) and file size (max 5MB).
+ */
+export function isValidGoogleMarketingImage(image: {
+  width: number | null;
+  height: number | null;
+  size: number;
+  aspectRatio: string | null;
+}): boolean {
+  // Check file size
+  if (image.size > GOOGLE_DEMANDGEN_IMAGE_REQUIREMENTS.maxFileSizeBytes) {
+    return false;
+  }
+
+  // Determine aspect ratio from field or calculate from dimensions
+  let ratio = image.aspectRatio;
+  if (!ratio && image.width && image.height) {
+    ratio = calculateAspectRatio(image.width, image.height);
+  }
+
+  if (!ratio || ratio === 'unknown') {
+    return false;
+  }
+
+  return (GOOGLE_DEMANDGEN_IMAGE_REQUIREMENTS.validMarketingAspectRatios as readonly string[]).includes(ratio);
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 

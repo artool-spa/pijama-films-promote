@@ -163,11 +163,11 @@ export const DemandGenImageAdCreateSchema = z.object({
   name: z.string().min(1).max(255),
   adGroupResourceName: z.string(),
   imageAssetResourceNames: z.array(z.string()).min(1),
+  logoImageAssetResourceNames: z.array(z.string()).min(1),
   headlines: z.array(z.string().min(1).max(30)).min(1).max(5),
   descriptions: z.array(z.string().min(1).max(90)).min(1).max(5),
   finalUrl: z.string().url(),
   businessName: z.string().min(1).max(25),
-  callToAction: z.string().optional(),
 });
 
 export type DemandGenImageAdCreate = z.infer<typeof DemandGenImageAdCreateSchema>;

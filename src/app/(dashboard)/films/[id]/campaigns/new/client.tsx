@@ -368,10 +368,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   // Form state - Media Assets (start with all local DB assets selected, or draft selection)
   const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
     if (draft?.selectedAssets) return draft.selectedAssets;
-    return [
+    const allValid = [
       ...localImages.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
       ...localVideos.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
     ];
+    return allValid.slice(0, MAX_CAMPAIGN_ASSETS);
   });
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerAsset, setViewerAsset] = useState<LocalAsset | UploadedAsset | null>(null);
@@ -1792,7 +1793,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                 </Box>
 
                 <Typography variant="caption" color={isAtAssetLimit ? 'warning.main' : 'text.secondary'} sx={{ mb: 2, display: 'block' }}>
-                  {selectedAssets.length} de {MAX_CAMPAIGN_ASSETS} seleccionados
+                  {selectedAssets.length} of {MAX_CAMPAIGN_ASSETS} selected
                 </Typography>
 
                 <Typography variant="h6" gutterBottom>
