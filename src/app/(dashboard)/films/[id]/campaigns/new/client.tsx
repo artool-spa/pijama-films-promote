@@ -71,7 +71,7 @@ import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
-import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
+import { validateCampaignBudget, META_MIN_DAILY_PER_ADSET, META_ASSET_TYPES, GOOGLE_MIN_DAILY } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
 
 // Asset status type
@@ -1229,6 +1229,26 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       const hasMetaPlatform = selectedPlatforms.some(p => p !== 'google');
       const hasGoogle = selectedPlatforms.includes('google');
 
+      // Split budget across platforms: allocate minimums first, then split remainder evenly
+      const totalBudget = Number(budget);
+      let metaBudget = 0;
+      let googleBudget = 0;
+
+      if (hasMetaPlatform && hasGoogle) {
+        const days = Math.max(1, Math.ceil(
+          (new Date(endDate || startDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
+        ));
+        const metaMin = selectedLanguages.length * META_ASSET_TYPES * META_MIN_DAILY_PER_ADSET * days;
+        const googleMin = GOOGLE_MIN_DAILY * days;
+        const remainder = totalBudget - metaMin - googleMin;
+        const halfRemainder = Math.floor(remainder / 2);
+        metaBudget = metaMin + halfRemainder;
+        googleBudget = totalBudget - metaBudget; // Google gets the rest to avoid rounding loss
+      } else {
+        metaBudget = totalBudget;
+        googleBudget = totalBudget;
+      }
+
       // Include draftId if resuming from a draft
       const payloadWithDraft = draftId ? { ...payload, draftId } : payload;
 
@@ -1236,10 +1256,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
       // If Meta platform selected, create via Meta API first
       if (hasMetaPlatform) {
+        const metaPayload = { ...payloadWithDraft, budget: metaBudget };
         const metaResponse = await fetch('/api/meta/campaigns/create-and-sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloadWithDraft),
+          body: JSON.stringify(metaPayload),
         });
 
         if (!metaResponse.ok) {
@@ -1261,6 +1282,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         if (hasGoogle) {
           const googlePayload = {
             ...payload,
+            budget: googleBudget,
             campaignId, // Reuse existing campaign
             googleBidStrategy: 'MAXIMIZE_CLICKS',
           };
@@ -1285,6 +1307,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         // Only Google selected
         const googlePayload = {
           ...payloadWithDraft,
+          budget: googleBudget,
           googleBidStrategy: 'MAXIMIZE_CLICKS',
         };
 
