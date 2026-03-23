@@ -55,10 +55,12 @@ export async function middleware(request: NextRequest) {
   try {
     const { payload } = await jwtVerify(sessionCookie.value, SECRET_KEY);
 
-    // Add partner info to headers for API routes
+    // Add partner info and request path to headers
     const response = NextResponse.next();
     response.headers.set('x-pijama-partner-id', payload.partnerId as string);
     response.headers.set('x-user-name', payload.name as string);
+    response.headers.set('x-request-path', pathname);
+    response.headers.set('x-request-method', request.method);
 
     return withRequestLog(request, response, start);
   } catch {

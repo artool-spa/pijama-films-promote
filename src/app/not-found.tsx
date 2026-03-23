@@ -4,8 +4,8 @@ import { Box, Typography, Button } from '@mui/material';
 
 export default async function NotFound() {
   const headersList = await headers();
-  const path = headersList.get('x-invoke-path') || headersList.get('x-matched-path') || 'unknown';
-  const method = headersList.get('x-invoke-method') || 'GET';
+  const path = headersList.get('x-request-path') || 'unknown';
+  const method = headersList.get('x-request-method') || 'GET';
 
   logger.warn({ method, path, status: 404 }, 'Not found');
 
