@@ -22,7 +22,7 @@ import { ArrowBack as ArrowBackIcon, Add as AddIcon } from '@mui/icons-material'
 import { useRouter } from 'next/navigation';
 import type { Film, CampaignSummary } from '@/models/film';
 
-type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
+type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR' | 'FINISHED';
 
 type FilmCampaignsClientProps = {
   film: Film;
@@ -49,6 +49,14 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
     router.push(`/films/${film.id}/campaigns/${campaignId}`);
   };
 
+  const getEffectiveStatus = (campaign: { status: string; endDate?: string | Date | null }): CampaignStatus => {
+    if (campaign.endDate && new Date(campaign.endDate) < new Date()
+        && ['PENDING', 'ACTIVE'].includes(campaign.status)) {
+      return 'FINISHED';
+    }
+    return campaign.status as CampaignStatus;
+  };
+
   const getStatusColor = (status: CampaignStatus) => {
     switch (status) {
       case 'ACTIVE':
@@ -61,6 +69,8 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
         return 'info' as const;
       case 'ERROR':
         return 'error' as const;
+      case 'FINISHED':
+        return 'default' as const;
       case 'ARCHIVED':
         return 'default' as const;
       default:
@@ -80,6 +90,8 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
         return 'Pending';
       case 'ERROR':
         return 'Error';
+      case 'FINISHED':
+        return 'Finished';
       case 'ARCHIVED':
         return 'Archived';
       default:
@@ -217,9 +229,9 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
                       </TableCell>
                       <TableCell align="center">
                         <Chip
-                          label={getStatusLabel(campaign.status as CampaignStatus)}
+                          label={getStatusLabel(getEffectiveStatus(campaign))}
                           size="small"
-                          color={getStatusColor(campaign.status as CampaignStatus)}
+                          color={getStatusColor(getEffectiveStatus(campaign))}
                         />
                       </TableCell>
                       <TableCell align="right">${campaign.budget.toLocaleString()}</TableCell>

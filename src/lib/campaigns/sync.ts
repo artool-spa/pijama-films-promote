@@ -549,7 +549,10 @@ export async function syncCampaignToGoogle(
       const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
       log.error({ err: error, adId: ad.id }, 'Failed to create Google ad');
       adErrors.push({ adId: ad.id, error: errorMsg });
-      await markAdError(ad.id).catch(() => {});
+      // Only mark ad as error if Meta hasn't already synced it successfully
+      if (!ad.metaAdId) {
+        await markAdError(ad.id).catch(() => {});
+      }
     }
   }
 
