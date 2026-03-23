@@ -56,6 +56,7 @@ import {
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
   YouTube as YouTubeIcon,
+  Google as GoogleIcon,
   Warning as WarningIcon,
   Refresh as RefreshIcon,
   Image as ImageIcon,
@@ -92,6 +93,7 @@ type LocalAsset = {
   aspectRatio?: string | null;
   facebookEligible: boolean;
   instagramEligible: boolean;
+  googleEligible?: boolean;
   eligibilityError?: string | null;
 };
 
@@ -187,6 +189,7 @@ type UploadedAsset = {
   aspectRatio?: string | null;
   facebookEligible: boolean;
   instagramEligible: boolean;
+  googleEligible?: boolean;
   eligibilityError?: string | null;
 };
 
@@ -690,13 +693,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         // Handle image eligibility events
         if (data.type === 'image_eligibility_checked') {
-          console.log(`[SSE] Image ${data.imageId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}`);
+          console.log(`[SSE] Image ${data.imageId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}, Google=${data.googleEligible}`);
           const updateImage = (a: LocalAsset | UploadedAsset) =>
             a.id === data.imageId
               ? {
                   ...a,
                   facebookEligible: data.facebookEligible,
                   instagramEligible: data.instagramEligible,
+                  googleEligible: data.googleEligible ?? (a as LocalAsset).googleEligible,
                   eligibilityError: data.error,
                 }
               : a;
@@ -1043,6 +1047,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           status: result.status || 'PENDING',
           facebookEligible: result.facebookEligible || false,
           instagramEligible: result.instagramEligible || false,
+          googleEligible: result.googleEligible || false,
           validationError: result.validationError,
           aspectRatio: result.aspectRatio,
           eligibilityError: result.eligibilityError,
@@ -2045,6 +2050,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                               {asset.instagramEligible && (
                                 <Tooltip title="Instagram eligible">
                                   <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
+                                </Tooltip>
+                              )}
+                              {(asset as LocalAsset).googleEligible && (
+                                <Tooltip title="Google eligible">
+                                  <GoogleIcon sx={{ fontSize: 14, color: '#4285F4' }} />
                                 </Tooltip>
                               )}
                             </>

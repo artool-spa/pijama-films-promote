@@ -172,9 +172,21 @@ export class GoogleAdsClient {
     operations: Array<{ create?: unknown; update?: unknown; remove?: string }>
   ): Promise<{ results: Array<{ resourceName: string }> }> {
     const url = this.buildCustomerUrl(`${resource}:mutate`);
+
+    const processedOps = operations.map(op => {
+      if (op.update && typeof op.update === 'object') {
+        const updateObj = op.update as Record<string, unknown>;
+        const fields = Object.keys(updateObj)
+          .filter(k => k !== 'resourceName')
+          .map(k => k.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`));
+        return { ...op, updateMask: fields.join(',') };
+      }
+      return op;
+    });
+
     return this.executeRequest(url, {
       method: 'POST',
-      body: JSON.stringify({ operations }),
+      body: JSON.stringify({ operations: processedOps }),
     });
   }
 }

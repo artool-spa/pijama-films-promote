@@ -36,6 +36,7 @@ import {
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
   YouTube as YouTubeIcon,
+  Google as GoogleIcon,
   Warning as WarningIcon,
   Refresh as RefreshIcon,
   Crop as CropIcon,
@@ -204,6 +205,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             metaImageHash: result.metaImageHash,
             facebookEligible: result.facebookEligible || false,
             instagramEligible: result.instagramEligible || false,
+            googleEligible: result.googleEligible || false,
             eligibilityError: result.eligibilityError,
             _count: { ads: 0 },
           };
@@ -304,6 +306,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 metaImageHash: null,
                 facebookEligible: false,
                 instagramEligible: false,
+                googleEligible: false,
                 eligibilityError: null,
                 _count: { ads: 0 },
               },
@@ -389,6 +392,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                     ...a,
                     facebookEligible: data.facebookEligible,
                     instagramEligible: data.instagramEligible,
+                    googleEligible: data.googleEligible ?? a.googleEligible,
                     eligibilityError: data.error,
                   }
                 : a
@@ -702,6 +706,11 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                           <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
                         </Tooltip>
                       )}
+                      {asset.youtubeEligible && (
+                        <Tooltip title="YouTube">
+                          <YouTubeIcon sx={{ fontSize: 14, color: '#FF0000' }} />
+                        </Tooltip>
+                      )}
                     </>
                   )}
                   {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
@@ -823,6 +832,11 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                       {asset.instagramEligible && (
                         <Tooltip title="Instagram">
                           <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
+                        </Tooltip>
+                      )}
+                      {asset.googleEligible && (
+                        <Tooltip title="Google">
+                          <GoogleIcon sx={{ fontSize: 14, color: '#4285F4' }} />
                         </Tooltip>
                       )}
                     </>

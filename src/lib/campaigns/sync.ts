@@ -24,7 +24,7 @@ import {
   buildGoogleTargeting,
   GoogleAdsApiError,
 } from '#google';
-import { getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
+import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
 
@@ -479,7 +479,7 @@ export async function syncCampaignToGoogle(
   }
 
   // Upload Pijama Films logo as Google Ads asset (reused across all ads)
-  const logoUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://app.pijamafilms.com'}/logo_pijama_square.png`;
+  const logoUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://promote.pijamafilms.com'}/logo_pijama_square.png`;
   let logoAssetResourceName: string;
   try {
     const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
@@ -523,10 +523,29 @@ export async function syncCampaignToGoogle(
       // Upload valid images as Google Ads assets
       await emitProgress(filmId, campaign.id, 'image_upload', 70, `Subiendo imágenes: ${ad.name}...`);
 
-      const imageAssetResourceNames: string[] = [];
+      const landscapeImageAssetResourceNames: string[] = [];
+      const squareImageAssetResourceNames: string[] = [];
+      const portraitImageAssetResourceNames: string[] = [];
+
       for (const image of validImages) {
         const asset = await uploadImageAsset(google, image.url, `${ad.name} - ${image.name}`);
-        imageAssetResourceNames.push(asset.resourceName);
+        const ratio = image.aspectRatio
+          ?? (image.width && image.height ? calculateAspectRatio(image.width, image.height) : null);
+
+        switch (ratio) {
+          case '1.91:1':
+            landscapeImageAssetResourceNames.push(asset.resourceName);
+            break;
+          case '1:1':
+            squareImageAssetResourceNames.push(asset.resourceName);
+            break;
+          case '4:5':
+            portraitImageAssetResourceNames.push(asset.resourceName);
+            break;
+          default:
+            log.warn({ ratio, imageName: image.name }, 'Unexpected aspect ratio after validation');
+            break;
+        }
       }
 
       // Create Demand Gen image ad
@@ -535,7 +554,9 @@ export async function syncCampaignToGoogle(
       const googleAd = await createDemandGenImageAd(google, {
         name: ad.name,
         adGroupResourceName: googleAdGroupId,
-        imageAssetResourceNames,
+        landscapeImageAssetResourceNames,
+        squareImageAssetResourceNames,
+        portraitImageAssetResourceNames,
         logoImageAssetResourceNames: [logoAssetResourceName],
         headlines: ad.headlines.map(h => h.substring(0, 30)).slice(0, 5),
         descriptions: ad.bodies.map(b => b.substring(0, 90)).slice(0, 5),

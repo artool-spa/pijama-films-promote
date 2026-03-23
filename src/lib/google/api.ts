@@ -666,9 +666,15 @@ export async function createDemandGenImageAd(
 ): Promise<{ resourceName: string }> {
   const validated = DemandGenImageAdCreateSchema.parse(data);
 
-  const marketingImages = validated.imageAssetResourceNames.map(resourceName => ({
-    asset: resourceName,
-  }));
+  const marketingImages = validated.landscapeImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
+  const squareMarketingImages = validated.squareImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
+  const portraitMarketingImages = validated.portraitImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
 
   const logoImages = validated.logoImageAssetResourceNames.map(resourceName => ({
     asset: resourceName,
@@ -691,12 +697,14 @@ export async function createDemandGenImageAd(
           name: validated.name,
           finalUrls: [validated.finalUrl],
           demandGenMultiAssetAd: {
-            marketingImages,
+            ...(marketingImages.length > 0 && { marketingImages }),
+            ...(squareMarketingImages.length > 0 && { squareMarketingImages }),
+            ...(portraitMarketingImages.length > 0 && { portraitMarketingImages }),
             logoImages,
             headlines,
             descriptions,
             businessName: validated.businessName,
-            callToActionText: 'Watch now',
+            callToActionText: 'Learn more',
           },
         },
       },

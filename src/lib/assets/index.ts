@@ -29,6 +29,7 @@ import {
   validateVideoForMeta,
   validateVideoForYouTube,
   calculateAspectRatio,
+  isValidGoogleMarketingImage,
 } from './validation';
 
 /**
@@ -719,10 +720,11 @@ export function validateImageInBackground(
           validationError: null,
         });
 
-        // Assume eligible since we can't verify
+        // Assume Meta eligible since we can't verify, but Google ineligible (needs aspect ratio)
         await updateImageEligibility(imageId, {
           facebookEligible: true,
           instagramEligible: true,
+          googleEligible: false,
           eligibilityError: null,
         });
 
@@ -739,6 +741,7 @@ export function validateImageInBackground(
           imageId,
           facebookEligible: true,
           instagramEligible: true,
+          googleEligible: false,
           error: null,
         });
         return;
@@ -747,6 +750,9 @@ export function validateImageInBackground(
       // Validate against Meta requirements
       const result = validateImageForMeta({ width, height, size });
       const aspectRatio = calculateAspectRatio(width, height);
+
+      // Validate against Google Demand Gen requirements
+      const googleEligible = isValidGoogleMarketingImage({ width, height, size, aspectRatio });
 
       if (result.valid) {
         await updateImageValidation(imageId, {
@@ -761,10 +767,11 @@ export function validateImageInBackground(
         await updateImageEligibility(imageId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          googleEligible,
           eligibilityError: null,
         });
 
-        log.info({ imageId, aspectRatio }, 'Image validated successfully');
+        log.info({ imageId, aspectRatio, googleEligible }, 'Image validated successfully');
       } else {
         await updateImageValidation(imageId, {
           status: 'INVALID',
@@ -778,6 +785,7 @@ export function validateImageInBackground(
         await updateImageEligibility(imageId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          googleEligible,
           eligibilityError: result.errors.join('; '),
         });
 
@@ -799,6 +807,7 @@ export function validateImageInBackground(
         imageId,
         facebookEligible: result.facebookEligible,
         instagramEligible: result.instagramEligible,
+        googleEligible,
         error: result.errors.length > 0 ? result.errors.join('; ') : null,
       });
     } catch (error) {

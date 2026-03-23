@@ -38,6 +38,8 @@ export type CampaignSummary = {
   startDate: string;
   endDate: string | null;
   adsCount: number;
+  metaCampaignId: string | null;
+  googleCampaignId: string | null;
 };
 
 export type MediaAsset = {
@@ -97,6 +99,8 @@ function mapCampaignToSummary(campaign: CampaignWithAds): CampaignSummary {
     startDate: campaign.startDate.toISOString().split('T')[0],
     endDate: campaign.endDate?.toISOString().split('T')[0] || null,
     adsCount: campaign.ads.length,
+    metaCampaignId: campaign.metaCampaignId,
+    googleCampaignId: campaign.googleCampaignId ?? null,
   };
 }
 

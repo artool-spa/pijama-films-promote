@@ -243,6 +243,7 @@ model Image {
   // Platform eligibility
   facebookEligible  Boolean @default(false)
   instagramEligible Boolean @default(false)
+  googleEligible    Boolean @default(false)
   eligibilityError  String?
 
   // Relation to ads using this image

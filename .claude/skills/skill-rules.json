@@ -49,6 +49,16 @@
       },
       "priority": "medium",
       "autoActivate": false
+    },
+    {
+      "name": "playwright-e2e-guidelines",
+      "triggers": {
+        "keywords": ["playwright", "e2e", "end-to-end", "browser test", "navigation test"],
+        "filePatterns": ["e2e/**"],
+        "intents": ["write e2e test", "browser navigation", "playwright test"]
+      },
+      "priority": "medium",
+      "autoActivate": false
     }
   ]
 }

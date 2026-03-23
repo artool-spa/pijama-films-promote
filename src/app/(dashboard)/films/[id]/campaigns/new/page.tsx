@@ -71,6 +71,7 @@ export default async function CreateCampaignPage({
     aspectRatio: img.aspectRatio,
     facebookEligible: img.facebookEligible,
     instagramEligible: img.instagramEligible,
+    googleEligible: img.googleEligible,
     eligibilityError: img.eligibilityError,
   }));
 

@@ -59,6 +59,7 @@ export const ImageSchema = z.object({
   // Platform eligibility
   facebookEligible: z.boolean(),
   instagramEligible: z.boolean(),
+  googleEligible: z.boolean(),
   eligibilityError: z.string().nullable(),
 });
 
@@ -219,6 +220,7 @@ export type ImageValidationUpdate = z.infer<typeof ImageValidationUpdateSchema>;
 const ImageEligibilityUpdateSchema = z.object({
   facebookEligible: z.boolean(),
   instagramEligible: z.boolean(),
+  googleEligible: z.boolean(),
   eligibilityError: z.string().nullable().optional(),
   metaImageHash: z.string().nullable().optional(),
 });

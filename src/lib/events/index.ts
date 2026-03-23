@@ -89,6 +89,7 @@ export interface SSEImageEligibilityCheckedEvent {
   imageId: string;
   facebookEligible: boolean;
   instagramEligible: boolean;
+  googleEligible: boolean;
   error: string | null;
 }
 
