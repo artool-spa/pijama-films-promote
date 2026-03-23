@@ -95,6 +95,8 @@ type LocalAsset = {
   eligibilityError?: string | null;
 };
 
+const MAX_CAMPAIGN_ASSETS = 10;
+
 // Status labels and colors
 const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
   PENDING: 'Pending',
@@ -487,6 +489,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   }, [copiesByLang, selectedLanguages]);
 
   const isMediaValid = useMemo(() => selectedAssets.length > 0, [selectedAssets]);
+  const isAtAssetLimit = selectedAssets.length >= MAX_CAMPAIGN_ASSETS;
 
   // Fetch preview from Meta API
   const fetchPreview = useCallback(async () => {
@@ -595,9 +598,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               },
             ];
           });
-          // Auto-select the new asset
+          // Auto-select the new asset (respect limit)
           setSelectedAssets((prev) => {
             if (prev.includes(data.imageId)) return prev;
+            if (prev.length >= MAX_CAMPAIGN_ASSETS) return prev;
             return [...prev, data.imageId];
           });
         }
@@ -621,9 +625,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               },
             ];
           });
-          // Auto-select the new asset
+          // Auto-select the new asset (respect limit)
           setSelectedAssets((prev) => {
             if (prev.includes(data.videoId)) return prev;
+            if (prev.length >= MAX_CAMPAIGN_ASSETS) return prev;
             return [...prev, data.videoId];
           });
         }
@@ -1043,7 +1048,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         };
 
         setUploadedAssets(prev => [...prev, newAsset]);
-        setSelectedAssets(prev => [...prev, newAsset.id]);
+        setSelectedAssets(prev => prev.length >= MAX_CAMPAIGN_ASSETS ? prev : [...prev, newAsset.id]);
         if (isVideo) setAssetFilter('validating');
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : 'Upload failed');
@@ -1786,6 +1791,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                   </Button>
                 </Box>
 
+                <Typography variant="caption" color={isAtAssetLimit ? 'warning.main' : 'text.secondary'} sx={{ mb: 2, display: 'block' }}>
+                  {selectedAssets.length} de {MAX_CAMPAIGN_ASSETS} seleccionados
+                </Typography>
+
                 <Typography variant="h6" gutterBottom>
                   Videos ({filteredVideos.length})
                 </Typography>
@@ -1806,9 +1815,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
+                          disabled={!selectedAssets.includes(asset.id) && isAtAssetLimit}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedAssets([...selectedAssets, asset.id]);
+                              if (!isAtAssetLimit) setSelectedAssets([...selectedAssets, asset.id]);
                             } else {
                               setSelectedAssets(selectedAssets.filter(id => id !== asset.id));
                             }
@@ -1934,9 +1944,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
+                          disabled={!selectedAssets.includes(asset.id) && isAtAssetLimit}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedAssets([...selectedAssets, asset.id]);
+                              if (!isAtAssetLimit) setSelectedAssets([...selectedAssets, asset.id]);
                             } else {
                               setSelectedAssets(selectedAssets.filter(id => id !== asset.id));
                             }
