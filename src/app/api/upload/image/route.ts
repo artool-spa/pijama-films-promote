@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import {
   uploadImage,
   StorageValidationError,
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
-    console.error('Error uploading image:', error);
+    logger.error({ err: error }, 'Error uploading image');
 
     if (error instanceof StorageValidationError) {
       return NextResponse.json(

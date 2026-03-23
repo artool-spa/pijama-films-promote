@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getAdById, markAdSynced, markAdError } from '@/models/ad';
 import { getCampaignById, markCampaignSynced } from '@/models/campaign';
 import {
@@ -220,7 +221,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       message: 'El anuncio ya está sincronizado. La vista previa requiere el ID del creative.',
     });
   } catch (error) {
-    console.error('Error generating ad preview:', error);
+    logger.error({ err: error }, 'Error generating ad preview');
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(

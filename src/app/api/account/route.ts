@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { getAccountWithTransactions } from '@/models/account';
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     const account = await getAccountWithTransactions(partner.id, { limit, offset });
     return NextResponse.json(account);
   } catch (error) {
-    console.error('Error fetching account:', error);
+    logger.error({ err: error }, 'Error fetching account');
     return NextResponse.json(
       { error: 'Error fetching account' },
       { status: 500 }

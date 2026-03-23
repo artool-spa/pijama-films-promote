@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AssetStatus } from '@prisma/client';
+import logger from '@/lib/logger';
 import { getImagesByFilmMuviUuid, getImagesByFilmMuviUuidWithStatus } from '@/models/image';
 import { getPartnerFromRequest } from '@/lib/auth';
 
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(images);
   } catch (error) {
-    console.error('Error fetching images:', error);
+    logger.error({ err: error }, 'Error fetching images');
     return NextResponse.json(
       { error: 'Error fetching images' },
       { status: 500 }

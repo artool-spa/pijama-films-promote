@@ -8,8 +8,11 @@
  */
 
 import { z } from 'zod';
+import { createLogger } from '@/lib/logger';
 import { MetaClient } from './client';
 import { MetaApiError } from './errors';
+
+const log = createLogger('meta-locales');
 
 // ============================================================================
 // TYPES
@@ -134,7 +137,7 @@ export function getLocaleIdsForLanguage(langCode: string): number[] {
   }
 
   // Default to English (US) if language not found
-  console.warn(`[Meta] Unknown language code: ${langCode}, defaulting to English (US)`);
+  log.warn({ langCode }, 'Unknown language code, defaulting to English (US)');
   return [6];
 }
 
@@ -250,7 +253,7 @@ export async function searchLocales(
     const parsed = MetaLocaleSearchResponseSchema.safeParse(data);
 
     if (!parsed.success) {
-      console.error('Failed to parse locale search response:', parsed.error);
+      log.error({ err: parsed.error }, 'Failed to parse locale search response');
       return [];
     }
 
@@ -261,7 +264,7 @@ export async function searchLocales(
 
     return locales;
   } catch (error) {
-    console.error('Error searching locales:', error);
+    log.error({ err: error }, 'Error searching locales');
 
     if (error instanceof MetaApiError) {
       throw error;

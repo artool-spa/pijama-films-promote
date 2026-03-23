@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { chargeCampaignBudget } from '@/models/account';
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(transaction);
   } catch (error) {
-    console.error('Error charging campaign budget:', error);
+    logger.error({ err: error }, 'Error charging campaign budget');
 
     const message =
       error instanceof Error ? error.message : 'Error charging budget';

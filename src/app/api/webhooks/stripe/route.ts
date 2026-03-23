@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import stripe from '#stripe';
+import { createLogger } from '@/lib/logger';
 import { recordDeposit, creditFeeAdjustment } from '@/models/account';
+
+const log = createLogger('stripe-webhook');
 
 /**
  * POST /api/webhooks/stripe
@@ -21,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error('STRIPE_WEBHOOK_SECRET not configured');
+    log.error('STRIPE_WEBHOOK_SECRET not configured');
     return NextResponse.json(
       { error: 'Webhook not configured' },
       { status: 500 }
@@ -32,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (error) {
-    console.error('Stripe webhook signature verification failed:', error);
+    log.error({ err: error }, 'Stripe webhook signature verification failed');
     return NextResponse.json(
       { error: 'Invalid signature' },
       { status: 400 }
@@ -49,7 +52,7 @@ export async function POST(req: NextRequest) {
       const estimatedFee = parseFloat(session.metadata?.stripeFee || '0');
 
       if (!partnerId || !depositAmount) {
-        console.error('Missing metadata in checkout session:', session.id);
+        log.error({ sessionId: session.id }, 'Missing metadata in checkout session');
         return NextResponse.json(
           { error: 'Missing session metadata' },
           { status: 400 }
@@ -65,7 +68,7 @@ export async function POST(req: NextRequest) {
           session.id,
           paymentIntentId
         );
-        console.log(`Deposit recorded for partner ${partnerId}: $${depositAmount}`);
+        log.info({ partnerId, depositAmount }, 'Deposit recorded');
 
         // Fee reconciliation: credit back difference if actual fee < estimated
         if (estimatedFee > 0 && paymentIntentId) {
@@ -80,15 +83,15 @@ export async function POST(req: NextRequest) {
               const adjustment = Math.round((estimatedFee - actualFee) * 100) / 100;
               if (adjustment > 0.01) {
                 await creditFeeAdjustment(partnerId, adjustment, paymentIntentId);
-                console.log(`Fee adjustment credited for partner ${partnerId}: $${adjustment.toFixed(2)}`);
+                log.info({ partnerId, adjustment: adjustment.toFixed(2) }, 'Fee adjustment credited');
               }
             }
           } catch (feeError) {
-            console.error('Fee reconciliation error (webhook):', feeError);
+            log.error({ err: feeError }, 'Fee reconciliation error');
           }
         }
       } catch (error) {
-        console.error('Error recording deposit:', error);
+        log.error({ err: error }, 'Error recording deposit');
         return NextResponse.json(
           { error: 'Error processing deposit' },
           { status: 500 }
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
       break;
     }
     default:
-      console.log(`Unhandled Stripe event type: ${event.type}`);
+      log.info({ eventType: event.type }, 'Unhandled Stripe event type');
   }
 
   return NextResponse.json({ received: true });

@@ -1,3 +1,4 @@
+import { createLogger } from '@/lib/logger';
 import { MetaClient } from './client';
 import {
   MetaCampaignCreate,
@@ -31,6 +32,8 @@ import {
   MetaValidationError,
   MetaRateLimitError,
 } from './errors';
+
+const log = createLogger('meta');
 
 // ============================================================================
 // INTERNAL HELPERS
@@ -154,8 +157,7 @@ export async function createCampaign(
   if (!response.ok) {
     const errorDetails = result.error?.error_user_msg || result.error?.message || 'Unknown error';
     const errorTitle = result.error?.error_user_title || '';
-    console.error('[Meta] Campaign creation failed:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Request data:', requestData);
+    log.error({ err: result, requestData }, 'Campaign creation failed');
     throw new MetaApiError(
       `Failed to create campaign: ${errorTitle ? `${errorTitle} - ` : ''}${errorDetails}`,
       {
@@ -232,7 +234,7 @@ export async function createCBOCampaignWithAdSets(
   }
 
   // Step 1: Create Campaign with CBO budget
-  console.log('[Meta] Creating CBO campaign:', { name, objective, budget, budgetType });
+  log.info({ name, objective, budget, budgetType }, 'Creating CBO campaign');
 
   const campaignData: MetaCampaignCreate = {
     name,
@@ -253,7 +255,7 @@ export async function createCBOCampaignWithAdSets(
   }
 
   const campaign = await createCampaign(client, campaignData);
-  console.log('[Meta] CBO Campaign created:', campaign.id);
+  log.info({ campaignId: campaign.id }, 'CBO Campaign created');
 
   const result: CBOCampaignResult = {
     campaignId: campaign.id,
@@ -261,7 +263,7 @@ export async function createCBOCampaignWithAdSets(
 
   // Step 2: Create AdSet for images (if needed)
   if (hasImages) {
-    console.log('[Meta] Creating image AdSet for CBO campaign');
+    log.info('Creating image AdSet for CBO campaign');
 
     const imageAdSet = await createAdSet(client, {
       name: `${name} - Images`,
@@ -279,12 +281,12 @@ export async function createCBOCampaignWithAdSets(
     });
 
     result.imageAdSetId = imageAdSet.id;
-    console.log('[Meta] Image AdSet created:', imageAdSet.id);
+    log.info({ adSetId: imageAdSet.id }, 'Image AdSet created');
   }
 
   // Step 3: Create AdSet for videos (if needed)
   if (hasVideos) {
-    console.log('[Meta] Creating video AdSet for CBO campaign');
+    log.info('Creating video AdSet for CBO campaign');
 
     const videoAdSet = await createAdSet(client, {
       name: `${name} - Videos`,
@@ -302,7 +304,7 @@ export async function createCBOCampaignWithAdSets(
     });
 
     result.videoAdSetId = videoAdSet.id;
-    console.log('[Meta] Video AdSet created:', videoAdSet.id);
+    log.info({ adSetId: videoAdSet.id }, 'Video AdSet created');
   }
 
   return result;
@@ -369,7 +371,7 @@ export async function createAdSet(
   const url = client.buildAdAccountUrl('adsets');
 
   // Log targeting being sent to Meta
-  console.log('[Meta] Creating AdSet with targeting:', JSON.stringify(validated.targeting, null, 2));
+  log.info({ targeting: validated.targeting }, 'Creating AdSet with targeting');
 
   const formData = buildFormData(
     {
@@ -397,7 +399,7 @@ export async function createAdSet(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] AdSet creation failed:', JSON.stringify(result, null, 2));
+    log.error({ err: result }, 'AdSet creation failed');
     throw new MetaApiError(
       `Failed to create adset: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }
@@ -758,7 +760,7 @@ export async function createDynamicCreativeAd(
     assetFeedSpec.videos = data.videoIds!.map((video_id) => ({ video_id }));
     assetFeedSpec.ad_formats = ['SINGLE_VIDEO'];
     if (hasImages) {
-      console.warn('[Meta] Both images and videos provided - using videos only (Meta does not support mixing)');
+      log.warn('Both images and videos provided - using videos only (Meta does not support mixing)');
     }
   } else if (data.imageUrls && data.imageUrls.length > 0) {
     // Prefer URLs over hashes (no upload required)
@@ -793,14 +795,14 @@ export async function createDynamicCreativeAd(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] Dynamic creative ad creation failed:', JSON.stringify(result, null, 2));
+    log.error({ err: result }, 'Dynamic creative ad creation failed');
     throw new MetaApiError(
       `Failed to create dynamic creative ad: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }
     );
   }
 
-  console.log('[Meta] Dynamic creative ad created:', result);
+  log.info({ result }, 'Dynamic creative ad created');
   return { ad_id: result.id };
 }
 
@@ -993,17 +995,14 @@ export async function createMultiLanguageAd(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] Multi-language ad creation failed:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Asset feed spec:', JSON.stringify(assetFeedSpec, null, 2));
+    log.error({ err: result, assetFeedSpec }, 'Multi-language ad creation failed');
     throw new MetaApiError(
       `Failed to create multi-language ad: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }
     );
   }
 
-  console.log('[Meta] Multi-language ad created:', result);
-  console.log('[Meta] Languages:', languages.join(', '));
-  console.log('[Meta] Customization rules:', assetCustomizationRules.length);
+  log.info({ result, languages, customizationRulesCount: assetCustomizationRules.length }, 'Multi-language ad created');
 
   return { ad_id: result.id };
 }
@@ -1171,8 +1170,7 @@ export async function generateAdPreview(
   const result = await response.json();
 
   if (!response.ok) {
-    console.error('[Meta] Preview error:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Creative spec:', JSON.stringify(creativeSpec, null, 2));
+    log.error({ err: result, creativeSpec }, 'Preview generation failed');
     throw new MetaApiError(
       `Failed to generate preview: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }

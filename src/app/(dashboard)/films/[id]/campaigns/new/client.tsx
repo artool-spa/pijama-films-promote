@@ -1154,14 +1154,6 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   // Map form state to API schema including ads
   const mapFormToAPI = () => {
-    // Get headlines and bodies from all languages and variants
-    const headlines = Object.values(copiesByLang)
-      .flatMap(langCopies => Object.values(langCopies).map(v => v.headline))
-      .filter(Boolean);
-    const bodies = Object.values(copiesByLang)
-      .flatMap(langCopies => Object.values(langCopies).map(v => v.description))
-      .filter(Boolean);
-
     // Get selected image and video IDs
     const imageIds = selectedAssets.filter(id =>
       allImages.some(img => img.id === id)
@@ -1178,18 +1170,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       })
     )];
 
-    // Create single ad with all copy variants
-    const ad = {
-      name: `${film.title} - ${selectedLanguages.map(l => l.toUpperCase()).join('/')}`,
-      language: selectedLanguages[0] || 'es',
-      headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
-      bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
-      descriptions: [],
-      callToAction: 'LEARN_MORE',
-      linkUrl: film.rentalUrl || film.trailerUrl || `https://pijama.film/films/${film.id}`,
-      imageIds,
-      videoIds,
-    };
+    // Create one ad per language (3 variants each fits within max 5 headlines/bodies)
+    const ads = selectedLanguages.map(lang => {
+      const langCopies = copiesByLang[lang] || {};
+      const headlines = Object.values(langCopies).map(v => v.headline).filter(Boolean);
+      const bodies = Object.values(langCopies).map(v => v.description).filter(Boolean);
+
+      return {
+        name: `${film.title} - ${lang.toUpperCase()}`,
+        headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
+        bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
+        descriptions: [],
+        callToAction: 'WATCH_MORE',
+        linkUrl: film.rentalUrl || film.trailerUrl || `https://pijama.film/films/${film.id}`,
+        imageIds,
+        videoIds,
+      };
+    });
 
     const basePayload = {
       name: campaignName,
@@ -1208,7 +1205,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       includeLgbtAudience: gender === 'LGBTQ',
       filmMuviUuid: film.id,
       platforms: platformValues,
-      ads: [ad],
+      ads,
       autoSync: true,
     };
 

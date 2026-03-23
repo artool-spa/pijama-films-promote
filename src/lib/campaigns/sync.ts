@@ -1,6 +1,9 @@
 import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
 import { publish } from '@/lib/events';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('campaigns');
 import {
   meta,
   createCBOCampaignWithAdSets,
@@ -139,7 +142,7 @@ export async function syncCampaignToMeta(
           allVideoIds.push(videoId);
         }
       } catch (err) {
-        console.error(`Failed to upload video ${video.id}:`, err);
+        log.error({ err, videoId: video.id }, 'Failed to upload video');
         videoUploadErrors.push(video.id);
       }
     }
@@ -210,7 +213,7 @@ export async function syncCampaignToMeta(
     await emitProgress(filmId, campaign.id, 'meta_adsets', 60, 'Campaign and ad sets created in Meta');
     await markCampaignSynced(campaign.id, metaCampaignId, imageAdSetId, videoAdSetId);
   } catch (error) {
-    console.error('Error syncing campaign to Meta:', error);
+    log.error({ err: error }, 'Error syncing campaign to Meta');
     await markCampaignError(campaign.id).catch(() => {});
 
     let syncError = 'Error al sincronizar con Meta';
@@ -282,7 +285,7 @@ export async function syncCampaignToMeta(
       }
     } catch (error) {
       imageAdError = error instanceof MetaApiError ? error.message : 'Error creating image ad';
-      console.error('Image ad creation failed:', error);
+      log.error({ err: error }, 'Image ad creation failed');
     }
   }
 
@@ -307,7 +310,7 @@ export async function syncCampaignToMeta(
       }
     } catch (error) {
       videoAdError = error instanceof MetaApiError ? error.message : 'Error creating video ad';
-      console.error('Video ad creation failed:', error);
+      log.error({ err: error }, 'Video ad creation failed');
     }
   }
 
@@ -453,7 +456,7 @@ export async function syncCampaignToGoogle(
     await emitProgress(filmId, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
     await markGoogleCampaignSynced(campaign.id, googleCampaignId, googleAdGroupId);
   } catch (error) {
-    console.error('Error syncing campaign to Google Ads:', error);
+    log.error({ err: error }, 'Error syncing campaign to Google Ads');
     await markGoogleCampaignError(campaign.id).catch(() => {});
 
     let syncError = 'Error al sincronizar con Google Ads';
@@ -482,7 +485,7 @@ export async function syncCampaignToGoogle(
     const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
     logoAssetResourceName = logoAsset.resourceName;
   } catch (error) {
-    console.error('Failed to upload Pijama Films logo:', error);
+    log.error({ err: error }, 'Failed to upload Pijama Films logo');
     return {
       synced: false,
       syncedAds: [],
@@ -506,7 +509,7 @@ export async function syncCampaignToGoogle(
     const validImages = ad.images.filter(image => {
       const valid = isValidGoogleMarketingImage(image);
       if (!valid) {
-        console.warn(`[Google] Excluding image "${image.name}" (aspect ratio: ${image.aspectRatio}, size: ${(image.size / 1024 / 1024).toFixed(1)}MB)`);
+        log.warn({ imageName: image.name, aspectRatio: image.aspectRatio, sizeMB: (image.size / 1024 / 1024).toFixed(1) }, 'Excluding image from Google ad');
       }
       return valid;
     });
@@ -544,7 +547,7 @@ export async function syncCampaignToGoogle(
       syncedAds.push({ ...ad, googleAdId: googleAd.resourceName });
     } catch (error) {
       const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
-      console.error(`Failed to create Google ad for ${ad.id}:`, error);
+      log.error({ err: error, adId: ad.id }, 'Failed to create Google ad');
       adErrors.push({ adId: ad.id, error: errorMsg });
       await markAdError(ad.id).catch(() => {});
     }
@@ -560,9 +563,9 @@ export async function syncCampaignToGoogle(
 
       await updateCampaign(campaign.id, { googleEntityStatus: 'ENABLED' });
 
-      console.log('[Google] Campaign and ad group enabled:', googleCampaignId);
+      log.info({ googleCampaignId }, 'Campaign and ad group enabled');
     } catch (error) {
-      console.error('Failed to enable Google campaign:', error);
+      log.error({ err: error }, 'Failed to enable Google campaign');
       adErrors.push({ adId: 'campaign', error: 'Campaign created but could not be enabled' });
     }
 

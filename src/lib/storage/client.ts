@@ -1,5 +1,6 @@
 import { Storage, Bucket } from '@google-cloud/storage';
 import { randomUUID } from 'crypto';
+import logger from '@/lib/logger';
 import {
   StorageConfig,
   StorageConfigSchema,
@@ -194,7 +195,7 @@ export class StorageClient {
       };
     } catch (error) {
       // Log the full error for debugging
-      console.error('[Storage] Upload failed:', storageKey, error);
+      logger.error({ err: error, storageKey }, 'Upload failed');
 
       // Handle both Error instances and other types
       const errorMessage = error instanceof Error

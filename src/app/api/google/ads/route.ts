@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { createAd } from '@/models/ad';
 import { AdCreateSchema } from '@/models/ad';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, ad }, { status: 201 });
   } catch (error) {
-    console.error('Error creating Google ad:', error);
+    logger.error({ err: error }, 'Error creating Google ad');
     return NextResponse.json(
       { error: 'Error al crear el anuncio' },
       { status: 500 }

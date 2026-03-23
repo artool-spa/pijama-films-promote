@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { createCampaign } from '@/models/campaign';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { CampaignCreateSchema } from '@/models/campaign';
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, campaign }, { status: 201 });
   } catch (error) {
-    console.error('Error creating Google campaign:', error);
+    logger.error({ err: error }, 'Error creating Google campaign');
     return NextResponse.json(
       { error: 'Error al crear la campana' },
       { status: 500 }

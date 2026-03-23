@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { saveDraftCampaign, updateCampaign } from '@/models/campaign';
 
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ campaign: { id: campaign.id } }, { status: 201 });
   } catch (error) {
-    console.error('Error saving draft campaign:', error);
+    logger.error({ err: error }, 'Error saving draft campaign');
     return NextResponse.json(
       { error: 'Error saving draft' },
       { status: 500 }

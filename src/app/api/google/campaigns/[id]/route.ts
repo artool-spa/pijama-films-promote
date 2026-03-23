@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getCampaignById, updateCampaign, deleteCampaign } from '@/models/campaign';
 import { getPartnerFromRequest } from '@/lib/auth';
 
@@ -24,7 +25,7 @@ export async function GET(
 
     return NextResponse.json({ campaign });
   } catch (error) {
-    console.error('Error fetching Google campaign:', error);
+    logger.error({ err: error }, 'Error fetching Google campaign');
     return NextResponse.json(
       { error: 'Error al obtener la campana' },
       { status: 500 }
@@ -53,7 +54,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, campaign });
   } catch (error) {
-    console.error('Error updating Google campaign:', error);
+    logger.error({ err: error }, 'Error updating Google campaign');
     return NextResponse.json(
       { error: 'Error al actualizar la campana' },
       { status: 500 }
@@ -80,7 +81,7 @@ export async function DELETE(
     const campaign = await deleteCampaign(id);
     return NextResponse.json({ success: true, campaign });
   } catch (error) {
-    console.error('Error deleting Google campaign:', error);
+    logger.error({ err: error }, 'Error deleting Google campaign');
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Error al eliminar la campana' },
       { status: 500 }

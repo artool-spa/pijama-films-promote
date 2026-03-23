@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
 import { createAdsForCampaign } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
@@ -27,7 +28,7 @@ const AdInputSchema = z.object({
   headlines: z.array(z.string().min(1).max(255)).min(1).max(5),
   bodies: z.array(z.string().min(1).max(2200)).min(1).max(5),
   descriptions: z.array(z.string().max(30)).max(5).default([]),
-  callToAction: z.string().default('LEARN_MORE'),
+  callToAction: z.string().default('WATCH_MORE'),
   linkUrl: z.string().url(),
   imageIds: z.array(z.string().cuid()).max(10).default([]),
   videoIds: z.array(z.string().cuid()).max(10).default([]),
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest) {
       syncErrorDetails: syncResult.syncErrorDetails,
     }, { status: 201 });
   } catch (error) {
-    console.error('Error creating campaign:', error);
+    logger.error({ err: error }, 'Error creating campaign');
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(

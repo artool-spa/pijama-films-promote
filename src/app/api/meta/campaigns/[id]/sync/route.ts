@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import {
   getCampaignById,
   markCampaignSynced,
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       campaign: updated,
     });
   } catch (error) {
-    console.error('Error syncing campaign to Meta:', error);
+    logger.error({ err: error }, 'Error syncing campaign to Meta');
 
     await markCampaignError(id).catch(() => {});
 

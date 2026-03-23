@@ -1,3 +1,4 @@
+import logger from '@/lib/logger';
 import { MuviTokenHandler } from './client';
 import {
   MuviMovie,
@@ -332,7 +333,7 @@ export async function getMovies(
     // Validate response
     const result = MuviContentListResponseSchema.safeParse(data);
     if (!result.success) {
-      console.error('[Muvi] Validation issues:', JSON.stringify(result.error.issues, null, 2));
+      logger.error({ issues: result.error.issues }, 'Muvi validation issues');
       throw new MuviValidationError(
         'Invalid content list response',
         result.error.issues
@@ -386,7 +387,7 @@ export async function getMovieDetails(
     // Validate response
     const result = MuviContentListResponseSchema.safeParse(data);
     if (!result.success) {
-      console.error('[Muvi] Validation issues:', JSON.stringify(result.error.issues, null, 2));
+      logger.error({ issues: result.error.issues }, 'Muvi validation issues');
       throw new MuviValidationError(
         'Invalid content details response',
         result.error.issues

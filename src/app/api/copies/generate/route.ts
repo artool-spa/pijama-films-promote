@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import {
   getGeminiClient,
   generateCopiesForFilm,
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
       cached: false,
     });
   } catch (error) {
-    console.error('Error generating copies:', error);
+    logger.error({ err: error }, 'Error generating copies');
 
     if (error instanceof GeminiApiError) {
       return NextResponse.json(

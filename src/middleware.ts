@@ -15,10 +15,11 @@ const PROTECTED_API_PREFIX = '/api/';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const start = Date.now();
 
   // Allow public routes
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    return NextResponse.next();
+    return withRequestLog(request, NextResponse.next(), start);
   }
 
   // Allow static files and Next.js internals
@@ -36,13 +37,18 @@ export async function middleware(request: NextRequest) {
   if (!sessionCookie?.value) {
     // For API routes, return 401
     if (pathname.startsWith(PROTECTED_API_PREFIX)) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
+      return withRequestLog(
+        request,
+        NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+        start
       );
     }
     // For pages, redirect to login
-    return NextResponse.redirect(new URL('/login', request.url));
+    return withRequestLog(
+      request,
+      NextResponse.redirect(new URL('/login', request.url)),
+      start
+    );
   }
 
   // Verify session token
@@ -54,7 +60,7 @@ export async function middleware(request: NextRequest) {
     response.headers.set('x-pijama-partner-id', payload.partnerId as string);
     response.headers.set('x-user-name', payload.name as string);
 
-    return response;
+    return withRequestLog(request, response, start);
   } catch {
     // Invalid token - clear cookie and redirect
     const response = pathname.startsWith(PROTECTED_API_PREFIX)
@@ -62,8 +68,48 @@ export async function middleware(request: NextRequest) {
       : NextResponse.redirect(new URL('/login', request.url));
 
     response.cookies.delete(SESSION_COOKIE_NAME);
-    return response;
+    return withRequestLog(request, response, start);
   }
+}
+
+/**
+ * Log the request using structured JSON (Edge Runtime compatible).
+ * Pino can't run in Edge Runtime due to worker threads, so we write
+ * structured JSON directly to stdout matching pino's format.
+ *
+ * Note: `status` reflects the middleware decision (200=pass-through,
+ * 401=unauthorized, 302=redirect). The final response status (e.g. 404
+ * from notFound()) is determined later by the route handler.
+ */
+function withRequestLog(
+  request: NextRequest,
+  response: NextResponse,
+  start: number
+): NextResponse {
+  const duration = Date.now() - start;
+  const status = response.status;
+  const method = request.method;
+  const path = request.nextUrl.pathname;
+
+  if (process.env.NODE_ENV === 'production') {
+    console.log(
+      JSON.stringify({
+        level: status >= 400 ? 40 : 30,
+        time: Date.now(),
+        module: 'http',
+        method,
+        path,
+        status,
+        duration,
+      })
+    );
+  } else {
+    const color = status >= 400 ? '\x1b[31m' : '\x1b[32m';
+    const reset = '\x1b[0m';
+    console.log(`${color}${method}${reset} ${path} ${color}${status}${reset} ${duration}ms`);
+  }
+
+  return response;
 }
 
 export const config = {

@@ -1,3 +1,4 @@
+import logger from '@/lib/logger';
 import { PijamaClient } from './client';
 import {
   PijamaPartner,
@@ -128,7 +129,7 @@ export async function canPartnerAccessFilm(
     return partner.film_ids.includes(filmMuviUuid);
   } catch (error) {
     // If partner not found or other error, deny access
-    console.error(`Error checking film access for partner ${partnerId}:`, error);
+    logger.error({ err: error, partnerId, filmMuviUuid }, 'Error checking film access for partner');
     return false;
   }
 }
@@ -144,7 +145,7 @@ export async function getPartnerFilmIds(
     const partner = await getPartner(client, partnerId);
     return partner.film_ids || [];
   } catch (error) {
-    console.error(`Error fetching film IDs for partner ${partnerId}:`, error);
+    logger.error({ err: error, partnerId }, 'Error fetching film IDs for partner');
     return [];
   }
 }

@@ -19,6 +19,9 @@ import {
 } from './types';
 import { GoogleAdsApiError } from './errors';
 import type { GoogleTargetingResult } from './targeting';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('google');
 
 // ============================================================================
 // CUSTOM AUDIENCE TYPES & FETCHING
@@ -62,7 +65,7 @@ export async function getAllCustomAudiences(
   try {
     raw = await client.query<unknown>(gaql);
   } catch (error) {
-    console.warn('[Google] Failed to fetch custom audiences via GAQL. Campaign will be created without custom audience targeting.', error);
+    log.warn({ err: error }, 'Failed to fetch custom audiences via GAQL. Campaign will be created without custom audience targeting.');
     return [];
   }
 
@@ -93,7 +96,7 @@ export async function getAllCustomAudiences(
       type: row.customAudience!.type,
     }));
 
-  console.log(`[Google] Fetched ${audiences.length} custom audiences`);
+  log.info({ count: audiences.length }, 'Fetched custom audiences');
   return audiences;
 }
 
@@ -125,7 +128,7 @@ export async function createVideoCampaign(
   ]);
 
   const budgetResourceName = budgetResult.results[0].resourceName;
-  console.log('[Google] Budget created:', budgetResourceName);
+  log.info({ resourceName: budgetResourceName }, 'Budget created');
 
   // Build bidding strategy
   const biddingConfig: Record<string, unknown> = {};
@@ -157,7 +160,7 @@ export async function createVideoCampaign(
   ]);
 
   const resourceName = campaignResult.results[0].resourceName;
-  console.log('[Google] Video campaign created:', resourceName);
+  log.info({ resourceName }, 'Video campaign created');
 
   return { resourceName };
 }
@@ -187,7 +190,7 @@ export async function createVideoAdGroup(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Ad group created:', resourceName);
+  log.info({ resourceName }, 'Ad group created');
 
   return { resourceName };
 }
@@ -284,7 +287,7 @@ export async function createVideoAd(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Video ad created:', resourceName);
+  log.info({ resourceName }, 'Video ad created');
 
   return { resourceName };
 }
@@ -353,7 +356,7 @@ async function applyTargetingToCampaign(
   // Demand Gen campaigns don't support campaignCriteria targeting —
   // all targeting (geo, demographics, audiences) is handled at the ad group level
   if (campaignType === 'DEMAND_GEN') {
-    console.log('[Google] Skipping campaign criteria for Demand Gen (targeting is at ad group level)');
+    log.info('Skipping campaign criteria for Demand Gen (targeting is at ad group level)');
     return;
   }
 
@@ -429,7 +432,7 @@ async function applyTargetingToCampaign(
 
   if (operations.length > 0) {
     await client.mutate('campaignCriteria', operations);
-    console.log('[Google] Applied', operations.length, 'targeting criteria');
+    log.info({ count: operations.length }, 'Applied targeting criteria');
   }
 }
 
@@ -554,7 +557,7 @@ export async function createDemandGenCampaign(
   ]);
 
   const budgetResourceName = budgetResult.results[0].resourceName;
-  console.log('[Google] Budget created:', budgetResourceName);
+  log.info({ resourceName: budgetResourceName }, 'Budget created');
 
   // Build bidding strategy
   // Note: MAXIMIZE_CLICKS uses targetSpend as its Campaign-level bidding scheme
@@ -585,7 +588,7 @@ export async function createDemandGenCampaign(
   ]);
 
   const resourceName = campaignResult.results[0].resourceName;
-  console.log('[Google] Demand Gen campaign created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen campaign created');
 
   return { resourceName };
 }
@@ -614,7 +617,7 @@ export async function createDemandGenAdGroup(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Demand Gen ad group created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen ad group created');
 
   return { resourceName };
 }
@@ -649,7 +652,7 @@ export async function uploadImageAsset(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Image asset uploaded:', resourceName);
+  log.info({ resourceName }, 'Image asset uploaded');
 
   return { resourceName };
 }
@@ -701,7 +704,7 @@ export async function createDemandGenImageAd(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Demand Gen image ad created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen image ad created');
 
   return { resourceName };
 }
@@ -845,7 +848,7 @@ export async function updateCampaignStatus(
     },
   ]);
 
-  console.log('[Google] Campaign status updated:', campaignResourceName, '->', status);
+  log.info({ resourceName: campaignResourceName, status }, 'Campaign status updated');
 }
 
 /**
@@ -865,7 +868,7 @@ export async function updateAdGroupStatus(
     },
   ]);
 
-  console.log('[Google] Ad group status updated:', adGroupResourceName, '->', status);
+  log.info({ resourceName: adGroupResourceName, status }, 'Ad group status updated');
 }
 
 /**

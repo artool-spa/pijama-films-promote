@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import stripe from '#stripe';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import {
   getOrCreateAccount,
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
       url: session.url,
     });
   } catch (error) {
-    console.error('Error creating checkout session:', error);
+    logger.error({ err: error }, 'Error creating checkout session');
     return NextResponse.json(
       { error: 'Error creating checkout session' },
       { status: 500 }

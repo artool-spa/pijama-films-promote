@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getCampaignsPendingAssets } from '@/models/campaign';
 import { areMetaAssetsReady, areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
   // Authenticate with shared secret
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
-    console.error('[Cron] CRON_SECRET not configured');
+    logger.error('CRON_SECRET not configured');
     return NextResponse.json({ error: 'Cron not configured' }, { status: 500 });
   }
 
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
           }
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown Meta sync error';
-          console.error(`[Cron] Meta sync failed for campaign ${campaign.id}:`, error);
+          logger.error({ err: error, campaignId: campaign.id }, 'Meta sync failed for campaign');
           errors.push({ campaignId: campaign.id, error: `Meta: ${msg}` });
         }
       }
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
           }
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown Google sync error';
-          console.error(`[Cron] Google sync failed for campaign ${campaign.id}:`, error);
+          logger.error({ err: error, campaignId: campaign.id }, 'Google sync failed for campaign');
           errors.push({ campaignId: campaign.id, error: `Google: ${msg}` });
         }
       }
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
       errors,
     });
   } catch (error) {
-    console.error('[Cron] Error processing pending campaigns:', error);
+    logger.error({ err: error }, 'Error processing pending campaigns');
     return NextResponse.json(
       { error: 'Error processing pending campaigns' },
       { status: 500 }

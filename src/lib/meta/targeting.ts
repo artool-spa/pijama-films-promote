@@ -9,9 +9,12 @@
  * Audiences are fetched from Meta saved audiences and combined using flexible_spec
  */
 
+import { createLogger } from '@/lib/logger';
 import { MetaClient } from './client';
 import { getAllSavedAudiences, getSavedAudience } from './api';
 import type { MetaSavedAudience, MetaTargeting } from './types';
+
+const log = createLogger('meta-targeting');
 
 // ============================================================================
 // TYPES
@@ -308,8 +311,7 @@ export async function buildTargeting(
 ): Promise<BuiltTargeting> {
   const audiences = await getCachedAudiences(client);
 
-  // Log available audiences for debugging
-  console.log('[Meta] Available saved audiences:', audiences.map(a => a.name));
+  log.debug({ audiences: audiences.map(a => a.name) }, 'Available saved audiences');
 
   // Start with basic demographic targeting
   const targeting: BuiltTargeting = {
@@ -326,17 +328,17 @@ export async function buildTargeting(
   // 1. Add BASE audience interests if enabled
   if (config.audiences.includeBaseAudiences) {
     const baseAudiences = filterAudiencesByPrefix(audiences, BASE_AUDIENCE_PREFIX);
-    console.log('[Meta] Found BASE audiences:', baseAudiences.map(a => a.name));
+    log.debug({ audiences: baseAudiences.map(a => a.name) }, 'Found BASE audiences');
 
     // Debug: log what targeting data is available in audiences
     if (baseAudiences.length > 0) {
-      console.log('[Meta] BASE audience targeting sample:', JSON.stringify(baseAudiences[0].targeting, null, 2));
+      log.debug({ targeting: baseAudiences[0].targeting }, 'BASE audience targeting sample');
     }
 
     if (baseAudiences.length > 0) {
       const baseInterests = combineInterests(baseAudiences);
       const baseBehaviors = combineBehaviors(baseAudiences);
-      console.log('[Meta] Extracted BASE interests:', baseInterests.length, 'behaviors:', baseBehaviors.length);
+      log.debug({ interests: baseInterests.length, behaviors: baseBehaviors.length }, 'Extracted BASE interests');
 
       if (baseInterests.length > 0 || baseBehaviors.length > 0) {
         const spec: FlexibleSpec = {};
@@ -349,9 +351,9 @@ export async function buildTargeting(
 
   // 2. Add genre-specific interests if genres provided
   if (config.audiences.filmGenres.length > 0) {
-    console.log('[Meta] Looking for genres:', config.audiences.filmGenres);
+    log.debug({ genres: config.audiences.filmGenres }, 'Looking for genres');
     const genreAudiences = findGenreAudiences(audiences, config.audiences.filmGenres);
-    console.log('[Meta] Found genre audiences:', genreAudiences.map(a => a.name));
+    log.debug({ audiences: genreAudiences.map(a => a.name) }, 'Found genre audiences');
 
     if (genreAudiences.length > 0) {
       const genreInterests = combineInterests(genreAudiences);

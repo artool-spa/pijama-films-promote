@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { google, getYouTubeInsights, getDisplayInsights, GoogleAdsApiError } from '#google';
 import prisma from '#prisma';
 
@@ -245,7 +246,7 @@ export async function GET(
       data: response,
     });
   } catch (error) {
-    console.error('Error fetching YouTube insights:', error);
+    logger.error({ err: error }, 'Error fetching YouTube insights');
 
     if (error instanceof GoogleAdsApiError) {
       return NextResponse.json(
