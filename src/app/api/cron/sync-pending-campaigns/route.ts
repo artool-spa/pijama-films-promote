@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   }
 
   const authHeader = req.headers.get('authorization');
-  logger.info("authHeader: " + authHeader);
+  logger.info({ url: req.nextUrl.toString(), authHeader } );
   if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
