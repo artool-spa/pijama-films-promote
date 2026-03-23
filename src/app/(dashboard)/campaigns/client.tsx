@@ -44,8 +44,17 @@ type FilmWithAggregate = {
 
 export default function CampaignsClient({ films, aggregateStats }: CampaignsClientProps) {
   const router = useRouter();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Compute default date range from all campaigns
+  const allCampaigns = films.flatMap(f => f.campaigns || []);
+  const defaultStart = allCampaigns.length > 0
+    ? new Date(Math.min(...allCampaigns.map(c => new Date(c.startDate).getTime()))).toISOString().split('T')[0]
+    : '';
+  const defaultEnd = allCampaigns.length > 0 && allCampaigns.some(c => c.endDate)
+    ? new Date(Math.max(...allCampaigns.filter(c => c.endDate).map(c => new Date(c.endDate!).getTime()))).toISOString().split('T')[0]
+    : '';
+
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
 
   // Group campaigns by film and calculate aggregates
   const filmsWithCampaigns: FilmWithAggregate[] = films
