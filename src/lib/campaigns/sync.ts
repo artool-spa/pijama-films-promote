@@ -190,6 +190,10 @@ export async function syncCampaignToMeta(
       : 'LANDING_PAGE_VIEWS';
 
     const metaCampaignName = `camp_${partnerName}_${campaign.name}`;
+    const promotedObject = campaign.objective === 'CONVERSIONS' && meta.pixelId
+      ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' as const }
+      : { page_id: meta.pageId! };
+    log.info({ promotedObject, objective: campaign.objective, pageId: meta.pageId }, 'Creating CBO campaign with promoted object');
     const cboResult = await createCBOCampaignWithAdSets(meta, {
       name: metaCampaignName,
       objective: metaObjective,
@@ -198,9 +202,7 @@ export async function syncCampaignToMeta(
       startTime: campaign.startDate.toISOString(),
       endTime: campaign.endDate?.toISOString(),
       targeting,
-      promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
-        ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
-        : { page_id: meta.pageId! },
+      promotedObject,
       hasImages: effectiveHasImages,
       hasVideos: effectiveHasVideos,
       optimizationGoal,

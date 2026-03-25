@@ -384,8 +384,8 @@ export async function createAdSet(
   const validated = MetaAdSetCreateSchema.parse(data);
   const url = client.buildAdAccountUrl('adsets');
 
-  // Log targeting being sent to Meta
-  log.info({ targeting: validated.targeting }, 'Creating AdSet with targeting');
+  // Log targeting and promoted_object being sent to Meta
+  log.info({ targeting: validated.targeting, promoted_object: validated.promoted_object }, 'Creating AdSet with targeting');
 
   const formData = buildFormData(
     {
