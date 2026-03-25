@@ -108,6 +108,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       hasImages,
       hasVideos,
       optimizationGoal,
+      dsaBeneficiary: partner.name,
+      dsaPayor: partner.name,
     });
 
     // Update local record with CBO Meta IDs

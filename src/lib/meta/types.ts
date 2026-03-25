@@ -137,6 +137,9 @@ export const MetaAdSetCreateSchema = z.object({
     .optional(),
   // Dynamic creative optimization
   is_dynamic_creative: z.boolean().optional(),
+  // DSA compliance (required for EU-targeted campaigns)
+  dsa_beneficiary: z.string().optional(),
+  dsa_payor: z.string().optional(),
 });
 
 export const MetaAdSetResponseSchema = z.object({

@@ -203,6 +203,8 @@ export interface CBOCampaignConfig {
   };
   hasImages: boolean;
   hasVideos: boolean;
+  dsaBeneficiary?: string; // DSA compliance: advertiser name (required for EU countries)
+  dsaPayor?: string; // DSA compliance: payor name (required for EU countries)
   optimizationGoal: 'OFFSITE_CONVERSIONS' | 'LANDING_PAGE_VIEWS' | 'LINK_CLICKS';
 }
 
@@ -241,6 +243,8 @@ export async function createCBOCampaignWithAdSets(
     hasImages,
     hasVideos,
     optimizationGoal,
+    dsaBeneficiary,
+    dsaPayor,
   } = config;
 
   if (!hasImages && !hasVideos) {
@@ -292,6 +296,8 @@ export async function createCBOCampaignWithAdSets(
       targeting,
       promoted_object: promotedObject,
       is_dynamic_creative: true,
+      dsa_beneficiary: dsaBeneficiary,
+      dsa_payor: dsaPayor,
     });
 
     result.imageAdSetId = imageAdSet.id;
@@ -315,6 +321,8 @@ export async function createCBOCampaignWithAdSets(
       targeting,
       promoted_object: promotedObject,
       is_dynamic_creative: true,
+      dsa_beneficiary: dsaBeneficiary,
+      dsa_payor: dsaPayor,
     });
 
     result.videoAdSetId = videoAdSet.id;
@@ -402,6 +410,8 @@ export async function createAdSet(
       targeting: validated.targeting,
       promoted_object: validated.promoted_object,
       is_dynamic_creative: validated.is_dynamic_creative,
+      dsa_beneficiary: validated.dsa_beneficiary,
+      dsa_payor: validated.dsa_payor,
     },
     client.accessToken
   );

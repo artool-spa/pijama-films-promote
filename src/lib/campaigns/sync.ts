@@ -206,6 +206,8 @@ export async function syncCampaignToMeta(
       hasImages: effectiveHasImages,
       hasVideos: effectiveHasVideos,
       optimizationGoal,
+      dsaBeneficiary: partnerName,
+      dsaPayor: partnerName,
     });
 
     metaCampaignId = cboResult.campaignId;
