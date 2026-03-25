@@ -412,9 +412,9 @@ export async function createAdSet(
 
   const result = await response.json();
   if (!response.ok) {
-    log.error({ err: result }, 'AdSet creation failed');
+    log.error({ err: result, adsetData: { name: validated.name, campaign_id: validated.campaign_id, targeting: validated.targeting, start_time: validated.start_time, end_time: validated.end_time, optimization_goal: validated.optimization_goal } }, 'AdSet creation failed');
     throw new MetaApiError(
-      `Failed to create adset: ${result.error?.message || 'Unknown error'}`,
+      `Failed to create adset: ${result.error?.message || 'Unknown error'}${result.error?.error_user_title ? ` - ${result.error.error_user_title}` : ''}${result.error?.error_user_msg ? `: ${result.error.error_user_msg}` : ''}`,
       { statusCode: response.status, response: result }
     );
   }
