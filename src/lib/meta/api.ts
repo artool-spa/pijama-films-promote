@@ -47,13 +47,26 @@ async function executeRequest<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...client.getAuthHeaders(),
-      ...options.headers,
-    },
-  });
+  const sanitizedUrl = url.replace(/access_token=[^&]+/, 'access_token=REDACTED');
+  log.info({ url: sanitizedUrl, method: options.method || 'GET' }, 'Meta API request');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...client.getAuthHeaders(),
+        ...options.headers,
+      },
+    });
+  } catch (err) {
+    log.error({
+      err,
+      cause: err instanceof Error ? (err as NodeJS.ErrnoException).cause : undefined,
+      url: sanitizedUrl,
+    }, 'Meta API fetch failed - network error');
+    throw err;
+  }
 
   const data = await response.json();
 
@@ -1162,10 +1175,22 @@ export async function generateAdPreview(
   params.append('creative', JSON.stringify(creativeSpec));
 
   const url = `${client.buildAdAccountUrl('generatepreviews')}?${params.toString()}`;
+  const sanitizedUrl = url.replace(/access_token=[^&]+/, 'access_token=REDACTED');
+  log.info({ url: sanitizedUrl, adFormat }, 'Generating ad preview - fetching Meta API');
 
-  const response = await fetch(url, {
-    method: 'GET',
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+    });
+  } catch (err) {
+    log.error({
+      err,
+      cause: err instanceof Error ? (err as NodeJS.ErrnoException).cause : undefined,
+      url: sanitizedUrl,
+    }, 'Meta API fetch failed - network error');
+    throw err;
+  }
 
   const result = await response.json();
 

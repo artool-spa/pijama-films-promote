@@ -452,9 +452,9 @@ export async function getYouTubeInsights(
   const query = `
     SELECT
       metrics.impressions,
-      metrics.video_views,
-      metrics.video_view_rate,
-      metrics.average_cpv,
+      metrics.video_trueview_views,
+      metrics.video_trueview_view_rate,
+      metrics.trueview_average_cpv,
       metrics.cost_micros,
       metrics.clicks,
       metrics.ctr,
@@ -496,11 +496,11 @@ export async function getYouTubeInsights(
       if (!m) continue;
 
       totalImpressions += parseInt(m.impressions || '0', 10);
-      totalViews += parseInt(m.video_views || '0', 10);
+      totalViews += parseInt(m.video_trueview_views || '0', 10);
       totalCostMicros += BigInt(m.cost_micros || '0');
       totalClicks += parseInt(m.clicks || '0', 10);
-      weightedViewRate += parseFloat(m.video_view_rate || '0');
-      weightedCpv += parseFloat(m.average_cpv || '0');
+      weightedViewRate += parseFloat(m.video_trueview_view_rate || '0');
+      weightedCpv += parseFloat(m.trueview_average_cpv || '0');
       weightedCtr += parseFloat(m.ctr || '0');
       weightedQ25 += parseFloat(m.video_quartile_p25_rate || '0');
       weightedQ50 += parseFloat(m.video_quartile_p50_rate || '0');

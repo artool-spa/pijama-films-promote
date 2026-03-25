@@ -1276,11 +1276,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         const metaResult = await metaResponse.json();
         campaignId = metaResult.campaign.id;
 
+        if (metaResult.pendingAssets) {
+          setCampaignProgress(prev => ({
+            ...prev,
+            message: metaResult.message || 'Meta: Videos are still uploading. Sync will complete automatically.',
+          }));
+        }
         if (metaResult.syncError) {
-          console.warn('Campaign created but Meta sync failed:', metaResult.syncError);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Meta: ${metaResult.syncError}`,
+          }));
         }
         if (metaResult.adErrors?.length > 0) {
-          console.warn('Some Meta ads failed to sync:', metaResult.adErrors);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Meta: ${metaResult.adErrors.map((e: { adId: string; error: string }) => e.error).join(', ')}`,
+          }));
         }
 
         // If Google also selected, sync same campaign to Google
@@ -1300,11 +1312,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
           if (!googleResponse.ok) {
             const error = await googleResponse.json();
-            console.warn('Google sync failed:', error.error || 'Error syncing to Google');
+            setCampaignProgress(prev => ({
+              ...prev,
+              error: `Google: ${error.error || 'Error syncing to Google'}`,
+            }));
           } else {
             const googleResult = await googleResponse.json();
             if (googleResult.syncError) {
-              console.warn('Google sync issue:', googleResult.syncError);
+              setCampaignProgress(prev => ({
+                ...prev,
+                error: `Google: ${googleResult.syncError}`,
+              }));
             }
           }
         }
@@ -1331,7 +1349,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         campaignId = googleResult.campaign.id;
 
         if (googleResult.syncError) {
-          console.warn('Campaign created but Google sync failed:', googleResult.syncError);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Google: ${googleResult.syncError}`,
+          }));
         }
       }
 

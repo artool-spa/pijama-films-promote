@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getCampaignsPendingAssets } from '@/models/campaign';
-import { areMetaAssetsReady, areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
+import { areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 
 /**
  * GET /api/cron/sync-pending-campaigns
@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
       const hasGoogle = campaign.platforms.includes('GOOGLE');
 
       // Check if assets are ready for each platform
-      const metaReady = !hasMeta || areMetaAssetsReady(campaign.ads);
+      // Meta: syncCampaignToMeta handles video uploads internally, no need to gate on metaVideoId
+      const metaReady = true;
       const googleReady = !hasGoogle || areGoogleImageAssetsReady(campaign.ads);
 
       if (!metaReady || !googleReady) {

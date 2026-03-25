@@ -199,6 +199,12 @@ export async function POST(req: NextRequest) {
       await emitProgress(data.filmMuviUuid, campaign.id, 'pending_assets', 25,
         'Videos are still uploading. Sync will complete automatically.');
 
+      await publish(data.filmMuviUuid, {
+        type: 'campaign_error',
+        campaignId: campaign.id,
+        error: 'Meta: Videos are still uploading to Meta. Campaign will sync automatically when ready.',
+      });
+
       return NextResponse.json({
         success: true,
         campaign,
@@ -216,6 +222,14 @@ export async function POST(req: NextRequest) {
     }
 
     const syncResult = await syncCampaignToMeta(fullCampaign, targetPartner.name);
+
+    if (syncResult.syncError) {
+      await publish(data.filmMuviUuid, {
+        type: 'campaign_error',
+        campaignId: campaign.id,
+        error: `Meta: ${syncResult.syncError}`,
+      });
+    }
 
     return NextResponse.json({
       success: true,

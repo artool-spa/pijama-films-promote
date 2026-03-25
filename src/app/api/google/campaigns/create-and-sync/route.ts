@@ -233,6 +233,14 @@ export async function POST(req: NextRequest) {
       targetCpvMicros: targetCpvMicros ? BigInt(targetCpvMicros) : undefined,
     });
 
+    if (syncResult.syncError) {
+      await publish(data.filmMuviUuid, {
+        type: 'campaign_error',
+        campaignId: campaign.id,
+        error: `Google: ${syncResult.syncError}`,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       campaign: {
