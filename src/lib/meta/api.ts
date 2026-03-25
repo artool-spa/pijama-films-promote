@@ -197,8 +197,9 @@ export interface CBOCampaignConfig {
   endTime?: string; // ISO format, required for lifetime budget
   targeting: MetaTargeting;
   promotedObject?: {
-    pixel_id: string;
-    custom_event_type: 'PURCHASE' | 'ADD_TO_CART' | 'VIEW_CONTENT' | 'LEAD';
+    pixel_id?: string;
+    custom_event_type?: 'PURCHASE' | 'ADD_TO_CART' | 'VIEW_CONTENT' | 'LEAD';
+    page_id?: string;
   };
   hasImages: boolean;
   hasVideos: boolean;

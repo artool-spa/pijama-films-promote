@@ -130,8 +130,9 @@ export const MetaAdSetCreateSchema = z.object({
   targeting: MetaTargetingSchema,
   promoted_object: z
     .object({
-      pixel_id: z.string(),
-      custom_event_type: z.enum(['PURCHASE', 'ADD_TO_CART', 'VIEW_CONTENT', 'LEAD']).default('PURCHASE'),
+      pixel_id: z.string().optional(),
+      custom_event_type: z.enum(['PURCHASE', 'ADD_TO_CART', 'VIEW_CONTENT', 'LEAD']).optional(),
+      page_id: z.string().optional(),
     })
     .optional(),
   // Dynamic creative optimization

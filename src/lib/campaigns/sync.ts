@@ -200,7 +200,7 @@ export async function syncCampaignToMeta(
       targeting,
       promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
         ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
-        : undefined,
+        : { page_id: meta.pageId! },
       hasImages: effectiveHasImages,
       hasVideos: effectiveHasVideos,
       optimizationGoal,

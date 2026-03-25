@@ -104,7 +104,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       targeting,
       promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
         ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
-        : undefined,
+        : meta.pageId ? { page_id: meta.pageId } : undefined,
       hasImages,
       hasVideos,
       optimizationGoal,
