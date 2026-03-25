@@ -56,11 +56,13 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Assets are ready — sync to platforms
+      // Assets are ready — sync to platforms (skip already-synced platforms)
       const partnerName = campaign.partner.name;
       let synced = false;
+      const metaAlreadySynced = !!campaign.metaCampaignId;
+      const googleAlreadySynced = !!campaign.googleCampaignId;
 
-      if (hasMeta) {
+      if (hasMeta && !metaAlreadySynced) {
         try {
           const result = await syncCampaignToMeta(campaign, partnerName);
           if (result.synced) {
@@ -75,7 +77,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      if (hasGoogle) {
+      if (hasGoogle && !googleAlreadySynced) {
         try {
           const result = await syncCampaignToGoogle(campaign, partnerName);
           if (result.synced) {
