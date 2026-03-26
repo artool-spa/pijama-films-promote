@@ -55,6 +55,9 @@ export interface BuiltTargeting {
   exclusions?: {
     interests?: Interest[];
   };
+  targeting_automation?: {
+    advantage_audience: number;
+  };
 }
 
 // ============================================================================
@@ -389,6 +392,9 @@ export async function buildTargeting(
   if (flexibleSpecs.length > 0) {
     targeting.flexible_spec = flexibleSpecs;
   }
+
+  // Disable Advantage audience (required by Meta API for adset creation)
+  targeting.targeting_automation = { advantage_audience: 0 };
 
   return targeting;
 }

@@ -299,7 +299,6 @@ export async function createCBOCampaignWithAdSets(
         is_dynamic_creative: true,
         dsa_beneficiary: dsaBeneficiary,
         dsa_payor: dsaPayor,
-        targeting_automation: { advantage_audience: 0 },
       });
 
       result.imageAdSetId = imageAdSet.id;
@@ -325,7 +324,6 @@ export async function createCBOCampaignWithAdSets(
         is_dynamic_creative: true,
         dsa_beneficiary: dsaBeneficiary,
         dsa_payor: dsaPayor,
-        targeting_automation: { advantage_audience: 0 },
       });
 
       result.videoAdSetId = videoAdSet.id;
