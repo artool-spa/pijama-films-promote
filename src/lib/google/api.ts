@@ -859,14 +859,20 @@ export async function updateCampaignStatus(
   campaignResourceName: string,
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
 ): Promise<void> {
-  await client.mutate('campaigns', [
-    {
-      update: {
-        resourceName: campaignResourceName,
-        status,
+  if (status === 'REMOVED') {
+    await client.mutate('campaigns', [
+      { remove: campaignResourceName },
+    ]);
+  } else {
+    await client.mutate('campaigns', [
+      {
+        update: {
+          resourceName: campaignResourceName,
+          status,
+        },
       },
-    },
-  ]);
+    ]);
+  }
 
   log.info({ resourceName: campaignResourceName, status }, 'Campaign status updated');
 }
