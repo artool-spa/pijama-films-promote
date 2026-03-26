@@ -114,14 +114,19 @@ export async function createVideoCampaign(
   const validated = GoogleCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
+  const isLifetimeBudget = validated.budgetType === 'TOTAL';
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
         amountMicros: validated.budgetAmountMicros.toString(),
         deliveryMethod: 'STANDARD',
-        ...(validated.budgetType === 'TOTAL'
-          ? { explicitlyShared: false }
+        explicitlyShared: false,
+        ...(isLifetimeBudget
+          ? {
+              period: 'CUSTOM',
+              totalAmountMicros: validated.budgetAmountMicros.toString(),
+            }
           : {}),
       },
     },
@@ -543,14 +548,19 @@ export async function createDemandGenCampaign(
   const validated = DemandGenCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
+  const isLifetimeBudget = validated.budgetType === 'TOTAL';
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
         amountMicros: validated.budgetAmountMicros.toString(),
         deliveryMethod: 'STANDARD',
-        ...(validated.budgetType === 'TOTAL'
-          ? { explicitlyShared: false }
+        explicitlyShared: false,
+        ...(isLifetimeBudget
+          ? {
+              period: 'CUSTOM',
+              totalAmountMicros: validated.budgetAmountMicros.toString(),
+            }
           : {}),
       },
     },

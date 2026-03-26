@@ -482,6 +482,16 @@ export async function syncCampaignToGoogle(
     };
   }
 
+  // Helper to rollback Google campaign on subsequent failures
+  const rollbackGoogleCampaign = async () => {
+    try {
+      await updateCampaignStatus(google, googleCampaignId, 'REMOVED');
+      log.info({ googleCampaignId }, 'Rolled back orphaned Google campaign');
+    } catch (cleanupErr) {
+      log.error({ err: cleanupErr, googleCampaignId }, 'Failed to rollback orphaned Google campaign');
+    }
+  };
+
   // Upload Pijama Films logo as Google Ads asset (reused across all ads)
   const logoUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://promote.pijamafilms.com'}/logo_pijama_square.png`;
   let logoAssetResourceName: string;
@@ -490,6 +500,7 @@ export async function syncCampaignToGoogle(
     logoAssetResourceName = logoAsset.resourceName;
   } catch (error) {
     log.error({ err: error }, 'Failed to upload Pijama Films logo');
+    await rollbackGoogleCampaign();
     return {
       synced: false,
       syncedAds: [],

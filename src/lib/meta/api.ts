@@ -279,54 +279,66 @@ export async function createCBOCampaignWithAdSets(
     campaignId: campaign.id,
   };
 
-  // Step 2: Create AdSet for images (if needed)
-  if (hasImages) {
-    log.info('Creating image AdSet for CBO campaign');
+  try {
+    // Step 2: Create AdSet for images (if needed)
+    if (hasImages) {
+      log.info('Creating image AdSet for CBO campaign');
 
-    const imageAdSet = await createAdSet(client, {
-      name: `${name} - Images`,
-      campaign_id: campaign.id,
-      status: 'PAUSED',
-      // NO budget - it's at campaign level with CBO
-      start_time: startTime,
-      end_time: endTime,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting,
-      promoted_object: promotedObject,
-      is_dynamic_creative: true,
-      dsa_beneficiary: dsaBeneficiary,
-      dsa_payor: dsaPayor,
-    });
+      const imageAdSet = await createAdSet(client, {
+        name: `${name} - Images`,
+        campaign_id: campaign.id,
+        status: 'PAUSED',
+        // NO budget - it's at campaign level with CBO
+        start_time: startTime,
+        end_time: endTime,
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: optimizationGoal,
+        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        targeting,
+        promoted_object: promotedObject,
+        is_dynamic_creative: true,
+        dsa_beneficiary: dsaBeneficiary,
+        dsa_payor: dsaPayor,
+      });
 
-    result.imageAdSetId = imageAdSet.id;
-    log.info({ adSetId: imageAdSet.id }, 'Image AdSet created');
-  }
+      result.imageAdSetId = imageAdSet.id;
+      log.info({ adSetId: imageAdSet.id }, 'Image AdSet created');
+    }
 
-  // Step 3: Create AdSet for videos (if needed)
-  if (hasVideos) {
-    log.info('Creating video AdSet for CBO campaign');
+    // Step 3: Create AdSet for videos (if needed)
+    if (hasVideos) {
+      log.info('Creating video AdSet for CBO campaign');
 
-    const videoAdSet = await createAdSet(client, {
-      name: `${name} - Videos`,
-      campaign_id: campaign.id,
-      status: 'PAUSED',
-      // NO budget - it's at campaign level with CBO
-      start_time: startTime,
-      end_time: endTime,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting,
-      promoted_object: promotedObject,
-      is_dynamic_creative: true,
-      dsa_beneficiary: dsaBeneficiary,
-      dsa_payor: dsaPayor,
-    });
+      const videoAdSet = await createAdSet(client, {
+        name: `${name} - Videos`,
+        campaign_id: campaign.id,
+        status: 'PAUSED',
+        // NO budget - it's at campaign level with CBO
+        start_time: startTime,
+        end_time: endTime,
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: optimizationGoal,
+        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        targeting,
+        promoted_object: promotedObject,
+        is_dynamic_creative: true,
+        dsa_beneficiary: dsaBeneficiary,
+        dsa_payor: dsaPayor,
+      });
 
-    result.videoAdSetId = videoAdSet.id;
-    log.info({ adSetId: videoAdSet.id }, 'Video AdSet created');
+      result.videoAdSetId = videoAdSet.id;
+      log.info({ adSetId: videoAdSet.id }, 'Video AdSet created');
+    }
+  } catch (error) {
+    // Rollback: delete the orphaned campaign on Meta
+    log.warn({ campaignId: campaign.id }, 'AdSet creation failed, rolling back Meta campaign');
+    try {
+      await deleteCampaign(client, campaign.id);
+      log.info({ campaignId: campaign.id }, 'Rolled back orphaned Meta campaign');
+    } catch (cleanupErr) {
+      log.error({ err: cleanupErr, campaignId: campaign.id }, 'Failed to rollback orphaned Meta campaign');
+    }
+    throw error;
   }
 
   return result;
@@ -364,6 +376,26 @@ export async function updateCampaign(
   }
 
   return { id: campaignId, ...data };
+}
+
+/**
+ * Delete a campaign from Meta Ads (used for rollback on failed adset creation)
+ */
+export async function deleteCampaign(
+  client: MetaClient,
+  campaignId: string
+): Promise<void> {
+  const url = client.buildObjectUrl(campaignId);
+  const response = await fetch(`${url}?access_token=${client.accessToken}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const result = await response.json();
+    throw new MetaApiError(
+      `Failed to delete campaign: ${result.error?.message || 'Unknown error'}`,
+      { statusCode: response.status, response: result }
+    );
+  }
 }
 
 /**
