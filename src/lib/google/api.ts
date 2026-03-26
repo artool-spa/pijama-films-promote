@@ -114,20 +114,21 @@ export async function createVideoCampaign(
   const validated = GoogleCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
-  const isLifetimeBudget = validated.budgetType === 'TOTAL';
+  // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  let dailyBudgetMicros = validated.budgetAmountMicros;
+  if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
+    const start = new Date(validated.startDate);
+    const end = new Date(validated.endDate);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+  }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
-        amountMicros: validated.budgetAmountMicros.toString(),
+        amountMicros: dailyBudgetMicros.toString(),
         deliveryMethod: 'STANDARD',
         explicitlyShared: false,
-        ...(isLifetimeBudget
-          ? {
-              period: 'CUSTOM',
-              totalAmountMicros: validated.budgetAmountMicros.toString(),
-            }
-          : {}),
       },
     },
   ]);
@@ -548,20 +549,21 @@ export async function createDemandGenCampaign(
   const validated = DemandGenCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
-  const isLifetimeBudget = validated.budgetType === 'TOTAL';
+  // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  let dailyBudgetMicros = validated.budgetAmountMicros;
+  if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
+    const start = new Date(validated.startDate);
+    const end = new Date(validated.endDate);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+  }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
-        amountMicros: validated.budgetAmountMicros.toString(),
+        amountMicros: dailyBudgetMicros.toString(),
         deliveryMethod: 'STANDARD',
         explicitlyShared: false,
-        ...(isLifetimeBudget
-          ? {
-              period: 'CUSTOM',
-              totalAmountMicros: validated.budgetAmountMicros.toString(),
-            }
-          : {}),
       },
     },
   ]);

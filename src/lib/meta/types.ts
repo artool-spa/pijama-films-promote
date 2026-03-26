@@ -140,6 +140,10 @@ export const MetaAdSetCreateSchema = z.object({
   // DSA compliance (required for EU-targeted campaigns)
   dsa_beneficiary: z.string().optional(),
   dsa_payor: z.string().optional(),
+  // Advantage audience targeting automation
+  targeting_automation: z.object({
+    advantage_audience: z.number(),
+  }).optional(),
 });
 
 export const MetaAdSetResponseSchema = z.object({
