@@ -493,7 +493,8 @@ export async function syncCampaignToGoogle(
   };
 
   // Upload Pijama Films logo as Google Ads asset (reused across all ads)
-  const logoUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://promote.pijamafilms.com'}/logo_pijama_square.png`;
+  // Use localhost to avoid DNS issues in Docker — the logo is served by this Next.js instance
+  const logoUrl = `http://localhost:${process.env.PORT || 3000}/logo_pijama_square.png`;
   let logoAssetResourceName: string;
   try {
     const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
