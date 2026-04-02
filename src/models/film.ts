@@ -8,6 +8,7 @@
  * - Generates ad copies from film metadata
  */
 
+import { createLogger } from '@/lib/logger';
 import { muvi, getMovies, getMovieDetails } from '#muvi';
 import type {
   MuviMovie,
@@ -18,6 +19,8 @@ import type {
 } from '#muvi';
 import prisma from '#prisma';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
+
+const log = createLogger('film');
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -35,6 +38,8 @@ export type CampaignSummary = {
   startDate: string;
   endDate: string | null;
   adsCount: number;
+  metaCampaignId: string | null;
+  googleCampaignId: string | null;
 };
 
 export type MediaAsset = {
@@ -94,6 +99,8 @@ function mapCampaignToSummary(campaign: CampaignWithAds): CampaignSummary {
     startDate: campaign.startDate.toISOString().split('T')[0],
     endDate: campaign.endDate?.toISOString().split('T')[0] || null,
     adsCount: campaign.ads.length,
+    metaCampaignId: campaign.metaCampaignId,
+    googleCampaignId: campaign.googleCampaignId ?? null,
   };
 }
 
@@ -105,7 +112,7 @@ async function fetchCampaignsForFilm(filmMuviUuid: string): Promise<CampaignSumm
     const campaigns = await getCampaignsByFilmMuviUuid(filmMuviUuid);
     return campaigns.map(mapCampaignToSummary);
   } catch (error) {
-    console.error(`Failed to fetch campaigns for film ${filmMuviUuid}:`, error);
+    log.error({ err: error, filmMuviUuid }, 'Failed to fetch campaigns for film');
     return [];
   }
 }
@@ -451,7 +458,7 @@ async function fetchAndCacheMovies(): Promise<MuviMovie[]> {
     cachedMovies = result.movies;
     return cachedMovies;
   } catch (error) {
-    console.error('Failed to fetch movies for cache:', error);
+    log.error({ err: error }, 'Failed to fetch movies for cache');
     return [];
   }
 }
@@ -502,7 +509,7 @@ export async function getFilms(
       currentPage: page,
     };
   } catch (error) {
-    console.error('Failed to fetch films from Muvi:', error);
+    log.error({ err: error }, 'Failed to fetch films from Muvi');
     throw error;
   }
 }
@@ -533,7 +540,7 @@ export async function getFilmById(
 
     return film;
   } catch (error) {
-    console.error(`Failed to fetch film ${id} from Muvi:`, error);
+    log.error({ err: error, filmId: id }, 'Failed to fetch film from Muvi');
     throw error;
   }
 }
@@ -569,7 +576,7 @@ export async function getAggregateStats() {
       costPerConversion: 0,
     };
   } catch (error) {
-    console.error('Failed to get aggregate stats:', error);
+    log.error({ err: error }, 'Failed to get aggregate stats');
     return {
       totalBudget: 0,
       totalCampaigns: 0,
@@ -600,7 +607,7 @@ export async function getAllCampaigns(): Promise<CampaignWithAds[]> {
     });
     return campaigns as CampaignWithAds[];
   } catch (error) {
-    console.error('Failed to get all campaigns:', error);
+    log.error({ err: error }, 'Failed to get all campaigns');
     return [];
   }
 }
@@ -640,7 +647,7 @@ export async function getAdCopiesForFilm(
 
     return generateAdCopiesForFilm(movie, language);
   } catch (error) {
-    console.error(`Failed to get ad copies for film ${filmId}:`, error);
+    log.error({ err: error, filmId }, 'Failed to get ad copies for film');
     return null;
   }
 }
@@ -657,7 +664,7 @@ export async function getAllAdCopiesForFilm(
 
     return generateAllAdCopiesForFilm(movie);
   } catch (error) {
-    console.error(`Failed to get all ad copies for film ${filmId}:`, error);
+    log.error({ err: error, filmId }, 'Failed to get all ad copies for film');
     return null;
   }
 }

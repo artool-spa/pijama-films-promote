@@ -19,6 +19,9 @@ import {
 } from './types';
 import { GoogleAdsApiError } from './errors';
 import type { GoogleTargetingResult } from './targeting';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('google');
 
 // ============================================================================
 // CUSTOM AUDIENCE TYPES & FETCHING
@@ -62,7 +65,7 @@ export async function getAllCustomAudiences(
   try {
     raw = await client.query<unknown>(gaql);
   } catch (error) {
-    console.warn('[Google] Failed to fetch custom audiences via GAQL. Campaign will be created without custom audience targeting.', error);
+    log.warn({ err: error }, 'Failed to fetch custom audiences via GAQL. Campaign will be created without custom audience targeting.');
     return [];
   }
 
@@ -93,7 +96,7 @@ export async function getAllCustomAudiences(
       type: row.customAudience!.type,
     }));
 
-  console.log(`[Google] Fetched ${audiences.length} custom audiences`);
+  log.info({ count: audiences.length }, 'Fetched custom audiences');
   return audiences;
 }
 
@@ -111,21 +114,27 @@ export async function createVideoCampaign(
   const validated = GoogleCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
+  // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  let dailyBudgetMicros = validated.budgetAmountMicros;
+  if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
+    const start = new Date(validated.startDate);
+    const end = new Date(validated.endDate);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+  }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
-        amountMicros: validated.budgetAmountMicros.toString(),
+        amountMicros: dailyBudgetMicros.toString(),
         deliveryMethod: 'STANDARD',
-        ...(validated.budgetType === 'TOTAL'
-          ? { explicitlyShared: false }
-          : {}),
+        explicitlyShared: false,
       },
     },
   ]);
 
   const budgetResourceName = budgetResult.results[0].resourceName;
-  console.log('[Google] Budget created:', budgetResourceName);
+  log.info({ resourceName: budgetResourceName }, 'Budget created');
 
   // Build bidding strategy
   const biddingConfig: Record<string, unknown> = {};
@@ -157,7 +166,7 @@ export async function createVideoCampaign(
   ]);
 
   const resourceName = campaignResult.results[0].resourceName;
-  console.log('[Google] Video campaign created:', resourceName);
+  log.info({ resourceName }, 'Video campaign created');
 
   return { resourceName };
 }
@@ -187,7 +196,7 @@ export async function createVideoAdGroup(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Ad group created:', resourceName);
+  log.info({ resourceName }, 'Ad group created');
 
   return { resourceName };
 }
@@ -284,7 +293,7 @@ export async function createVideoAd(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Video ad created:', resourceName);
+  log.info({ resourceName }, 'Video ad created');
 
   return { resourceName };
 }
@@ -431,7 +440,7 @@ async function applyTargetingToCampaign(
 
   if (operations.length > 0) {
     await client.mutate('campaignCriteria', operations);
-    console.log('[Google] Applied', operations.length, 'targeting criteria');
+    log.info({ count: operations.length }, 'Applied targeting criteria');
   }
 }
 
@@ -451,9 +460,9 @@ export async function getYouTubeInsights(
   const query = `
     SELECT
       metrics.impressions,
-      metrics.video_views,
-      metrics.video_view_rate,
-      metrics.average_cpv,
+      metrics.video_trueview_views,
+      metrics.video_trueview_view_rate,
+      metrics.trueview_average_cpv,
       metrics.cost_micros,
       metrics.clicks,
       metrics.ctr,
@@ -495,11 +504,11 @@ export async function getYouTubeInsights(
       if (!m) continue;
 
       totalImpressions += parseInt(m.impressions || '0', 10);
-      totalViews += parseInt(m.video_views || '0', 10);
+      totalViews += parseInt(m.video_trueview_views || '0', 10);
       totalCostMicros += BigInt(m.cost_micros || '0');
       totalClicks += parseInt(m.clicks || '0', 10);
-      weightedViewRate += parseFloat(m.video_view_rate || '0');
-      weightedCpv += parseFloat(m.average_cpv || '0');
+      weightedViewRate += parseFloat(m.video_trueview_view_rate || '0');
+      weightedCpv += parseFloat(m.trueview_average_cpv || '0');
       weightedCtr += parseFloat(m.ctr || '0');
       weightedQ25 += parseFloat(m.video_quartile_p25_rate || '0');
       weightedQ50 += parseFloat(m.video_quartile_p50_rate || '0');
@@ -542,21 +551,27 @@ export async function createDemandGenCampaign(
   const validated = DemandGenCampaignCreateSchema.parse(data);
 
   // Create campaign budget first
+  // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  let dailyBudgetMicros = validated.budgetAmountMicros;
+  if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
+    const start = new Date(validated.startDate);
+    const end = new Date(validated.endDate);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+  }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
       create: {
         name: `Budget - ${validated.name}`,
-        amountMicros: validated.budgetAmountMicros.toString(),
+        amountMicros: dailyBudgetMicros.toString(),
         deliveryMethod: 'STANDARD',
-        ...(validated.budgetType === 'TOTAL'
-          ? { explicitlyShared: false }
-          : {}),
+        explicitlyShared: false,
       },
     },
   ]);
 
   const budgetResourceName = budgetResult.results[0].resourceName;
-  console.log('[Google] Budget created:', budgetResourceName);
+  log.info({ resourceName: budgetResourceName }, 'Budget created');
 
   // Build bidding strategy
   // Note: MAXIMIZE_CLICKS uses targetSpend as its Campaign-level bidding scheme
@@ -587,7 +602,7 @@ export async function createDemandGenCampaign(
   ]);
 
   const resourceName = campaignResult.results[0].resourceName;
-  console.log('[Google] Demand Gen campaign created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen campaign created');
 
   return { resourceName };
 }
@@ -616,7 +631,7 @@ export async function createDemandGenAdGroup(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Demand Gen ad group created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen ad group created');
 
   return { resourceName };
 }
@@ -651,7 +666,7 @@ export async function uploadImageAsset(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Image asset uploaded:', resourceName);
+  log.info({ resourceName }, 'Image asset uploaded');
 
   return { resourceName };
 }
@@ -665,7 +680,17 @@ export async function createDemandGenImageAd(
 ): Promise<{ resourceName: string }> {
   const validated = DemandGenImageAdCreateSchema.parse(data);
 
-  const marketingImages = validated.imageAssetResourceNames.map(resourceName => ({
+  const marketingImages = validated.landscapeImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
+  const squareMarketingImages = validated.squareImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
+  const portraitMarketingImages = validated.portraitImageAssetResourceNames.map(
+    resourceName => ({ asset: resourceName })
+  );
+
+  const logoImages = validated.logoImageAssetResourceNames.map(resourceName => ({
     asset: resourceName,
   }));
 
@@ -686,11 +711,14 @@ export async function createDemandGenImageAd(
           name: validated.name,
           finalUrls: [validated.finalUrl],
           demandGenMultiAssetAd: {
-            marketingImages: marketingImages,
+            ...(marketingImages.length > 0 && { marketingImages }),
+            ...(squareMarketingImages.length > 0 && { squareMarketingImages }),
+            ...(portraitMarketingImages.length > 0 && { portraitMarketingImages }),
+            logoImages,
             headlines,
             descriptions,
             businessName: validated.businessName,
-            callToActionText: validated.callToAction,
+            callToActionText: 'Learn more',
           },
         },
       },
@@ -698,7 +726,7 @@ export async function createDemandGenImageAd(
   ]);
 
   const resourceName = result.results[0].resourceName;
-  console.log('[Google] Demand Gen image ad created:', resourceName);
+  log.info({ resourceName }, 'Demand Gen image ad created');
 
   return { resourceName };
 }
@@ -833,16 +861,22 @@ export async function updateCampaignStatus(
   campaignResourceName: string,
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
 ): Promise<void> {
-  await client.mutate('campaigns', [
-    {
-      update: {
-        resourceName: campaignResourceName,
-        status,
+  if (status === 'REMOVED') {
+    await client.mutate('campaigns', [
+      { remove: campaignResourceName },
+    ]);
+  } else {
+    await client.mutate('campaigns', [
+      {
+        update: {
+          resourceName: campaignResourceName,
+          status,
+        },
       },
-    },
-  ]);
+    ]);
+  }
 
-  console.log('[Google] Campaign status updated:', campaignResourceName, '->', status);
+  log.info({ resourceName: campaignResourceName, status }, 'Campaign status updated');
 }
 
 /**
@@ -862,7 +896,7 @@ export async function updateAdGroupStatus(
     },
   ]);
 
-  console.log('[Google] Ad group status updated:', adGroupResourceName, '->', status);
+  log.info({ resourceName: adGroupResourceName, status }, 'Ad group status updated');
 }
 
 /**

@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import logger from '@/lib/logger';
 import { getFilmById } from '@/models/film';
 import { getImagesByFilmMuviUuid } from '@/models/image';
 import { getVideosByFilmMuviUuid } from '@/models/video';
@@ -53,7 +54,7 @@ export default async function CreateCampaignPage({
     getVideosByFilmMuviUuid(id),
   ]);
 
-  console.log(`[Campaign New] Film ${id}: ${dbImages.length} images, ${dbVideos.length} videos from DB`);
+  logger.info({ filmId: id, images: dbImages.length, videos: dbVideos.length }, 'Film assets from DB');
 
   // Map database assets to the format expected by the client
   // Include all validation fields
@@ -70,6 +71,7 @@ export default async function CreateCampaignPage({
     aspectRatio: img.aspectRatio,
     facebookEligible: img.facebookEligible,
     instagramEligible: img.instagramEligible,
+    googleEligible: img.googleEligible,
     eligibilityError: img.eligibilityError,
   }));
 

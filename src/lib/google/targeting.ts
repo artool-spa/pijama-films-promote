@@ -10,10 +10,13 @@
  * mirroring Meta's targeting approach with the same naming convention.
  */
 
+import { createLogger } from '@/lib/logger';
 import type { GoogleTargeting } from './types';
 import type { GoogleAdsClient } from './client';
 import type { GoogleCustomAudience } from './api';
 import { getAllCustomAudiences } from './api';
+
+const log = createLogger('google-targeting');
 
 // ============================================================================
 // TYPES
@@ -227,8 +230,7 @@ export async function buildGoogleTargeting(
 ): Promise<GoogleTargetingResult> {
   const audiences = await getCachedAudiences(client);
 
-  // Log available audiences for debugging
-  console.log('[Google] Available custom audiences:', audiences.map(a => a.name));
+  log.debug({ audiences: audiences.map(a => a.name) }, 'Available custom audiences');
 
   // Geo targeting
   const geoTargets = config.countries
@@ -248,7 +250,7 @@ export async function buildGoogleTargeting(
   // Add BASE audiences if enabled
   if (config.includeBaseAudiences) {
     const baseAudiences = filterAudiencesByPrefix(audiences, BASE_AUDIENCE_PREFIX);
-    console.log('[Google] Found BASE audiences:', baseAudiences.map(a => a.name));
+    log.debug({ audiences: baseAudiences.map(a => a.name) }, 'Found BASE audiences');
 
     for (const audience of baseAudiences) {
       customAudienceSet.add(audience.resourceName);
@@ -257,9 +259,9 @@ export async function buildGoogleTargeting(
 
   // Add genre-specific audiences
   if (config.filmGenres.length > 0) {
-    console.log('[Google] Looking for genres:', config.filmGenres);
+    log.debug({ genres: config.filmGenres }, 'Looking for genres');
     const genreAudiences = findGenreAudiences(audiences, config.filmGenres);
-    console.log('[Google] Found genre audiences:', genreAudiences.map(a => a.name));
+    log.debug({ audiences: genreAudiences.map(a => a.name) }, 'Found genre audiences');
 
     for (const audience of genreAudiences) {
       customAudienceSet.add(audience.resourceName);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getAdById, updateAd, deleteAd, AdUpdateSchema } from '@/models/ad';
 import { getPartnerFromRequest } from '@/lib/auth';
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(ad);
   } catch (error) {
-    console.error('Error fetching ad:', error);
+    logger.error({ err: error }, 'Error fetching ad');
     return NextResponse.json(
       { error: 'Error al obtener el anuncio' },
       { status: 500 }
@@ -58,7 +59,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(ad);
   } catch (error) {
-    console.error('Error updating ad:', error);
+    logger.error({ err: error }, 'Error updating ad');
     return NextResponse.json(
       { error: 'Error al actualizar el anuncio' },
       { status: 500 }
@@ -82,7 +83,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting ad:', error);
+    logger.error({ err: error }, 'Error deleting ad');
 
     const message =
       error instanceof Error ? error.message : 'Error al eliminar el anuncio';

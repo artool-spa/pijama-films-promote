@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { getCampaignById, deleteCampaign } from '@/models/campaign';
 
@@ -30,7 +31,7 @@ export async function DELETE(
     await deleteCampaign(id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting campaign:', error);
+    logger.error({ err: error }, 'Error deleting campaign');
     const message = error instanceof Error ? error.message : 'Error deleting campaign';
     return NextResponse.json({ error: message }, { status: 500 });
   }

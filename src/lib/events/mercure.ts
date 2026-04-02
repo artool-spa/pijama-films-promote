@@ -1,7 +1,9 @@
 import { SignJWT } from 'jose';
 
+import { createLogger } from '@/lib/logger';
 import type { SSEEvent } from './index';
 
+const log = createLogger('mercure');
 const TOPIC_PREFIX = 'https://promote.pijamafilms.com/films';
 
 let configWarned = false;
@@ -12,9 +14,7 @@ function getConfig(): { mercureUrl: string; jwtSecret: string } | null {
 
   if (!mercureUrl || !jwtSecret) {
     if (!configWarned) {
-      console.warn(
-        '[Mercure] Publishing disabled: MERCURE_URL or MERCURE_JWT_SECRET not configured',
-      );
+      log.warn('Publishing disabled: MERCURE_URL or MERCURE_JWT_SECRET not configured');
       configWarned = true;
     }
     return null;
@@ -72,14 +72,12 @@ export async function publish(filmMuviUuid: string, data: SSEEvent): Promise<voi
 
     if (!response.ok) {
       const text = await response.text();
-      console.warn(`[Mercure] Publish failed (${response.status}): ${text}`);
+      log.warn({ status: response.status, body: text }, 'Publish failed');
     } else {
       const eventId = await response.text();
-      console.log(`[Mercure] Published to ${topic} → ${eventId}`);
+      log.info({ topic, eventId }, 'Published event');
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : error;
-    const cause = error instanceof Error && error.cause ? ` cause=${error.cause}` : '';
-    console.warn(`[Mercure] Publish error: ${message}${cause}`);
+    log.warn({ err: error }, 'Publish error');
   }
 }

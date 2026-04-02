@@ -32,7 +32,7 @@ import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { ReactNode } from 'react';
 
-type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
+type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR' | 'FINISHED';
 
 type CampaignDetailClientProps = {
   film: Film;
@@ -138,8 +138,12 @@ function PlatformCard({ icon, label, color, metrics }: PlatformCardProps) {
 
 export default function CampaignDetailClient({ film, campaign }: CampaignDetailClientProps) {
   const router = useRouter();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(
+    new Date(campaign.startDate).toISOString().split('T')[0]
+  );
+  const [endDate, setEndDate] = useState(
+    campaign.endDate ? new Date(campaign.endDate).toISOString().split('T')[0] : ''
+  );
   const [insights, setInsights] = useState<InsightsData | null>(null);
   const [youtubeInsights, setYoutubeInsights] = useState<YouTubeInsightsData | null>(null);
   const [displayInsights, setDisplayInsights] = useState<DisplayInsightsData | null>(null);
@@ -207,6 +211,17 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     }
   }, [isSynced, fetchInsights]);
 
+  const getEffectiveStatus = (): CampaignStatus => {
+    if (campaign.endDate && new Date(campaign.endDate) < new Date()
+        && ['PENDING', 'ACTIVE'].includes(campaign.status)) {
+      return 'FINISHED';
+    }
+    return campaign.status as CampaignStatus;
+  };
+
+  const effectiveStatus = getEffectiveStatus();
+  const googleSynced = !!(campaign as Record<string, unknown>).googleCampaignId;
+
   const getStatusColor = (status: CampaignStatus) => {
     switch (status) {
       case 'ACTIVE':
@@ -219,6 +234,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         return 'info' as const;
       case 'ERROR':
         return 'error' as const;
+      case 'FINISHED':
+        return 'default' as const;
       case 'ARCHIVED':
         return 'default' as const;
       default:
@@ -238,6 +255,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
         return 'Pending';
       case 'ERROR':
         return 'Error';
+      case 'FINISHED':
+        return 'Finished';
       case 'ARCHIVED':
         return 'Archived';
       default:
@@ -305,8 +324,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             />
           )}
           <Chip
-            label={getStatusLabel(campaign.status as CampaignStatus)}
-            color={getStatusColor(campaign.status as CampaignStatus)}
+            label={getStatusLabel(effectiveStatus)}
+            color={getStatusColor(effectiveStatus)}
           />
           <Typography variant="caption" color="text.secondary">
             {new Date(campaign.startDate).toLocaleDateString('en-US')}
@@ -429,8 +448,17 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             </Grid>
           )}
 
+          {/* Google sync failed message */}
+          {hasGoogle && !googleSynced && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Google Ads sync failed — ads were not created on this platform.
+              </Typography>
+            </Box>
+          )}
+
           {/* Google Metrics */}
-          {hasGoogle && googleCampaignType === 'DEMAND_GEN' && (
+          {hasGoogle && googleSynced && googleCampaignType === 'DEMAND_GEN' && (
             <Grid container spacing={3} sx={{ mt: 1 }}>
               <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
@@ -484,7 +512,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
           )}
 
           {/* YouTube Video Metrics (legacy) */}
-          {hasGoogle && googleCampaignType === 'VIDEO' && (
+          {hasGoogle && googleSynced && googleCampaignType === 'VIDEO' && (
             <Grid container spacing={3} sx={{ mt: 1 }}>
               <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">

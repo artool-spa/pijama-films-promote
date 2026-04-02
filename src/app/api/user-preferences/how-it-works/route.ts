@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getSession } from '@/lib/auth/session';
 import { dismissHowItWorks } from '@/models/userPreference';
 
@@ -16,7 +17,7 @@ export async function PATCH() {
     await dismissHowItWorks(session.email);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error dismissing How it Works:', error);
+    logger.error({ err: error }, 'Error dismissing How it Works');
     return NextResponse.json(
       { error: 'Error updating preference' },
       { status: 500 }

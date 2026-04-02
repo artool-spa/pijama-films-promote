@@ -1,3 +1,4 @@
+import logger from '@/lib/logger';
 import { GoogleAdsConfig, GoogleAdsConfigSchema, GoogleErrorResponseSchema } from './types';
 import { GoogleAdsConfigError, GoogleAdsApiError, GoogleAdsAuthError, GoogleAdsQuotaError } from './errors';
 import { refreshAccessToken } from './auth';
@@ -110,7 +111,7 @@ export class GoogleAdsClient {
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       const body = await response.text();
-      console.error(`[Google] Non-JSON response (${response.status}) from ${url}:`, body.substring(0, 500));
+      logger.error({ statusCode: response.status, url, body: body.substring(0, 500) }, 'Google Ads API returned non-JSON response');
       throw new GoogleAdsApiError(`Google Ads API returned non-JSON response (${response.status})`, {
         statusCode: response.status,
         endpoint: url,
@@ -121,7 +122,7 @@ export class GoogleAdsClient {
 
     if (!response.ok) {
       // Log full error response for debugging
-      console.error(`[Google] API error (${response.status}) from ${url}:`, JSON.stringify(data, null, 2));
+      logger.error({ statusCode: response.status, url, response: data }, 'Google Ads API error');
 
       const errorResult = GoogleErrorResponseSchema.safeParse(data);
       if (errorResult.success) {
@@ -171,9 +172,21 @@ export class GoogleAdsClient {
     operations: Array<{ create?: unknown; update?: unknown; remove?: string }>
   ): Promise<{ results: Array<{ resourceName: string }> }> {
     const url = this.buildCustomerUrl(`${resource}:mutate`);
+
+    const processedOps = operations.map(op => {
+      if (op.update && typeof op.update === 'object') {
+        const updateObj = op.update as Record<string, unknown>;
+        const fields = Object.keys(updateObj)
+          .filter(k => k !== 'resourceName')
+          .map(k => k.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`));
+        return { ...op, updateMask: fields.join(',') };
+      }
+      return op;
+    });
+
     return this.executeRequest(url, {
       method: 'POST',
-      body: JSON.stringify({ operations }),
+      body: JSON.stringify({ operations: processedOps }),
     });
   }
 }

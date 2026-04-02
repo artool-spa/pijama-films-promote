@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Box,
@@ -22,7 +22,7 @@ import { ArrowBack as ArrowBackIcon, Add as AddIcon } from '@mui/icons-material'
 import { useRouter } from 'next/navigation';
 import type { Film, CampaignSummary } from '@/models/film';
 
-type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
+type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR' | 'FINISHED';
 
 type FilmCampaignsClientProps = {
   film: Film;
@@ -30,10 +30,18 @@ type FilmCampaignsClientProps = {
 
 export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) {
   const router = useRouter();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-
   const campaigns = film.campaigns || [];
+
+  // Pre-fill Period dates from campaign date range
+  const defaultStart = campaigns.length > 0
+    ? new Date(Math.min(...campaigns.map(c => new Date(c.startDate).getTime()))).toISOString().split('T')[0]
+    : '';
+  const defaultEnd = campaigns.length > 0 && campaigns.some(c => c.endDate)
+    ? new Date(Math.max(...campaigns.filter(c => c.endDate).map(c => new Date(c.endDate!).getTime()))).toISOString().split('T')[0]
+    : '';
+
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
 
   // Calculate aggregate stats across all campaigns
   const aggregateStats = campaigns.reduce(
@@ -45,8 +53,48 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
     { totalBudget: 0, totalCampaigns: 0, activeCampaigns: 0 }
   );
 
+  // Fetch live metrics from Meta insights API
+  const [liveStats, setLiveStats] = useState<{
+    impressions: number;
+    clicks: number;
+    spend: number;
+  } | null>(null);
+
+  const fetchInsights = useCallback(async () => {
+    const syncedCampaigns = campaigns.filter(c => c.metaCampaignId);
+    if (syncedCampaigns.length === 0) return;
+
+    let impressions = 0, clicks = 0, spend = 0;
+
+    await Promise.all(syncedCampaigns.map(async (campaign) => {
+      try {
+        const res = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
+        const data = await res.json();
+        if (data.data) {
+          impressions += data.data.impressions || 0;
+          clicks += data.data.clicks || 0;
+          spend += data.data.spend || 0;
+        }
+      } catch { /* skip */ }
+    }));
+
+    setLiveStats({ impressions, clicks, spend });
+  }, [campaigns]);
+
+  useEffect(() => {
+    fetchInsights();
+  }, [fetchInsights]);
+
   const handleRowClick = (campaignId: string) => {
     router.push(`/films/${film.id}/campaigns/${campaignId}`);
+  };
+
+  const getEffectiveStatus = (campaign: { status: string; endDate?: string | Date | null }): CampaignStatus => {
+    if (campaign.endDate && new Date(campaign.endDate) < new Date()
+        && ['PENDING', 'ACTIVE'].includes(campaign.status)) {
+      return 'FINISHED';
+    }
+    return campaign.status as CampaignStatus;
   };
 
   const getStatusColor = (status: CampaignStatus) => {
@@ -61,6 +109,8 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
         return 'info' as const;
       case 'ERROR':
         return 'error' as const;
+      case 'FINISHED':
+        return 'default' as const;
       case 'ARCHIVED':
         return 'default' as const;
       default:
@@ -80,6 +130,8 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
         return 'Pending';
       case 'ERROR':
         return 'Error';
+      case 'FINISHED':
+        return 'Finished';
       case 'ARCHIVED':
         return 'Archived';
       default:
@@ -151,7 +203,7 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
               Summary ({campaigns.length} {campaigns.length === 1 ? 'campaign' : 'campaigns'})
             </Typography>
             <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
                   Total Budget
                 </Typography>
@@ -159,15 +211,41 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
                   ${aggregateStats.totalBudget.toLocaleString()}
                 </Typography>
               </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  Active Campaigns
+                  Spend
                 </Typography>
-                <Typography variant="h5" color="success.main">
-                  {aggregateStats.activeCampaigns}
+                <Typography variant="h5">
+                  {liveStats ? `$${liveStats.spend.toLocaleString()}` : '-'}
                 </Typography>
               </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Impressions
+                </Typography>
+                <Typography variant="h5" color="info.main">
+                  {liveStats ? liveStats.impressions.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Clicks
+                </Typography>
+                <Typography variant="h5">
+                  {liveStats ? liveStats.clicks.toLocaleString() : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  CTR
+                </Typography>
+                <Typography variant="h5">
+                  {liveStats && liveStats.impressions > 0
+                    ? `${(liveStats.clicks / liveStats.impressions * 100).toFixed(2)}%`
+                    : '-'}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
                   Total Ads
                 </Typography>
@@ -217,9 +295,9 @@ export default function FilmCampaignsClient({ film }: FilmCampaignsClientProps) 
                       </TableCell>
                       <TableCell align="center">
                         <Chip
-                          label={getStatusLabel(campaign.status as CampaignStatus)}
+                          label={getStatusLabel(getEffectiveStatus(campaign))}
                           size="small"
-                          color={getStatusColor(campaign.status as CampaignStatus)}
+                          color={getStatusColor(getEffectiveStatus(campaign))}
                         />
                       </TableCell>
                       <TableCell align="right">${campaign.budget.toLocaleString()}</TableCell>

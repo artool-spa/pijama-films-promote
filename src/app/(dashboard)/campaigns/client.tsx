@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Box,
@@ -44,8 +44,54 @@ type FilmWithAggregate = {
 
 export default function CampaignsClient({ films, aggregateStats }: CampaignsClientProps) {
   const router = useRouter();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Compute default date range from all campaigns
+  const allCampaigns = films.flatMap(f => f.campaigns || []);
+  const defaultStart = allCampaigns.length > 0
+    ? new Date(Math.min(...allCampaigns.map(c => new Date(c.startDate).getTime()))).toISOString().split('T')[0]
+    : '';
+  const defaultEnd = allCampaigns.length > 0 && allCampaigns.some(c => c.endDate)
+    ? new Date(Math.max(...allCampaigns.filter(c => c.endDate).map(c => new Date(c.endDate!).getTime()))).toISOString().split('T')[0]
+    : '';
+
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
+
+  // Fetch live metrics from Meta/Google for all synced campaigns
+  const [liveStats, setLiveStats] = useState<{
+    totalImpressions: number;
+    totalSpend: number;
+    totalConversions: number;
+  } | null>(null);
+
+  const fetchAllInsights = useCallback(async () => {
+    const syncedCampaigns = films
+      .flatMap(f => (f.campaigns || []).map(c => c))
+      .filter(c => c.metaCampaignId);
+
+    if (syncedCampaigns.length === 0) return;
+
+    let impressions = 0, spend = 0, conversions = 0;
+
+    await Promise.all(syncedCampaigns.map(async (campaign) => {
+      if (campaign.metaCampaignId) {
+        try {
+          const res = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
+          const data = await res.json();
+          if (data.data) {
+            impressions += data.data.impressions || 0;
+            spend += data.data.spend || 0;
+            conversions += data.data.conversions || 0;
+          }
+        } catch { /* skip */ }
+      }
+    }));
+
+    setLiveStats({ totalImpressions: impressions, totalSpend: spend, totalConversions: conversions });
+  }, [films]);
+
+  useEffect(() => {
+    fetchAllInsights();
+  }, [fetchAllInsights]);
 
   // Group campaigns by film and calculate aggregates
   const filmsWithCampaigns: FilmWithAggregate[] = films
@@ -139,9 +185,9 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
                 Impressions
               </Typography>
               <Typography variant="h5" color="info.main">
-                {aggregateStats.totalImpressions > 0
-                  ? aggregateStats.totalImpressions.toLocaleString()
-                  : '-'}
+                {liveStats && liveStats.totalImpressions > 0
+                  ? liveStats.totalImpressions.toLocaleString()
+                  : liveStats ? '0' : '-'}
               </Typography>
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 2 }}>
@@ -149,9 +195,9 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
                 Conversions
               </Typography>
               <Typography variant="h5" color="success.main">
-                {aggregateStats.totalConversions > 0
-                  ? aggregateStats.totalConversions.toLocaleString()
-                  : '-'}
+                {liveStats && liveStats.totalConversions > 0
+                  ? liveStats.totalConversions.toLocaleString()
+                  : liveStats ? '0' : '-'}
               </Typography>
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 2 }}>
@@ -159,9 +205,9 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
                 Total Spend
               </Typography>
               <Typography variant="h5">
-                {aggregateStats.totalSpend > 0
-                  ? `$${aggregateStats.totalSpend.toLocaleString()}`
-                  : '-'}
+                {liveStats && liveStats.totalSpend > 0
+                  ? `$${liveStats.totalSpend.toLocaleString()}`
+                  : liveStats ? '$0' : '-'}
               </Typography>
             </Grid>
             <Grid size={{ xs: 6, sm: 4, md: 2 }}>
@@ -169,8 +215,8 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
                 Cost/Conversion
               </Typography>
               <Typography variant="h5">
-                {aggregateStats.costPerConversion > 0
-                  ? `$${aggregateStats.costPerConversion.toFixed(2)}`
+                {liveStats && liveStats.totalConversions > 0
+                  ? `$${(liveStats.totalSpend / liveStats.totalConversions).toFixed(2)}`
                   : '-'}
               </Typography>
             </Grid>

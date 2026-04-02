@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { revalidateAsset } from '@/lib/assets';
 import { getImageById } from '@/models/image';
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       message: 'Revalidation started',
     });
   } catch (error) {
-    console.error('Error triggering revalidation:', error);
+    logger.error({ err: error }, 'Error triggering revalidation');
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

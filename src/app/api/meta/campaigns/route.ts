@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { createCampaign, CampaignCreateSchema } from '@/models/campaign';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(campaign, { status: 201 });
   } catch (error) {
-    console.error('Error creating campaign:', error);
+    logger.error({ err: error }, 'Error creating campaign');
     return NextResponse.json(
       { error: 'Error al crear la campaña' },
       { status: 500 }

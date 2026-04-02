@@ -8,8 +8,11 @@
  */
 
 import { z } from 'zod';
+import { createLogger } from '@/lib/logger';
 import { MetaClient } from './client';
 import { MetaApiError } from './errors';
+
+const log = createLogger('meta-locations');
 
 // ============================================================================
 // TYPES
@@ -179,7 +182,7 @@ export async function searchLocations(
     const parsed = MetaLocationSearchResponseSchema.safeParse(data);
 
     if (!parsed.success) {
-      console.error('Failed to parse location search response:', parsed.error);
+      log.error({ err: parsed.error }, 'Failed to parse location search response');
       // Return empty array on parse error, don't throw
       return [];
     }
@@ -192,7 +195,7 @@ export async function searchLocations(
     return locations;
   } catch (error) {
     // Log error but return empty array to allow fallback
-    console.error('Error searching locations:', error);
+    log.error({ err: error }, 'Error searching locations');
 
     // For API errors, rethrow to let caller handle
     if (error instanceof MetaApiError) {
@@ -290,7 +293,7 @@ export async function getLocationsByKeys(
       }
     } catch {
       // Skip locations that can't be found
-      console.warn(`Could not find location with key: ${key}`);
+      log.warn({ key }, 'Could not find location with key');
     }
   }
 

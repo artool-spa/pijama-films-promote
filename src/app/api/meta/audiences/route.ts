@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { meta, getSavedAudiences, getAllSavedAudiences, MetaApiError } from '#meta';
 import { getPartnerFromRequest } from '@/lib/auth';
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
       total: response.data.length,
     });
   } catch (error) {
-    console.error('Error fetching saved audiences:', error);
+    logger.error({ err: error }, 'Error fetching saved audiences');
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(

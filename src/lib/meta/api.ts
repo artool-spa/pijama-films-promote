@@ -1,3 +1,4 @@
+import { createLogger } from '@/lib/logger';
 import { MetaClient } from './client';
 import {
   MetaCampaignCreate,
@@ -32,6 +33,8 @@ import {
   MetaRateLimitError,
 } from './errors';
 
+const log = createLogger('meta');
+
 // ============================================================================
 // INTERNAL HELPERS
 // ============================================================================
@@ -44,13 +47,26 @@ async function executeRequest<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...client.getAuthHeaders(),
-      ...options.headers,
-    },
-  });
+  const sanitizedUrl = url.replace(/access_token=[^&]+/, 'access_token=REDACTED');
+  log.info({ url: sanitizedUrl, method: options.method || 'GET' }, 'Meta API request');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...client.getAuthHeaders(),
+        ...options.headers,
+      },
+    });
+  } catch (err) {
+    log.error({
+      err,
+      cause: err instanceof Error ? (err as NodeJS.ErrnoException).cause : undefined,
+      url: sanitizedUrl,
+    }, 'Meta API fetch failed - network error');
+    throw err;
+  }
 
   const data = await response.json();
 
@@ -154,8 +170,7 @@ export async function createCampaign(
   if (!response.ok) {
     const errorDetails = result.error?.error_user_msg || result.error?.message || 'Unknown error';
     const errorTitle = result.error?.error_user_title || '';
-    console.error('[Meta] Campaign creation failed:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Request data:', requestData);
+    log.error({ err: result, requestData }, 'Campaign creation failed');
     throw new MetaApiError(
       `Failed to create campaign: ${errorTitle ? `${errorTitle} - ` : ''}${errorDetails}`,
       {
@@ -182,11 +197,14 @@ export interface CBOCampaignConfig {
   endTime?: string; // ISO format, required for lifetime budget
   targeting: MetaTargeting;
   promotedObject?: {
-    pixel_id: string;
-    custom_event_type: 'PURCHASE' | 'ADD_TO_CART' | 'VIEW_CONTENT' | 'LEAD';
+    pixel_id?: string;
+    custom_event_type?: 'PURCHASE' | 'ADD_TO_CART' | 'VIEW_CONTENT' | 'LEAD';
+    page_id?: string;
   };
   hasImages: boolean;
   hasVideos: boolean;
+  dsaBeneficiary?: string; // DSA compliance: advertiser name (required for EU countries)
+  dsaPayor?: string; // DSA compliance: payor name (required for EU countries)
   optimizationGoal: 'OFFSITE_CONVERSIONS' | 'LANDING_PAGE_VIEWS' | 'LINK_CLICKS';
 }
 
@@ -225,6 +243,8 @@ export async function createCBOCampaignWithAdSets(
     hasImages,
     hasVideos,
     optimizationGoal,
+    dsaBeneficiary,
+    dsaPayor,
   } = config;
 
   if (!hasImages && !hasVideos) {
@@ -232,7 +252,7 @@ export async function createCBOCampaignWithAdSets(
   }
 
   // Step 1: Create Campaign with CBO budget
-  console.log('[Meta] Creating CBO campaign:', { name, objective, budget, budgetType });
+  log.info({ name, objective, budget, budgetType }, 'Creating CBO campaign');
 
   const campaignData: MetaCampaignCreate = {
     name,
@@ -253,56 +273,72 @@ export async function createCBOCampaignWithAdSets(
   }
 
   const campaign = await createCampaign(client, campaignData);
-  console.log('[Meta] CBO Campaign created:', campaign.id);
+  log.info({ campaignId: campaign.id }, 'CBO Campaign created');
 
   const result: CBOCampaignResult = {
     campaignId: campaign.id,
   };
 
-  // Step 2: Create AdSet for images (if needed)
-  if (hasImages) {
-    console.log('[Meta] Creating image AdSet for CBO campaign');
+  try {
+    // Step 2: Create AdSet for images (if needed)
+    if (hasImages) {
+      log.info('Creating image AdSet for CBO campaign');
 
-    const imageAdSet = await createAdSet(client, {
-      name: `${name} - Images`,
-      campaign_id: campaign.id,
-      status: 'PAUSED',
-      // NO budget - it's at campaign level with CBO
-      start_time: startTime,
-      end_time: endTime,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting,
-      promoted_object: promotedObject,
-      is_dynamic_creative: true,
-    });
+      const imageAdSet = await createAdSet(client, {
+        name: `${name} - Images`,
+        campaign_id: campaign.id,
+        status: 'PAUSED',
+        // NO budget - it's at campaign level with CBO
+        start_time: startTime,
+        end_time: endTime,
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: optimizationGoal,
+        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        targeting,
+        promoted_object: promotedObject,
+        is_dynamic_creative: true,
+        dsa_beneficiary: dsaBeneficiary,
+        dsa_payor: dsaPayor,
+      });
 
-    result.imageAdSetId = imageAdSet.id;
-    console.log('[Meta] Image AdSet created:', imageAdSet.id);
-  }
+      result.imageAdSetId = imageAdSet.id;
+      log.info({ adSetId: imageAdSet.id }, 'Image AdSet created');
+    }
 
-  // Step 3: Create AdSet for videos (if needed)
-  if (hasVideos) {
-    console.log('[Meta] Creating video AdSet for CBO campaign');
+    // Step 3: Create AdSet for videos (if needed)
+    if (hasVideos) {
+      log.info('Creating video AdSet for CBO campaign');
 
-    const videoAdSet = await createAdSet(client, {
-      name: `${name} - Videos`,
-      campaign_id: campaign.id,
-      status: 'PAUSED',
-      // NO budget - it's at campaign level with CBO
-      start_time: startTime,
-      end_time: endTime,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting,
-      promoted_object: promotedObject,
-      is_dynamic_creative: true,
-    });
+      const videoAdSet = await createAdSet(client, {
+        name: `${name} - Videos`,
+        campaign_id: campaign.id,
+        status: 'PAUSED',
+        // NO budget - it's at campaign level with CBO
+        start_time: startTime,
+        end_time: endTime,
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: optimizationGoal,
+        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        targeting,
+        promoted_object: promotedObject,
+        is_dynamic_creative: true,
+        dsa_beneficiary: dsaBeneficiary,
+        dsa_payor: dsaPayor,
+      });
 
-    result.videoAdSetId = videoAdSet.id;
-    console.log('[Meta] Video AdSet created:', videoAdSet.id);
+      result.videoAdSetId = videoAdSet.id;
+      log.info({ adSetId: videoAdSet.id }, 'Video AdSet created');
+    }
+  } catch (error) {
+    // Rollback: delete the orphaned campaign on Meta
+    log.warn({ campaignId: campaign.id }, 'AdSet creation failed, rolling back Meta campaign');
+    try {
+      await deleteCampaign(client, campaign.id);
+      log.info({ campaignId: campaign.id }, 'Rolled back orphaned Meta campaign');
+    } catch (cleanupErr) {
+      log.error({ err: cleanupErr, campaignId: campaign.id }, 'Failed to rollback orphaned Meta campaign');
+    }
+    throw error;
   }
 
   return result;
@@ -343,6 +379,26 @@ export async function updateCampaign(
 }
 
 /**
+ * Delete a campaign from Meta Ads (used for rollback on failed adset creation)
+ */
+export async function deleteCampaign(
+  client: MetaClient,
+  campaignId: string
+): Promise<void> {
+  const url = client.buildObjectUrl(campaignId);
+  const response = await fetch(`${url}?access_token=${client.accessToken}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const result = await response.json();
+    throw new MetaApiError(
+      `Failed to delete campaign: ${result.error?.message || 'Unknown error'}`,
+      { statusCode: response.status, response: result }
+    );
+  }
+}
+
+/**
  * Get campaign details
  */
 export async function getCampaign(
@@ -368,8 +424,8 @@ export async function createAdSet(
   const validated = MetaAdSetCreateSchema.parse(data);
   const url = client.buildAdAccountUrl('adsets');
 
-  // Log targeting being sent to Meta
-  console.log('[Meta] Creating AdSet with targeting:', JSON.stringify(validated.targeting, null, 2));
+  // Log targeting and promoted_object being sent to Meta
+  log.info({ targeting: validated.targeting, promoted_object: validated.promoted_object }, 'Creating AdSet with targeting');
 
   const formData = buildFormData(
     {
@@ -386,6 +442,9 @@ export async function createAdSet(
       targeting: validated.targeting,
       promoted_object: validated.promoted_object,
       is_dynamic_creative: validated.is_dynamic_creative,
+      dsa_beneficiary: validated.dsa_beneficiary,
+      dsa_payor: validated.dsa_payor,
+      targeting_automation: validated.targeting_automation,
     },
     client.accessToken
   );
@@ -397,9 +456,9 @@ export async function createAdSet(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] AdSet creation failed:', JSON.stringify(result, null, 2));
+    log.error({ err: result, adsetData: { name: validated.name, campaign_id: validated.campaign_id, targeting: validated.targeting, start_time: validated.start_time, end_time: validated.end_time, optimization_goal: validated.optimization_goal } }, 'AdSet creation failed');
     throw new MetaApiError(
-      `Failed to create adset: ${result.error?.message || 'Unknown error'}`,
+      `Failed to create adset: ${result.error?.message || 'Unknown error'}${result.error?.error_user_title ? ` - ${result.error.error_user_title}` : ''}${result.error?.error_user_msg ? `: ${result.error.error_user_msg}` : ''}`,
       { statusCode: response.status, response: result }
     );
   }
@@ -758,7 +817,7 @@ export async function createDynamicCreativeAd(
     assetFeedSpec.videos = data.videoIds!.map((video_id) => ({ video_id }));
     assetFeedSpec.ad_formats = ['SINGLE_VIDEO'];
     if (hasImages) {
-      console.warn('[Meta] Both images and videos provided - using videos only (Meta does not support mixing)');
+      log.warn('Both images and videos provided - using videos only (Meta does not support mixing)');
     }
   } else if (data.imageUrls && data.imageUrls.length > 0) {
     // Prefer URLs over hashes (no upload required)
@@ -793,14 +852,14 @@ export async function createDynamicCreativeAd(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] Dynamic creative ad creation failed:', JSON.stringify(result, null, 2));
+    log.error({ err: result }, 'Dynamic creative ad creation failed');
     throw new MetaApiError(
       `Failed to create dynamic creative ad: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }
     );
   }
 
-  console.log('[Meta] Dynamic creative ad created:', result);
+  log.info({ result }, 'Dynamic creative ad created');
   return { ad_id: result.id };
 }
 
@@ -993,17 +1052,14 @@ export async function createMultiLanguageAd(
 
   const result = await response.json();
   if (!response.ok) {
-    console.error('[Meta] Multi-language ad creation failed:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Asset feed spec:', JSON.stringify(assetFeedSpec, null, 2));
+    log.error({ err: result, assetFeedSpec }, 'Multi-language ad creation failed');
     throw new MetaApiError(
       `Failed to create multi-language ad: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }
     );
   }
 
-  console.log('[Meta] Multi-language ad created:', result);
-  console.log('[Meta] Languages:', languages.join(', '));
-  console.log('[Meta] Customization rules:', assetCustomizationRules.length);
+  log.info({ result, languages, customizationRulesCount: assetCustomizationRules.length }, 'Multi-language ad created');
 
   return { ad_id: result.id };
 }
@@ -1163,16 +1219,27 @@ export async function generateAdPreview(
   params.append('creative', JSON.stringify(creativeSpec));
 
   const url = `${client.buildAdAccountUrl('generatepreviews')}?${params.toString()}`;
+  const sanitizedUrl = url.replace(/access_token=[^&]+/, 'access_token=REDACTED');
+  log.info({ url: sanitizedUrl, adFormat }, 'Generating ad preview - fetching Meta API');
 
-  const response = await fetch(url, {
-    method: 'GET',
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+    });
+  } catch (err) {
+    log.error({
+      err,
+      cause: err instanceof Error ? (err as NodeJS.ErrnoException).cause : undefined,
+      url: sanitizedUrl,
+    }, 'Meta API fetch failed - network error');
+    throw err;
+  }
 
   const result = await response.json();
 
   if (!response.ok) {
-    console.error('[Meta] Preview error:', JSON.stringify(result, null, 2));
-    console.error('[Meta] Creative spec:', JSON.stringify(creativeSpec, null, 2));
+    log.error({ err: result, creativeSpec }, 'Preview generation failed');
     throw new MetaApiError(
       `Failed to generate preview: ${result.error?.message || 'Unknown error'}`,
       { statusCode: response.status, response: result }

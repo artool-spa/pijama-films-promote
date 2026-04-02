@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getCampaignById, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
 import { getPartnerFromRequest } from '@/lib/auth';
 import {
@@ -72,7 +73,7 @@ export async function POST(
       googleAdGroupId: result.adGroupResourceName,
     });
   } catch (error) {
-    console.error('Error syncing to Google Ads:', error);
+    logger.error({ err: error }, 'Error syncing to Google Ads');
 
     await markGoogleCampaignError(id).catch(() => {});
 

@@ -1,4 +1,5 @@
 import { GoogleAuth } from 'google-auth-library';
+import logger from '@/lib/logger';
 import { GeminiConfig, GeminiConfigSchema } from './types';
 import { GeminiConfigError, GeminiApiError } from './errors';
 
@@ -97,8 +98,7 @@ export class GeminiClient {
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error('[Gemini] API error:', response.status, errorBody);
-      console.error('[Gemini] URL:', url);
+      logger.error({ statusCode: response.status, url, body: errorBody }, 'Gemini API error');
       throw new GeminiApiError(
         `Gemini API error: ${response.status} ${response.statusText}`,
         { context: { responseBody: errorBody } }

@@ -162,13 +162,20 @@ export type DemandGenAdGroupCreate = z.infer<typeof DemandGenAdGroupCreateSchema
 export const DemandGenImageAdCreateSchema = z.object({
   name: z.string().min(1).max(255),
   adGroupResourceName: z.string(),
-  imageAssetResourceNames: z.array(z.string()).min(1),
+  landscapeImageAssetResourceNames: z.array(z.string()).default([]),
+  squareImageAssetResourceNames: z.array(z.string()).default([]),
+  portraitImageAssetResourceNames: z.array(z.string()).default([]),
+  logoImageAssetResourceNames: z.array(z.string()).min(1),
   headlines: z.array(z.string().min(1).max(30)).min(1).max(5),
   descriptions: z.array(z.string().min(1).max(90)).min(1).max(5),
   finalUrl: z.string().url(),
   businessName: z.string().min(1).max(25),
-  callToAction: z.string().optional(),
-});
+}).refine(
+  data => data.landscapeImageAssetResourceNames.length > 0
+    || data.squareImageAssetResourceNames.length > 0
+    || data.portraitImageAssetResourceNames.length > 0,
+  { message: 'At least one image asset is required' }
+);
 
 export type DemandGenImageAdCreate = z.infer<typeof DemandGenImageAdCreateSchema>;
 

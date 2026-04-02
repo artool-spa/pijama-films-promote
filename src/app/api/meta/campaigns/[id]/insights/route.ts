@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { meta, getInsights, MetaApiError } from '@/lib/meta';
 import type { MetaInsightData } from '@/lib/meta/types';
 import prisma from '#prisma';
@@ -422,7 +423,7 @@ export async function GET(
       data: response,
     });
   } catch (error) {
-    console.error('Error fetching campaign insights:', error);
+    logger.error({ err: error }, 'Error fetching campaign insights');
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(

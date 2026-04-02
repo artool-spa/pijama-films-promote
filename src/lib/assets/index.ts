@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
+import { createLogger } from '@/lib/logger';
 import { publish } from '@/lib/events';
 import { uploadImage, uploadVideo } from '@/lib/storage';
+
+const log = createLogger('assets');
 import {
   createImage,
   getImageByOriginalUrl,
@@ -26,6 +29,7 @@ import {
   validateVideoForMeta,
   validateVideoForYouTube,
   calculateAspectRatio,
+  isValidGoogleMarketingImage,
 } from './validation';
 
 /**
@@ -308,10 +312,10 @@ function uploadVideoToMetaBackground(
   // Fire and forget - don't await
   (async () => {
     try {
-      console.log(`[Assets] Starting Meta upload for video ${videoId}: ${videoName}`);
+      log.info({ videoId, videoName }, 'Starting Meta upload');
       const { video_id } = await uploadAdVideo(meta, videoUrl, videoName);
       await setMetaVideoId(videoId, video_id);
-      console.log(`[Assets] Meta upload complete for video ${videoId}: metaVideoId=${video_id}`);
+      log.info({ videoId, metaVideoId: video_id }, 'Meta upload complete');
 
       // Broadcast success to SSE subscribers
       await publish(filmMuviUuid, {
@@ -332,7 +336,7 @@ function uploadVideoToMetaBackground(
         video_id   // metaVideoId
       );
     } catch (error) {
-      console.error(`[Assets] Failed to upload video ${videoId} to Meta:`, error);
+      log.error({ err: error, videoId }, 'Failed to upload video to Meta');
 
       // Update status to ERROR
       await updateVideoValidation(videoId, {
@@ -366,10 +370,10 @@ function uploadVideoToYouTubeBackground(
   // Fire and forget - don't await
   (async () => {
     try {
-      console.log(`[Assets] Starting YouTube upload for video ${videoId}: ${videoName}`);
+      log.info({ videoId, videoName }, 'Starting YouTube upload');
       const { youtubeVideoId } = await uploadVideoToYouTube(videoUrl, videoName);
       await setYoutubeVideoId(videoId, youtubeVideoId);
-      console.log(`[Assets] YouTube upload complete for video ${videoId}: youtubeVideoId=${youtubeVideoId}`);
+      log.info({ videoId, youtubeVideoId }, 'YouTube upload complete');
 
       // Broadcast success to SSE subscribers
       await publish(filmMuviUuid, {
@@ -378,7 +382,7 @@ function uploadVideoToYouTubeBackground(
         youtubeVideoId,
       });
     } catch (error) {
-      console.error(`[Assets] Failed to upload video ${videoId} to YouTube:`, error);
+      log.error({ err: error, videoId }, 'Failed to upload video to YouTube');
 
       // Don't fail the whole video - YouTube upload is supplementary
       // The video can still be used for Meta campaigns
@@ -403,7 +407,7 @@ export async function syncMuviAssets(
   assets: MuviMediaAsset[],
   filmMuviUuid: string
 ): Promise<{ images: Image[]; videos: Video[] }> {
-  console.log(`[Assets] Syncing ${assets.length} MUVI assets (film: ${filmMuviUuid})`);
+  log.info({ count: assets.length, filmMuviUuid }, 'Syncing MUVI assets');
 
   const images: Image[] = [];
   const videos: Video[] = [];
@@ -413,7 +417,7 @@ export async function syncMuviAssets(
       if (asset.type === 'image') {
         const image = await getOrCreateMuviImage(asset.url, filmMuviUuid, asset.name);
         images.push(image);
-        console.log(`[Assets] Synced image: ${asset.name} (status: ${image.status})`);
+        log.info({ name: asset.name, status: image.status }, 'Synced image');
       } else if (asset.type === 'video') {
         const video = await getOrCreateMuviVideo(
           asset.url,
@@ -423,15 +427,15 @@ export async function syncMuviAssets(
           asset.downloadUrl
         );
         videos.push(video);
-        console.log(`[Assets] Synced video: ${asset.name} (status: ${video.status})`);
+        log.info({ name: asset.name, status: video.status }, 'Synced video');
       }
     } catch (error) {
-      console.error(`[Assets] Failed to sync ${asset.type} "${asset.name}":`, error);
+      log.error({ err: error, type: asset.type, name: asset.name }, 'Failed to sync asset');
       // Continue with other assets even if one fails
     }
   }
 
-  console.log(`[Assets] Sync complete: ${images.length} images, ${videos.length} videos`);
+  log.info({ images: images.length, videos: videos.length }, 'Sync complete');
   return { images, videos };
 }
 
@@ -450,7 +454,7 @@ export function syncMuviAssetsInBackground(
 ): void {
   // Fire and forget - don't await
   (async () => {
-    console.log(`[Assets] Starting background sync for ${assets.length} MUVI assets (film: ${filmMuviUuid})`);
+    log.info({ count: assets.length, filmMuviUuid }, 'Starting background sync for MUVI assets');
 
     let imagesCount = 0;
     let videosCount = 0;
@@ -460,7 +464,7 @@ export function syncMuviAssetsInBackground(
         if (asset.type === 'image') {
           const image = await getOrCreateMuviImage(asset.url, filmMuviUuid, asset.name);
           imagesCount++;
-          console.log(`[Assets] Synced image: ${asset.name}`);
+          log.info({ name: asset.name }, 'Synced image');
 
           // Broadcast image ready event
           await publish(filmMuviUuid, {
@@ -478,7 +482,7 @@ export function syncMuviAssetsInBackground(
             asset.downloadUrl
           );
           videosCount++;
-          console.log(`[Assets] Synced video: ${asset.name}`);
+          log.info({ name: asset.name }, 'Synced video');
 
           // Broadcast video synced event (video_ready is broadcast when Meta upload completes)
           await publish(filmMuviUuid, {
@@ -490,7 +494,7 @@ export function syncMuviAssetsInBackground(
           });
         }
       } catch (error) {
-        console.error(`[Assets] Failed to sync ${asset.type} "${asset.name}":`, error);
+        log.error({ err: error, type: asset.type, name: asset.name }, 'Failed to sync asset');
         // Continue with other assets even if one fails
       }
     }
@@ -502,7 +506,7 @@ export function syncMuviAssetsInBackground(
       videosCount,
     });
 
-    console.log(`[Assets] Background sync complete for film: ${filmMuviUuid}`);
+    log.info({ filmMuviUuid }, 'Background sync complete');
   })();
 }
 
@@ -688,7 +692,7 @@ export function validateImageInBackground(
 ): void {
   (async () => {
     try {
-      console.log(`[Assets] Starting validation for image ${imageId}`);
+      log.info({ imageId }, 'Starting image validation');
 
       // Set status to VALIDATING
       await setImageValidating(imageId);
@@ -709,17 +713,18 @@ export function validateImageInBackground(
       // If we still don't have dimensions, mark as READY anyway
       // The actual validation will happen at ad creation time
       if (!width || !height) {
-        console.log(`[Assets] Image ${imageId} dimensions unknown, marking as READY`);
+        log.info({ imageId }, 'Image dimensions unknown, marking as READY');
 
         await updateImageValidation(imageId, {
           status: 'READY',
           validationError: null,
         });
 
-        // Assume eligible since we can't verify
+        // Assume Meta eligible since we can't verify, but Google ineligible (needs aspect ratio)
         await updateImageEligibility(imageId, {
           facebookEligible: true,
           instagramEligible: true,
+          googleEligible: false,
           eligibilityError: null,
         });
 
@@ -736,6 +741,7 @@ export function validateImageInBackground(
           imageId,
           facebookEligible: true,
           instagramEligible: true,
+          googleEligible: false,
           error: null,
         });
         return;
@@ -744,6 +750,9 @@ export function validateImageInBackground(
       // Validate against Meta requirements
       const result = validateImageForMeta({ width, height, size });
       const aspectRatio = calculateAspectRatio(width, height);
+
+      // Validate against Google Demand Gen requirements
+      const googleEligible = isValidGoogleMarketingImage({ width, height, size, aspectRatio });
 
       if (result.valid) {
         await updateImageValidation(imageId, {
@@ -758,10 +767,11 @@ export function validateImageInBackground(
         await updateImageEligibility(imageId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          googleEligible,
           eligibilityError: null,
         });
 
-        console.log(`[Assets] Image ${imageId} validated successfully: ${aspectRatio}`);
+        log.info({ imageId, aspectRatio, googleEligible }, 'Image validated successfully');
       } else {
         await updateImageValidation(imageId, {
           status: 'INVALID',
@@ -775,10 +785,11 @@ export function validateImageInBackground(
         await updateImageEligibility(imageId, {
           facebookEligible: result.facebookEligible,
           instagramEligible: result.instagramEligible,
+          googleEligible,
           eligibilityError: result.errors.join('; '),
         });
 
-        console.log(`[Assets] Image ${imageId} validation failed: ${result.errors.join('; ')}`);
+        log.warn({ imageId, errors: result.errors }, 'Image validation failed');
       }
 
       // Broadcast validation result
@@ -796,10 +807,11 @@ export function validateImageInBackground(
         imageId,
         facebookEligible: result.facebookEligible,
         instagramEligible: result.instagramEligible,
+        googleEligible,
         error: result.errors.length > 0 ? result.errors.join('; ') : null,
       });
     } catch (error) {
-      console.error(`[Assets] Failed to validate image ${imageId}:`, error);
+      log.error({ err: error, imageId }, 'Failed to validate image');
 
       await updateImageValidation(imageId, {
         status: 'ERROR',
@@ -834,7 +846,7 @@ export function validateVideoInBackground(
 ): void {
   (async () => {
     try {
-      console.log(`[Assets] Starting validation for video ${videoId}`);
+      log.info({ videoId }, 'Starting video validation');
 
       // Set status to VALIDATING
       await setVideoValidating(videoId);
@@ -849,7 +861,7 @@ export function validateVideoInBackground(
       // If we don't have dimensions, we can't validate properly
       // Mark as PENDING until we get more info (e.g., from Meta upload)
       if (!width || !height || !duration) {
-        console.log(`[Assets] Video ${videoId} missing metadata, will validate after Meta upload`);
+        log.info({ videoId }, 'Video missing metadata, will validate after Meta upload');
 
         // Check if we have metaVideoId to get info from Meta
         if (metaVideoId) {
@@ -889,7 +901,7 @@ export function validateVideoInBackground(
           eligibilityError: null,
         });
 
-        console.log(`[Assets] Video ${videoId} validated successfully: ${aspectRatio}, ${duration}s`);
+        log.info({ videoId, aspectRatio, duration }, 'Video validated successfully');
       } else {
         await updateVideoValidation(videoId, {
           status: 'INVALID',
@@ -907,7 +919,7 @@ export function validateVideoInBackground(
           eligibilityError: result.errors.join('; '),
         });
 
-        console.log(`[Assets] Video ${videoId} validation failed: ${result.errors.join('; ')}`);
+        log.warn({ videoId, errors: result.errors }, 'Video validation failed');
       }
 
       // Broadcast validation result
@@ -931,7 +943,7 @@ export function validateVideoInBackground(
         error: result.errors.length > 0 ? result.errors.join('; ') : null,
       });
     } catch (error) {
-      console.error(`[Assets] Failed to validate video ${videoId}:`, error);
+      log.error({ err: error, videoId }, 'Failed to validate video');
 
       await updateVideoValidation(videoId, {
         status: 'ERROR',
@@ -1019,9 +1031,9 @@ async function validateVideoWithMetaApi(
       error: instagramEligible ? null : 'Video not eligible for Instagram',
     });
 
-    console.log(`[Assets] Video ${videoId} validated via Meta API: instagram=${instagramEligible}, duration=${duration}s`);
+    log.info({ videoId, instagramEligible, duration }, 'Video validated via Meta API');
   } catch (error) {
-    console.error(`[Assets] Failed to validate video ${videoId} via Meta API:`, error);
+    log.error({ err: error, videoId }, 'Failed to validate video via Meta API');
 
     // If Meta API fails, mark as READY anyway since video was uploaded successfully
     // The ad creation will fail later if there's actually a problem
@@ -1047,7 +1059,7 @@ async function validateVideoWithMetaApi(
       duration: null,
     });
 
-    console.log(`[Assets] Video ${videoId} marked READY (Meta API check failed, assuming valid)`);
+    log.info({ videoId }, 'Video marked READY (Meta API check failed, assuming valid)');
   }
 }
 

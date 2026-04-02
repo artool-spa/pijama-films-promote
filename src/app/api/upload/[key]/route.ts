@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { deleteFile, StorageNotFoundError, StorageDeleteError } from '@/lib/storage';
 
 type RouteParams = { params: Promise<{ key: string }> };
@@ -23,7 +24,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting file:', error);
+    logger.error({ err: error }, 'Error deleting file');
 
     if (error instanceof StorageNotFoundError) {
       return NextResponse.json(

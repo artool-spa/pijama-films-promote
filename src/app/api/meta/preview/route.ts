@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import {
   meta,
   generateAdPreview,
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
       format,
     });
   } catch (error) {
-    console.error('Error generating ad preview:', error);
+    logger.error({ err: error }, 'Error generating ad preview');
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(

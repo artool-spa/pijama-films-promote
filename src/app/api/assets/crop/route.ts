@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import sharp from 'sharp';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { getImageById, createImage } from '@/models/image';
 import { uploadImage } from '@/lib/storage';
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(newImage, { status: 201 });
   } catch (error) {
-    console.error('Error cropping image:', error);
+    logger.error({ err: error }, 'Error cropping image');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

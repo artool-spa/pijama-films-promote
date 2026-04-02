@@ -98,6 +98,7 @@ const ImageSchema = z.object({
   size: z.number().int(),
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
+  aspectRatio: z.string().nullable(),
   createdAt: z.coerce.date(),
 });
 
@@ -573,13 +574,22 @@ export async function markGoogleCampaignSynced(
   const validGoogleCampaignId = z.string().min(1).parse(googleCampaignId);
   const validGoogleAdGroupId = z.string().min(1).parse(googleAdGroupId);
 
+  // Preserve PENDING_ASSETS status if Meta hasn't synced yet
+  const current = await prisma.campaign.findUnique({
+    where: { id: validId },
+    select: { status: true, metaCampaignId: true },
+  });
+  const newStatus = (current?.status === 'PENDING_ASSETS' && !current?.metaCampaignId)
+    ? 'PENDING_ASSETS'
+    : 'PENDING';
+
   const result = await prisma.campaign.update({
     where: { id: validId },
     data: {
       googleCampaignId: validGoogleCampaignId,
       googleAdGroupId: validGoogleAdGroupId,
       googleEntityStatus: 'PENDING',
-      status: 'PENDING',
+      status: newStatus,
       syncedAt: new Date(),
     },
   });

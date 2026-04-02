@@ -56,6 +56,7 @@ import {
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
   YouTube as YouTubeIcon,
+  Google as GoogleIcon,
   Warning as WarningIcon,
   Refresh as RefreshIcon,
   Image as ImageIcon,
@@ -71,7 +72,7 @@ import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
-import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
+import { validateCampaignBudget, META_MIN_DAILY_PER_ADSET, META_ASSET_TYPES, GOOGLE_MIN_DAILY } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
 
 // Asset status type
@@ -92,8 +93,11 @@ type LocalAsset = {
   aspectRatio?: string | null;
   facebookEligible: boolean;
   instagramEligible: boolean;
+  googleEligible?: boolean;
   eligibilityError?: string | null;
 };
+
+const MAX_CAMPAIGN_ASSETS = 10;
 
 // Status labels and colors
 const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
@@ -185,6 +189,7 @@ type UploadedAsset = {
   aspectRatio?: string | null;
   facebookEligible: boolean;
   instagramEligible: boolean;
+  googleEligible?: boolean;
   eligibilityError?: string | null;
 };
 
@@ -366,10 +371,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   // Form state - Media Assets (start with all local DB assets selected, or draft selection)
   const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
     if (draft?.selectedAssets) return draft.selectedAssets;
-    return [
+    const allValid = [
       ...localImages.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
       ...localVideos.filter((a) => a.status !== 'INVALID' && a.status !== 'ERROR').map((asset) => asset.id),
     ];
+    return allValid.slice(0, MAX_CAMPAIGN_ASSETS);
   });
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerAsset, setViewerAsset] = useState<LocalAsset | UploadedAsset | null>(null);
@@ -487,6 +493,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   }, [copiesByLang, selectedLanguages]);
 
   const isMediaValid = useMemo(() => selectedAssets.length > 0, [selectedAssets]);
+  const isAtAssetLimit = selectedAssets.length >= MAX_CAMPAIGN_ASSETS;
 
   // Fetch preview from Meta API
   const fetchPreview = useCallback(async () => {
@@ -595,9 +602,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               },
             ];
           });
-          // Auto-select the new asset
+          // Auto-select the new asset (respect limit)
           setSelectedAssets((prev) => {
             if (prev.includes(data.imageId)) return prev;
+            if (prev.length >= MAX_CAMPAIGN_ASSETS) return prev;
             return [...prev, data.imageId];
           });
         }
@@ -621,9 +629,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               },
             ];
           });
-          // Auto-select the new asset
+          // Auto-select the new asset (respect limit)
           setSelectedAssets((prev) => {
             if (prev.includes(data.videoId)) return prev;
+            if (prev.length >= MAX_CAMPAIGN_ASSETS) return prev;
             return [...prev, data.videoId];
           });
         }
@@ -684,13 +693,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         // Handle image eligibility events
         if (data.type === 'image_eligibility_checked') {
-          console.log(`[SSE] Image ${data.imageId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}`);
+          console.log(`[SSE] Image ${data.imageId} eligibility: FB=${data.facebookEligible}, IG=${data.instagramEligible}, Google=${data.googleEligible}`);
           const updateImage = (a: LocalAsset | UploadedAsset) =>
             a.id === data.imageId
               ? {
                   ...a,
                   facebookEligible: data.facebookEligible,
                   instagramEligible: data.instagramEligible,
+                  googleEligible: data.googleEligible ?? (a as LocalAsset).googleEligible,
                   eligibilityError: data.error,
                 }
               : a;
@@ -1037,13 +1047,14 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           status: result.status || 'PENDING',
           facebookEligible: result.facebookEligible || false,
           instagramEligible: result.instagramEligible || false,
+          googleEligible: result.googleEligible || false,
           validationError: result.validationError,
           aspectRatio: result.aspectRatio,
           eligibilityError: result.eligibilityError,
         };
 
         setUploadedAssets(prev => [...prev, newAsset]);
-        setSelectedAssets(prev => [...prev, newAsset.id]);
+        setSelectedAssets(prev => prev.length >= MAX_CAMPAIGN_ASSETS ? prev : [...prev, newAsset.id]);
         if (isVideo) setAssetFilter('validating');
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : 'Upload failed');
@@ -1148,14 +1159,6 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
   // Map form state to API schema including ads
   const mapFormToAPI = () => {
-    // Get headlines and bodies from all languages and variants
-    const headlines = Object.values(copiesByLang)
-      .flatMap(langCopies => Object.values(langCopies).map(v => v.headline))
-      .filter(Boolean);
-    const bodies = Object.values(copiesByLang)
-      .flatMap(langCopies => Object.values(langCopies).map(v => v.description))
-      .filter(Boolean);
-
     // Get selected image and video IDs
     const imageIds = selectedAssets.filter(id =>
       allImages.some(img => img.id === id)
@@ -1172,18 +1175,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       })
     )];
 
-    // Create single ad with all copy variants
-    const ad = {
-      name: `${film.title} - ${selectedLanguages.map(l => l.toUpperCase()).join('/')}`,
-      language: selectedLanguages[0] || 'es',
-      headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
-      bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
-      descriptions: [],
-      callToAction: 'LEARN_MORE',
-      linkUrl: film.rentalUrl || film.trailerUrl || `https://pijama.film/films/${film.id}`,
-      imageIds,
-      videoIds,
-    };
+    // Create one ad per language (3 variants each fits within max 5 headlines/bodies)
+    const ads = selectedLanguages.map(lang => {
+      const langCopies = copiesByLang[lang] || {};
+      const headlines = Object.values(langCopies).map(v => v.headline).filter(Boolean);
+      const bodies = Object.values(langCopies).map(v => v.description).filter(Boolean);
+
+      return {
+        name: `${film.title} - ${lang.toUpperCase()}`,
+        headlines: headlines.length > 0 ? headlines : [`Descubre ${film.title}`],
+        bodies: bodies.length > 0 ? bodies : [film.description || `A film you can't miss`],
+        descriptions: [],
+        callToAction: 'WATCH_MORE',
+        linkUrl: film.rentalUrl || film.trailerUrl || `https://pijama.film/films/${film.id}`,
+        imageIds,
+        videoIds,
+      };
+    });
 
     const basePayload = {
       name: campaignName,
@@ -1202,7 +1210,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       includeLgbtAudience: gender === 'LGBTQ',
       filmMuviUuid: film.id,
       platforms: platformValues,
-      ads: [ad],
+      ads,
       autoSync: true,
     };
 
@@ -1226,6 +1234,26 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       const hasMetaPlatform = selectedPlatforms.some(p => p !== 'google');
       const hasGoogle = selectedPlatforms.includes('google');
 
+      // Split budget across platforms: allocate minimums first, then split remainder evenly
+      const totalBudget = Number(budget);
+      let metaBudget = 0;
+      let googleBudget = 0;
+
+      if (hasMetaPlatform && hasGoogle) {
+        const days = Math.max(1, Math.ceil(
+          (new Date(endDate || startDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
+        ));
+        const metaMin = selectedLanguages.length * META_ASSET_TYPES * META_MIN_DAILY_PER_ADSET * days;
+        const googleMin = GOOGLE_MIN_DAILY * days;
+        const remainder = totalBudget - metaMin - googleMin;
+        const halfRemainder = Math.floor(remainder / 2);
+        metaBudget = metaMin + halfRemainder;
+        googleBudget = totalBudget - metaBudget; // Google gets the rest to avoid rounding loss
+      } else {
+        metaBudget = totalBudget;
+        googleBudget = totalBudget;
+      }
+
       // Include draftId if resuming from a draft
       const payloadWithDraft = draftId ? { ...payload, draftId } : payload;
 
@@ -1233,10 +1261,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
       // If Meta platform selected, create via Meta API first
       if (hasMetaPlatform) {
+        const metaPayload = { ...payloadWithDraft, budget: metaBudget };
         const metaResponse = await fetch('/api/meta/campaigns/create-and-sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloadWithDraft),
+          body: JSON.stringify(metaPayload),
         });
 
         if (!metaResponse.ok) {
@@ -1247,17 +1276,30 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         const metaResult = await metaResponse.json();
         campaignId = metaResult.campaign.id;
 
+        if (metaResult.pendingAssets) {
+          setCampaignProgress(prev => ({
+            ...prev,
+            message: metaResult.message || 'Meta: Videos are still uploading. Sync will complete automatically.',
+          }));
+        }
         if (metaResult.syncError) {
-          console.warn('Campaign created but Meta sync failed:', metaResult.syncError);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Meta: ${metaResult.syncError}`,
+          }));
         }
         if (metaResult.adErrors?.length > 0) {
-          console.warn('Some Meta ads failed to sync:', metaResult.adErrors);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Meta: ${metaResult.adErrors.map((e: { adId: string; error: string }) => e.error).join(', ')}`,
+          }));
         }
 
         // If Google also selected, sync same campaign to Google
         if (hasGoogle) {
           const googlePayload = {
             ...payload,
+            budget: googleBudget,
             campaignId, // Reuse existing campaign
             googleBidStrategy: 'MAXIMIZE_CLICKS',
           };
@@ -1270,11 +1312,17 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
           if (!googleResponse.ok) {
             const error = await googleResponse.json();
-            console.warn('Google sync failed:', error.error || 'Error syncing to Google');
+            setCampaignProgress(prev => ({
+              ...prev,
+              error: `Google: ${error.error || 'Error syncing to Google'}`,
+            }));
           } else {
             const googleResult = await googleResponse.json();
             if (googleResult.syncError) {
-              console.warn('Google sync issue:', googleResult.syncError);
+              setCampaignProgress(prev => ({
+                ...prev,
+                error: `Google: ${googleResult.syncError}`,
+              }));
             }
           }
         }
@@ -1282,6 +1330,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         // Only Google selected
         const googlePayload = {
           ...payloadWithDraft,
+          budget: googleBudget,
           googleBidStrategy: 'MAXIMIZE_CLICKS',
         };
 
@@ -1300,7 +1349,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         campaignId = googleResult.campaign.id;
 
         if (googleResult.syncError) {
-          console.warn('Campaign created but Google sync failed:', googleResult.syncError);
+          setCampaignProgress(prev => ({
+            ...prev,
+            error: `Google: ${googleResult.syncError}`,
+          }));
         }
       }
 
@@ -1786,6 +1838,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                   </Button>
                 </Box>
 
+                <Typography variant="caption" color={isAtAssetLimit ? 'warning.main' : 'text.secondary'} sx={{ mb: 2, display: 'block' }}>
+                  {selectedAssets.length} of {MAX_CAMPAIGN_ASSETS} selected
+                </Typography>
+
                 <Typography variant="h6" gutterBottom>
                   Videos ({filteredVideos.length})
                 </Typography>
@@ -1806,9 +1862,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
+                          disabled={!selectedAssets.includes(asset.id) && isAtAssetLimit}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedAssets([...selectedAssets, asset.id]);
+                              if (!isAtAssetLimit) setSelectedAssets([...selectedAssets, asset.id]);
                             } else {
                               setSelectedAssets(selectedAssets.filter(id => id !== asset.id));
                             }
@@ -1934,9 +1991,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         <Checkbox
                           size="small"
                           checked={selectedAssets.includes(asset.id)}
+                          disabled={!selectedAssets.includes(asset.id) && isAtAssetLimit}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedAssets([...selectedAssets, asset.id]);
+                              if (!isAtAssetLimit) setSelectedAssets([...selectedAssets, asset.id]);
                             } else {
                               setSelectedAssets(selectedAssets.filter(id => id !== asset.id));
                             }
@@ -2013,6 +2071,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                               {asset.instagramEligible && (
                                 <Tooltip title="Instagram eligible">
                                   <InstagramIcon sx={{ fontSize: 14, color: '#E4405F' }} />
+                                </Tooltip>
+                              )}
+                              {(asset as LocalAsset).googleEligible && (
+                                <Tooltip title="Google eligible">
+                                  <GoogleIcon sx={{ fontSize: 14, color: '#4285F4' }} />
                                 </Tooltip>
                               )}
                             </>

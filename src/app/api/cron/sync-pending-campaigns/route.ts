@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { getCampaignsPendingAssets } from '@/models/campaign';
-import { areMetaAssetsReady, areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
+import { areGoogleImageAssetsReady, syncCampaignToMeta, syncCampaignToGoogle } from '@/lib/campaigns/sync';
 
 /**
  * GET /api/cron/sync-pending-campaigns
@@ -14,12 +15,14 @@ export async function GET(req: NextRequest) {
   // Authenticate with shared secret
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
-    console.error('[Cron] CRON_SECRET not configured');
+    logger.error('CRON_SECRET not configured');
     return NextResponse.json({ error: 'Cron not configured' }, { status: 500 });
   }
 
   const authHeader = req.headers.get('authorization');
+  
   if (authHeader !== `Bearer ${cronSecret}`) {
+    logger.error({ authHeader }, 'Wrong sync token' );
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -44,7 +47,8 @@ export async function GET(req: NextRequest) {
       const hasGoogle = campaign.platforms.includes('GOOGLE');
 
       // Check if assets are ready for each platform
-      const metaReady = !hasMeta || areMetaAssetsReady(campaign.ads);
+      // Meta: syncCampaignToMeta handles video uploads internally, no need to gate on metaVideoId
+      const metaReady = true;
       const googleReady = !hasGoogle || areGoogleImageAssetsReady(campaign.ads);
 
       if (!metaReady || !googleReady) {
@@ -52,11 +56,13 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Assets are ready — sync to platforms
+      // Assets are ready — sync to platforms (skip already-synced platforms)
       const partnerName = campaign.partner.name;
       let synced = false;
+      const metaAlreadySynced = !!campaign.metaCampaignId;
+      const googleAlreadySynced = !!campaign.googleCampaignId;
 
-      if (hasMeta) {
+      if (hasMeta && !metaAlreadySynced) {
         try {
           const result = await syncCampaignToMeta(campaign, partnerName);
           if (result.synced) {
@@ -66,12 +72,12 @@ export async function GET(req: NextRequest) {
           }
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown Meta sync error';
-          console.error(`[Cron] Meta sync failed for campaign ${campaign.id}:`, error);
+          logger.error({ err: error, campaignId: campaign.id }, 'Meta sync failed for campaign');
           errors.push({ campaignId: campaign.id, error: `Meta: ${msg}` });
         }
       }
 
-      if (hasGoogle) {
+      if (hasGoogle && !googleAlreadySynced) {
         try {
           const result = await syncCampaignToGoogle(campaign, partnerName);
           if (result.synced) {
@@ -81,7 +87,7 @@ export async function GET(req: NextRequest) {
           }
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown Google sync error';
-          console.error(`[Cron] Google sync failed for campaign ${campaign.id}:`, error);
+          logger.error({ err: error, campaignId: campaign.id }, 'Google sync failed for campaign');
           errors.push({ campaignId: campaign.id, error: `Google: ${msg}` });
         }
       }
@@ -98,7 +104,7 @@ export async function GET(req: NextRequest) {
       errors,
     });
   } catch (error) {
-    console.error('[Cron] Error processing pending campaigns:', error);
+    logger.error({ err: error }, 'Error processing pending campaigns');
     return NextResponse.json(
       { error: 'Error processing pending campaigns' },
       { status: 500 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import {
   getCampaignById,
   updateCampaign,
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(campaign);
   } catch (error) {
-    console.error('Error fetching campaign:', error);
+    logger.error({ err: error }, 'Error fetching campaign');
     return NextResponse.json(
       { error: 'Error al obtener la campaña' },
       { status: 500 }
@@ -66,7 +67,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(campaign);
   } catch (error) {
-    console.error('Error updating campaign:', error);
+    logger.error({ err: error }, 'Error updating campaign');
     return NextResponse.json(
       { error: 'Error al actualizar la campaña' },
       { status: 500 }
@@ -90,7 +91,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting campaign:', error);
+    logger.error({ err: error }, 'Error deleting campaign');
 
     const message =
       error instanceof Error ? error.message : 'Error al eliminar la campaña';

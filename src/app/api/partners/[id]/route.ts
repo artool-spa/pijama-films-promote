@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import {
   getPartnerById,
   updatePartner,
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(partner);
   } catch (error) {
-    console.error('Error fetching partner:', error);
+    logger.error({ err: error }, 'Error fetching partner');
     return NextResponse.json(
       { error: 'Error al obtener el partner' },
       { status: 500 }
@@ -66,7 +67,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(partner);
   } catch (error) {
-    console.error('Error updating partner:', error);
+    logger.error({ err: error }, 'Error updating partner');
     return NextResponse.json(
       { error: 'Error al actualizar el partner' },
       { status: 500 }
@@ -90,7 +91,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting partner:', error);
+    logger.error({ err: error }, 'Error deleting partner');
 
     const message =
       error instanceof Error ? error.message : 'Error al eliminar el partner';

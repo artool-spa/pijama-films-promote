@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import logger from '@/lib/logger';
 import { meta } from '@/lib/meta';
 import {
   searchLocations,
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
       source: 'meta_api',
     });
   } catch (error) {
-    console.error('Location search error:', error);
+    logger.error({ err: error }, 'Location search error');
 
     // On API error, return filtered defaults as fallback
     if (types.includes('country')) {

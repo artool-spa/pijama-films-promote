@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { getImageById, updateImage, deleteImage } from '@/models/image';
 import { deleteFile } from '@/lib/storage';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(image);
   } catch (error) {
-    console.error('Error fetching image:', error);
+    logger.error({ err: error }, 'Error fetching image');
     return NextResponse.json(
       { error: 'Error al obtener imagen' },
       { status: 500 }
@@ -72,14 +73,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       try {
         await deleteFile(deletedImage.storageKey);
       } catch (storageError) {
-        console.error('Error deleting image from storage:', storageError);
+        logger.error({ err: storageError }, 'Error deleting image from storage');
         // Don't fail the request if storage deletion fails - the DB record is already deleted
       }
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting image:', error);
+    logger.error({ err: error }, 'Error deleting image');
 
     const message =
       error instanceof Error ? error.message : 'Error al eliminar imagen';

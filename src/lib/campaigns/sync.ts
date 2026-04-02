@@ -1,6 +1,9 @@
 import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
 import { publish } from '@/lib/events';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('campaigns');
 import {
   meta,
   createCBOCampaignWithAdSets,
@@ -21,7 +24,7 @@ import {
   buildGoogleTargeting,
   GoogleAdsApiError,
 } from '#google';
-import { getEligibleYouTubeFormats } from '@/lib/assets/validation';
+import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
 
@@ -139,7 +142,7 @@ export async function syncCampaignToMeta(
           allVideoIds.push(videoId);
         }
       } catch (err) {
-        console.error(`Failed to upload video ${video.id}:`, err);
+        log.error({ err, videoId: video.id }, 'Failed to upload video');
         videoUploadErrors.push(video.id);
       }
     }
@@ -187,6 +190,10 @@ export async function syncCampaignToMeta(
       : 'LANDING_PAGE_VIEWS';
 
     const metaCampaignName = `camp_${partnerName}_${campaign.name}`;
+    const promotedObject = campaign.objective === 'CONVERSIONS' && meta.pixelId
+      ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' as const }
+      : { page_id: meta.pageId! };
+    log.info({ promotedObject, objective: campaign.objective, pageId: meta.pageId }, 'Creating CBO campaign with promoted object');
     const cboResult = await createCBOCampaignWithAdSets(meta, {
       name: metaCampaignName,
       objective: metaObjective,
@@ -195,12 +202,12 @@ export async function syncCampaignToMeta(
       startTime: campaign.startDate.toISOString(),
       endTime: campaign.endDate?.toISOString(),
       targeting,
-      promotedObject: campaign.objective === 'CONVERSIONS' && meta.pixelId
-        ? { pixel_id: meta.pixelId, custom_event_type: 'PURCHASE' }
-        : undefined,
+      promotedObject,
       hasImages: effectiveHasImages,
       hasVideos: effectiveHasVideos,
       optimizationGoal,
+      dsaBeneficiary: partnerName,
+      dsaPayor: partnerName,
     });
 
     metaCampaignId = cboResult.campaignId;
@@ -210,7 +217,7 @@ export async function syncCampaignToMeta(
     await emitProgress(filmId, campaign.id, 'meta_adsets', 60, 'Campaign and ad sets created in Meta');
     await markCampaignSynced(campaign.id, metaCampaignId, imageAdSetId, videoAdSetId);
   } catch (error) {
-    console.error('Error syncing campaign to Meta:', error);
+    log.error({ err: error }, 'Error syncing campaign to Meta');
     await markCampaignError(campaign.id).catch(() => {});
 
     let syncError = 'Error al sincronizar con Meta';
@@ -282,7 +289,7 @@ export async function syncCampaignToMeta(
       }
     } catch (error) {
       imageAdError = error instanceof MetaApiError ? error.message : 'Error creating image ad';
-      console.error('Image ad creation failed:', error);
+      log.error({ err: error }, 'Image ad creation failed');
     }
   }
 
@@ -307,7 +314,7 @@ export async function syncCampaignToMeta(
       }
     } catch (error) {
       videoAdError = error instanceof MetaApiError ? error.message : 'Error creating video ad';
-      console.error('Video ad creation failed:', error);
+      log.error({ err: error }, 'Video ad creation failed');
     }
   }
 
@@ -453,7 +460,7 @@ export async function syncCampaignToGoogle(
     await emitProgress(filmId, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
     await markGoogleCampaignSynced(campaign.id, googleCampaignId, googleAdGroupId);
   } catch (error) {
-    console.error('Error syncing campaign to Google Ads:', error);
+    log.error({ err: error }, 'Error syncing campaign to Google Ads');
     await markGoogleCampaignError(campaign.id).catch(() => {});
 
     let syncError = 'Error al sincronizar con Google Ads';
@@ -475,6 +482,35 @@ export async function syncCampaignToGoogle(
     };
   }
 
+  // Helper to rollback Google campaign on subsequent failures
+  const rollbackGoogleCampaign = async () => {
+    try {
+      await updateCampaignStatus(google, googleCampaignId, 'REMOVED');
+      log.info({ googleCampaignId }, 'Rolled back orphaned Google campaign');
+    } catch (cleanupErr) {
+      log.error({ err: cleanupErr, googleCampaignId }, 'Failed to rollback orphaned Google campaign');
+    }
+  };
+
+  // Upload Pijama Films logo as Google Ads asset (reused across all ads)
+  // Use localhost to avoid DNS issues in Docker — the logo is served by this Next.js instance
+  const logoUrl = `http://localhost:${process.env.PORT || 3000}/logo_pijama_square.png`;
+  let logoAssetResourceName: string;
+  try {
+    const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
+    logoAssetResourceName = logoAsset.resourceName;
+  } catch (error) {
+    log.error({ err: error }, 'Failed to upload Pijama Films logo');
+    await rollbackGoogleCampaign();
+    return {
+      synced: false,
+      syncedAds: [],
+      adErrors: [],
+      syncError: 'Error al subir el logo de Pijama Films',
+      syncErrorDetails: error instanceof GoogleAdsApiError ? { code: error.errorCode, response: error.response } : undefined,
+    };
+  }
+
   // Create image ads (Demand Gen)
   const syncedAds: Ad[] = [];
   const adErrors: Array<{ adId: string; error: string }> = [];
@@ -485,14 +521,47 @@ export async function syncCampaignToGoogle(
       continue;
     }
 
+    // Filter images to only those valid for Google Demand Gen (correct aspect ratio + under 5MB)
+    const validImages = ad.images.filter(image => {
+      const valid = isValidGoogleMarketingImage(image);
+      if (!valid) {
+        log.warn({ imageName: image.name, aspectRatio: image.aspectRatio, sizeMB: (image.size / 1024 / 1024).toFixed(1) }, 'Excluding image from Google ad');
+      }
+      return valid;
+    });
+
+    if (validImages.length === 0) {
+      adErrors.push({ adId: ad.id, error: 'No hay imágenes con formato válido para Google Ads (se requiere 1.91:1, 1:1, o 4:5, máximo 5MB)' });
+      continue;
+    }
+
     try {
-      // Upload images as Google Ads assets
+      // Upload valid images as Google Ads assets
       await emitProgress(filmId, campaign.id, 'image_upload', 70, `Subiendo imágenes: ${ad.name}...`);
 
-      const imageAssetResourceNames: string[] = [];
-      for (const image of ad.images) {
+      const landscapeImageAssetResourceNames: string[] = [];
+      const squareImageAssetResourceNames: string[] = [];
+      const portraitImageAssetResourceNames: string[] = [];
+
+      for (const image of validImages) {
         const asset = await uploadImageAsset(google, image.url, `${ad.name} - ${image.name}`);
-        imageAssetResourceNames.push(asset.resourceName);
+        const ratio = image.aspectRatio
+          ?? (image.width && image.height ? calculateAspectRatio(image.width, image.height) : null);
+
+        switch (ratio) {
+          case '1.91:1':
+            landscapeImageAssetResourceNames.push(asset.resourceName);
+            break;
+          case '1:1':
+            squareImageAssetResourceNames.push(asset.resourceName);
+            break;
+          case '4:5':
+            portraitImageAssetResourceNames.push(asset.resourceName);
+            break;
+          default:
+            log.warn({ ratio, imageName: image.name }, 'Unexpected aspect ratio after validation');
+            break;
+        }
       }
 
       // Create Demand Gen image ad
@@ -501,21 +570,26 @@ export async function syncCampaignToGoogle(
       const googleAd = await createDemandGenImageAd(google, {
         name: ad.name,
         adGroupResourceName: googleAdGroupId,
-        imageAssetResourceNames,
+        landscapeImageAssetResourceNames,
+        squareImageAssetResourceNames,
+        portraitImageAssetResourceNames,
+        logoImageAssetResourceNames: [logoAssetResourceName],
         headlines: ad.headlines.map(h => h.substring(0, 30)).slice(0, 5),
         descriptions: ad.bodies.map(b => b.substring(0, 90)).slice(0, 5),
         finalUrl: ad.linkUrl,
         businessName: partnerName.substring(0, 25),
-        callToAction: ad.callToAction,
       });
 
       await markGoogleAdSynced(ad.id, googleAd.resourceName);
       syncedAds.push({ ...ad, googleAdId: googleAd.resourceName });
     } catch (error) {
       const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
-      console.error(`Failed to create Google ad for ${ad.id}:`, error);
+      log.error({ err: error, adId: ad.id }, 'Failed to create Google ad');
       adErrors.push({ adId: ad.id, error: errorMsg });
-      await markAdError(ad.id).catch(() => {});
+      // Only mark ad as error if Meta hasn't already synced it successfully
+      if (!ad.metaAdId) {
+        await markAdError(ad.id).catch(() => {});
+      }
     }
   }
 
@@ -529,9 +603,9 @@ export async function syncCampaignToGoogle(
 
       await updateCampaign(campaign.id, { googleEntityStatus: 'ENABLED' });
 
-      console.log('[Google] Campaign and ad group enabled:', googleCampaignId);
+      log.info({ googleCampaignId }, 'Campaign and ad group enabled');
     } catch (error) {
-      console.error('Failed to enable Google campaign:', error);
+      log.error({ err: error }, 'Failed to enable Google campaign');
       adErrors.push({ adId: 'campaign', error: 'Campaign created but could not be enabled' });
     }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import logger from '@/lib/logger';
 import { getVideoById, updateVideo, deleteVideo } from '@/models/video';
 import { deleteFile } from '@/lib/storage';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(video);
   } catch (error) {
-    console.error('Error fetching video:', error);
+    logger.error({ err: error }, 'Error fetching video');
     return NextResponse.json(
       { error: 'Error al obtener video' },
       { status: 500 }
@@ -72,14 +73,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       try {
         await deleteFile(deletedVideo.storageKey);
       } catch (storageError) {
-        console.error('Error deleting video from storage:', storageError);
+        logger.error({ err: storageError }, 'Error deleting video from storage');
         // Don't fail the request if storage deletion fails - the DB record is already deleted
       }
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting video:', error);
+    logger.error({ err: error }, 'Error deleting video');
 
     const message =
       error instanceof Error ? error.message : 'Error al eliminar video';

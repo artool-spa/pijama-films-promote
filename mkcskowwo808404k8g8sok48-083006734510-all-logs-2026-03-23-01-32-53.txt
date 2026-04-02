@@ -1,0 +1,313 @@
+   ▲ Next.js 16.0.3
+   - Local:         http://localhost:<REDACTED>@type": "type.googleapis.com/google.ads.googleads.v23.errors.GoogleAdsFailure",
+        "errors": [
+          {
+            "errorCode": {
+              "adError": "INVALID_CALL_TO_ACTION_TEXT"
+            },
+            "message": "Invalid call to action text.",
+            "trigger": {
+              "stringValue": "LEARN_MORE"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "call_to_action_text"
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "collectionSizeError": "TOO_FEW"
+            },
+            "message": "Too few.",
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "logo_images"
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341916769309\nstatus: ACTIVE\nname: \"Neruda - ES - 038db032235ae9a51ee58c16f21a332f28f7d967911183533fcedab44b2e161a_2026-03-20_16-49-49.png (9:16)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -4945196263894155264\n}\nhash: -1077912679305970674\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 0
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "FILE_TOO_BIG"
+            },
+            "message": "The uploaded file is too big.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341916769309\nstatus: ACTIVE\nname: \"Neruda - ES - 038db032235ae9a51ee58c16f21a332f28f7d967911183533fcedab44b2e161a_2026-03-20_16-49-49.png (9:16)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -4945196263894155264\n}\nhash: -1077912679305970674\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 0
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341962743237\nstatus: ACTIVE\nname: \"Neruda - ES - dd3eabb7-f61c-437f-8280-e814e5ffc8f4.jpg\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -5635372906788683776\n}\nhash: -7340218373071309952\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 1
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341916782683\nstatus: ACTIVE\nname: \"Neruda - ES - image-w1280.jpg\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: 1646244003227631616\n}\nhash: 4589708689603414261\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 2
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341962950720\nstatus: ACTIVE\nname: \"Neruda - ES - 038db032235ae9a51ee58c16f21a332f28f7d967911183533fcedab44b2e161a.png (9:16) (9:16) (4:5)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -5536527856202416128\n}\nhash: 2929480887708934652\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 3
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "FILE_TOO_BIG"
+            },
+            "message": "The uploaded file is too big.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341962950720\nstatus: ACTIVE\nname: \"Neruda - ES - 038db032235ae9a51ee58c16f21a332f28f7d967911183533fcedab44b2e161a.png (9:16) (9:16) (4:5)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -5536527856202416128\n}\nhash: 2929480887708934652\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 3
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341916985261\nstatus: ACTIVE\nname: \"Neruda - ES - Neruda-614748193-large.jpg (4:5)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: 1219223428574216192\n}\nhash: 4665534227204354345\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 4
+                }
+              ]
+            }
+          },
+          {
+            "errorCode": {
+              "mediaUploadError": "ASPECT_RATIO_NOT_ALLOWED"
+            },
+            "message": "The aspect ratio of the image does not match the expected aspect ratios provided in the asset spec.",
+            "trigger": {
+              "stringValue": "customer_id: \t 7863489085\nasset_id: 341917485016\nstatus: ACTIVE\nname: \"Neruda - ES - 038db032235ae9a51ee58c16f21a332f28f7d967911183533fcedab44b2e161a_2026-03-20_16-51-01.png (9:16) (1:1)\"\nasset_type: IMAGE\nimage_asset_info {\n  image_hosting_key: -7583343518098128896\n}\nhash: 4423770780824323085\nasset_reporting_usage: COMMON\n"
+            },
+            "location": {
+              "fieldPathElements": [
+                {
+                  "fieldName": "operations",
+                  "index": 0
+                },
+                {
+                  "fieldName": "create"
+                },
+                {
+                  "fieldName": "ad"
+                },
+                {
+                  "fieldName": "demand_gen_multi_asset_ad"
+                },
+                {
+                  "fieldName": "marketing_images",
+                  "index": 5
+                }
+              ]
+            }
+          }
+        ],
+        "requestId": "J7_G-H14cqNSLw_ZkiVpkQ"
+      }
+    ]
+  }
+}
+Failed to create Google ad for cmmzbaxm5000mpd010561ygvj: Error [GoogleAdsApiError]: Request contains an invalid argument.
+    at p.executeRequest (.next/server/chunks/src_lib_google_index_ts_0aa5c1f4._.js:1:5783)
+    at async R (.next/server/chunks/src_lib_google_index_ts_0aa5c1f4._.js:27:2536)
+    at async f (.next/server/chunks/[root-of-the-server]__90d656b6._.js:1:27625) {
+  statusCode: 400,
+  endpoint: 'https://googleads.googleapis.com/v23/customers/6854956109/adGroupAds:mutate',
+  errorCode: 'INVALID_ARGUMENT',
+  response: [Object]
+}

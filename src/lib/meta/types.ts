@@ -130,12 +130,20 @@ export const MetaAdSetCreateSchema = z.object({
   targeting: MetaTargetingSchema,
   promoted_object: z
     .object({
-      pixel_id: z.string(),
-      custom_event_type: z.enum(['PURCHASE', 'ADD_TO_CART', 'VIEW_CONTENT', 'LEAD']).default('PURCHASE'),
+      pixel_id: z.string().optional(),
+      custom_event_type: z.enum(['PURCHASE', 'ADD_TO_CART', 'VIEW_CONTENT', 'LEAD']).optional(),
+      page_id: z.string().optional(),
     })
     .optional(),
   // Dynamic creative optimization
   is_dynamic_creative: z.boolean().optional(),
+  // DSA compliance (required for EU-targeted campaigns)
+  dsa_beneficiary: z.string().optional(),
+  dsa_payor: z.string().optional(),
+  // Advantage audience targeting automation
+  targeting_automation: z.object({
+    advantage_audience: z.number(),
+  }).optional(),
 });
 
 export const MetaAdSetResponseSchema = z.object({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import stripe from '#stripe';
+import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { recordDeposit, cancelPendingDeposit, getAccountBalance, creditFeeAdjustment } from '@/models/account';
 
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
           }
         } catch (feeError) {
           // Non-critical: webhook will handle reconciliation if this fails
-          console.error('Fee reconciliation error (verify-session):', feeError);
+          logger.error({ err: feeError }, 'Fee reconciliation error (verify-session)');
         }
       }
 
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    console.error('Error verifying session:', error);
+    logger.error({ err: error }, 'Error verifying session');
     return NextResponse.json(
       { error: 'Error verifying session' },
       { status: 500 }
