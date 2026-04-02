@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getVideoById, deleteVideo } from '@/models/video';
+import { z } from 'zod';
+import { getVideoById, updateVideo, deleteVideo } from '@/models/video';
 import { deleteFile } from '@/lib/storage';
 import { getPartnerFromRequest } from '@/lib/auth';
+
+const RenameSchema = z.object({ name: z.string().min(1).max(255) }).strict();
 
 type RouteParams = { params: Promise<{ filmId: string; id: string }> };
 
@@ -64,12 +67,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     // Delete from database (will fail if used by ads)
     const deletedVideo = await deleteVideo(id);
 
-    // Delete from storage
-    try {
-      await deleteFile(deletedVideo.storageKey);
-    } catch (storageError) {
-      console.error('Error deleting video from storage:', storageError);
-      // Don't fail the request if storage deletion fails - the DB record is already deleted
+    // Delete from storage (skip external MUVI assets)
+    if (deletedVideo.storageKey !== 'external') {
+      try {
+        await deleteFile(deletedVideo.storageKey);
+      } catch (storageError) {
+        console.error('Error deleting video from storage:', storageError);
+        // Don't fail the request if storage deletion fails - the DB record is already deleted
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -80,5 +85,48 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       error instanceof Error ? error.message : 'Error al eliminar video';
 
     return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+/**
+ * PATCH /api/films/[filmId]/videos/[id]
+ * Rename a video
+ */
+export async function PATCH(req: NextRequest, { params }: RouteParams) {
+  const partner = await getPartnerFromRequest(req);
+  if (!partner) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
+  try {
+    const { filmId, id } = await params;
+    const body = await req.json();
+    const { name } = RenameSchema.parse(body);
+
+    const video = await getVideoById(id);
+    if (!video) {
+      return NextResponse.json({ error: 'Video no encontrado' }, { status: 404 });
+    }
+
+    if (video.filmMuviUuid !== filmId) {
+      return NextResponse.json({ error: 'Video no encontrado' }, { status: 404 });
+    }
+
+    const updated = await updateVideo(id, { name });
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error('Error renaming video:', error);
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Nombre inválido', details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Error al renombrar video' },
+      { status: 500 }
+    );
   }
 }

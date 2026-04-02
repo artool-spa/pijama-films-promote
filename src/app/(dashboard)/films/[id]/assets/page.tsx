@@ -32,10 +32,12 @@ export default async function AssetsPage({
     await syncMuviAssets(film.mediaAssets, id);
   }
 
-  // Fetch assets with usage counts
-  const [images, videos] = await Promise.all([
+  // Fetch active and archived assets with usage counts
+  const [images, videos, archivedImages, archivedVideos] = await Promise.all([
     getImagesWithUsageByFilmMuviUuid(id),
     getVideosWithUsageByFilmMuviUuid(id),
+    getImagesWithUsageByFilmMuviUuid(id, true),
+    getVideosWithUsageByFilmMuviUuid(id, true),
   ]);
 
   return (
@@ -43,6 +45,8 @@ export default async function AssetsPage({
       film={film}
       images={images}
       videos={videos}
+      archivedImages={archivedImages}
+      archivedVideos={archivedVideos}
       returnTo={returnTo}
       draftId={draft}
     />

@@ -77,8 +77,8 @@ export const MuviCastSchema = z.object({
   cast_uuid: z.string().optional(),
   cast_name: z.string().optional(),
   cast_bio: z.string().optional(),
-  cast_image_uuid: z.string().optional(),
-  cast_image_details: MuviImageAssetSchema.optional(),
+  cast_image_uuid: z.string().nullable().optional(),
+  cast_image_details: MuviImageAssetSchema.nullable().optional(),
   cast_type_details: z.object({
     cast_type_uuid: z.string().optional(),
     cast_type_name: z.string().optional(),

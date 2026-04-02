@@ -29,6 +29,12 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  TextField,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -42,6 +48,11 @@ import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
   CheckCircle as CheckCircleIcon,
+  Edit as EditIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import type { ImageWithUsage } from '@/models/image';
@@ -64,12 +75,14 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 type LocalImage = ImageWithUsage;
 type LocalVideo = VideoWithUsage;
 
-type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating';
+type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating' | 'archived';
 
 type AssetsClientProps = {
   film: Film;
   images: ImageWithUsage[];
   videos: VideoWithUsage[];
+  archivedImages: ImageWithUsage[];
+  archivedVideos: VideoWithUsage[];
   returnTo?: string;
   draftId?: string;
 };
@@ -82,12 +95,14 @@ const RATIO_TO_FORMAT: Record<string, string> = {
   '1:1': '1:1',
 };
 
-export default function AssetsClient({ film, images: initialImages, videos: initialVideos, returnTo, draftId }: AssetsClientProps) {
+export default function AssetsClient({ film, images: initialImages, videos: initialVideos, archivedImages: initialArchivedImages, archivedVideos: initialArchivedVideos, returnTo, draftId }: AssetsClientProps) {
   const router = useRouter();
 
   // Asset state
   const [imageAssets, setImageAssets] = useState<LocalImage[]>(initialImages);
   const [videoAssets, setVideoAssets] = useState<LocalVideo[]>(initialVideos);
+  const [archivedImageAssets, setArchivedImageAssets] = useState<LocalImage[]>(initialArchivedImages);
+  const [archivedVideoAssets, setArchivedVideoAssets] = useState<LocalVideo[]>(initialArchivedVideos);
   const [assetFilter, setAssetFilter] = useState<AssetFilter>('promotable');
 
   // Upload state
@@ -99,6 +114,12 @@ export default function AssetsClient({ film, images: initialImages, videos: init
 
   // Delete state
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'image' | 'video'; name: string } | null>(null);
+
+  // Rename state
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   // Filter assets (INVALID assets are always hidden)
   const filteredImages = useMemo(() => {
@@ -180,6 +201,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             youtubeEligible: result.youtubeEligible || false,
             youtubeVideoId: result.youtubeVideoId || null,
             eligibilityError: result.eligibilityError,
+            archived: false,
             _count: { ads: 0 },
           };
           setVideoAssets((prev) => [newVideo, ...prev]);
@@ -196,6 +218,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             size: result.size,
             width: result.width,
             height: result.height,
+            archived: false,
             createdAt: new Date(result.createdAt),
             status: result.status || 'PENDING',
             validatedAt: result.validatedAt ? new Date(result.validatedAt) : null,
@@ -245,7 +268,9 @@ export default function AssetsClient({ film, images: initialImages, videos: init
   const handleDelete = useCallback(async (assetId: string, type: 'image' | 'video') => {
     setDeleting(assetId);
     try {
-      const endpoint = type === 'image' ? `/api/images/${assetId}` : `/api/videos/${assetId}`;
+      const endpoint = type === 'image'
+        ? `/api/films/${film.id}/images/${assetId}`
+        : `/api/films/${film.id}/videos/${assetId}`;
       const res = await fetch(endpoint, { method: 'DELETE' });
       if (res.ok) {
         if (type === 'image') {
@@ -255,15 +280,108 @@ export default function AssetsClient({ film, images: initialImages, videos: init
         }
       } else {
         const err = await res.json();
-        setUploadError(err.error || 'Failed to delete');
+        setUploadError(err.error || 'Error al eliminar');
       }
     } catch (err) {
       console.error('Error deleting asset:', err);
-      setUploadError('Failed to delete file');
+      setUploadError('Error al eliminar archivo');
     } finally {
       setDeleting(null);
+      setDeleteTarget(null);
     }
-  }, []);
+  }, [film.id]);
+
+  // Rename handler
+  const handleRename = useCallback(async (assetId: string, type: 'image' | 'video', newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSavingName(true);
+    try {
+      const endpoint = type === 'image'
+        ? `/api/films/${film.id}/images/${assetId}`
+        : `/api/films/${film.id}/videos/${assetId}`;
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        if (type === 'image') {
+          setImageAssets((prev) => prev.map((a) => (a.id === assetId ? { ...a, name: trimmed } : a)));
+        } else {
+          setVideoAssets((prev) => prev.map((a) => (a.id === assetId ? { ...a, name: trimmed } : a)));
+        }
+      } else {
+        const err = await res.json();
+        setUploadError(err.error || 'Error al renombrar');
+      }
+    } catch {
+      setUploadError('Error al renombrar archivo');
+    } finally {
+      setSavingName(false);
+      setEditingName(null);
+    }
+  }, [film.id]);
+
+  // Archive handler
+  const handleArchive = useCallback(async (assetId: string, type: 'image' | 'video') => {
+    const endpoint = type === 'image'
+      ? `/api/films/${film.id}/images/${assetId}/archive`
+      : `/api/films/${film.id}/videos/${assetId}/archive`;
+    try {
+      const res = await fetch(endpoint, { method: 'POST' });
+      if (res.ok) {
+        if (type === 'image') {
+          const asset = imageAssets.find((a) => a.id === assetId);
+          if (asset) {
+            setImageAssets((prev) => prev.filter((a) => a.id !== assetId));
+            setArchivedImageAssets((prev) => [{ ...asset, archived: true }, ...prev]);
+          }
+        } else {
+          const asset = videoAssets.find((a) => a.id === assetId);
+          if (asset) {
+            setVideoAssets((prev) => prev.filter((a) => a.id !== assetId));
+            setArchivedVideoAssets((prev) => [{ ...asset, archived: true }, ...prev]);
+          }
+        }
+      } else {
+        const err = await res.json();
+        setUploadError(err.error || 'Error al archivar');
+      }
+    } catch {
+      setUploadError('Error al archivar archivo');
+    }
+  }, [film.id, imageAssets, videoAssets]);
+
+  // Unarchive handler
+  const handleUnarchive = useCallback(async (assetId: string, type: 'image' | 'video') => {
+    const endpoint = type === 'image'
+      ? `/api/films/${film.id}/images/${assetId}/archive`
+      : `/api/films/${film.id}/videos/${assetId}/archive`;
+    try {
+      const res = await fetch(endpoint, { method: 'DELETE' });
+      if (res.ok) {
+        if (type === 'image') {
+          const asset = archivedImageAssets.find((a) => a.id === assetId);
+          if (asset) {
+            setArchivedImageAssets((prev) => prev.filter((a) => a.id !== assetId));
+            setImageAssets((prev) => [{ ...asset, archived: false }, ...prev]);
+          }
+        } else {
+          const asset = archivedVideoAssets.find((a) => a.id === assetId);
+          if (asset) {
+            setArchivedVideoAssets((prev) => prev.filter((a) => a.id !== assetId));
+            setVideoAssets((prev) => [{ ...asset, archived: false }, ...prev]);
+          }
+        }
+      } else {
+        const err = await res.json();
+        setUploadError(err.error || 'Error al desarchivar');
+      }
+    } catch {
+      setUploadError('Error al desarchivar archivo');
+    }
+  }, [film.id, archivedImageAssets, archivedVideoAssets]);
 
   // Crop complete handler
   const handleCropComplete = useCallback((newImage: LocalImage) => {
@@ -305,6 +423,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 facebookEligible: false,
                 instagramEligible: false,
                 eligibilityError: null,
+                archived: false,
                 _count: { ads: 0 },
               },
               ...prev,
@@ -341,6 +460,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 youtubeEligible: false,
                 youtubeVideoId: null,
                 eligibilityError: null,
+                archived: false,
                 _count: { ads: 0 },
               },
               ...prev,
@@ -595,9 +715,14 @@ export default function AssetsClient({ film, images: initialImages, videos: init
           <ToggleButton value="promotable">Promotable</ToggleButton>
           <ToggleButton value="ready">Ready</ToggleButton>
           <ToggleButton value="validating">Validating</ToggleButton>
+          <ToggleButton value="archived">
+            Archived ({archivedImageAssets.length + archivedVideoAssets.length})
+          </ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
+      {/* Active Assets (hidden when viewing archived) */}
+      {assetFilter !== 'archived' && (<>
       {/* Videos Section */}
       <Typography variant="h6" gutterBottom>
         Videos ({filteredVideos.length})
@@ -679,9 +804,42 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 </Box>
               )}
               <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', display: 'block', fontWeight: 500 }}>
-                  {asset.name}
-                </Typography>
+                {editingName === asset.id ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <TextField
+                      size="small"
+                      value={editNameValue}
+                      onChange={(e) => setEditNameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRename(asset.id, 'video', editNameValue);
+                        if (e.key === 'Escape') setEditingName(null);
+                      }}
+                      disabled={savingName}
+                      autoFocus
+                      fullWidth
+                      sx={{ '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.25, px: 0.5 } }}
+                    />
+                    <IconButton size="small" onClick={() => handleRename(asset.id, 'video', editNameValue)} disabled={savingName}>
+                      <CheckIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => setEditingName(null)} disabled={savingName}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', fontWeight: 500, flex: 1 }}>
+                      {asset.name}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => { setEditingName(asset.id); setEditNameValue(asset.name); }}
+                      sx={{ p: 0.25 }}
+                    >
+                      <EditIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Box>
+                )}
                 {asset.aspectRatio && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
                     {getAspectRatioLabel(asset.aspectRatio)} ({asset.aspectRatio})
@@ -727,12 +885,28 @@ export default function AssetsClient({ film, images: initialImages, videos: init
               </CardContent>
               <CardActions sx={{ p: 0.5, pt: 0, justifyContent: 'flex-end' }}>
                 {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
-                  <Tooltip title="Retry validation">
+                  <Tooltip title="Reintentar validación">
                     <IconButton size="small" onClick={() => handleRevalidate(asset.id, 'video')}>
                       <RefreshIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Tooltip>
                 )}
+                <Tooltip title="Archivar">
+                  <IconButton size="small" onClick={() => handleArchive(asset.id, 'video')}>
+                    <ArchiveIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={asset._count.ads > 0 ? 'No se puede eliminar, usado en anuncios' : 'Eliminar'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => setDeleteTarget({ id: asset.id, type: 'video', name: asset.name })}
+                      disabled={asset._count.ads > 0 || deleting === asset.id}
+                    >
+                      {deleting === asset.id ? <CircularProgress size={16} /> : <DeleteIcon sx={{ fontSize: 16 }} />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </CardActions>
             </Card>
           ))}
@@ -802,9 +976,42 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 sx={{ objectFit: 'cover' }}
               />
               <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', display: 'block', fontWeight: 500 }}>
-                  {asset.name}
-                </Typography>
+                {editingName === asset.id ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <TextField
+                      size="small"
+                      value={editNameValue}
+                      onChange={(e) => setEditNameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRename(asset.id, 'image', editNameValue);
+                        if (e.key === 'Escape') setEditingName(null);
+                      }}
+                      disabled={savingName}
+                      autoFocus
+                      fullWidth
+                      sx={{ '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.25, px: 0.5 } }}
+                    />
+                    <IconButton size="small" onClick={() => handleRename(asset.id, 'image', editNameValue)} disabled={savingName}>
+                      <CheckIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => setEditingName(null)} disabled={savingName}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', fontWeight: 500, flex: 1 }}>
+                      {asset.name}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => { setEditingName(asset.id); setEditNameValue(asset.name); }}
+                      sx={{ p: 0.25 }}
+                    >
+                      <EditIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Box>
+                )}
                 {asset.aspectRatio && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
                     {getAspectRatioLabel(asset.aspectRatio)} ({asset.aspectRatio})
@@ -849,23 +1056,155 @@ export default function AssetsClient({ film, images: initialImages, videos: init
                 )}
               </CardContent>
               <CardActions sx={{ p: 0.5, pt: 0, justifyContent: 'flex-end' }}>
-                <Tooltip title="Crop">
+                <Tooltip title="Recortar">
                   <IconButton size="small" onClick={() => setCropImage(asset)}>
                     <CropIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </Tooltip>
                 {(asset.status === 'INVALID' || asset.status === 'ERROR') && (
-                  <Tooltip title="Retry validation">
+                  <Tooltip title="Reintentar validación">
                     <IconButton size="small" onClick={() => handleRevalidate(asset.id, 'image')}>
                       <RefreshIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Tooltip>
                 )}
+                <Tooltip title="Archivar">
+                  <IconButton size="small" onClick={() => handleArchive(asset.id, 'image')}>
+                    <ArchiveIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={asset._count.ads > 0 ? 'No se puede eliminar, usado en anuncios' : 'Eliminar'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => setDeleteTarget({ id: asset.id, type: 'image', name: asset.name })}
+                      disabled={asset._count.ads > 0 || deleting === asset.id}
+                    >
+                      {deleting === asset.id ? <CircularProgress size={16} /> : <DeleteIcon sx={{ fontSize: 16 }} />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </CardActions>
             </Card>
           ))}
         </Box>
       )}
+      </>)}
+
+      {/* Archived Assets View */}
+      {assetFilter === 'archived' && (
+        <>
+          <Typography variant="h6" gutterBottom>
+            Archived Videos ({archivedVideoAssets.length})
+          </Typography>
+          {archivedVideoAssets.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              No archived videos.
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+              {archivedVideoAssets.map((asset) => (
+                <Card key={asset.id} sx={{ width: 200, position: 'relative', opacity: 0.8 }}>
+                  <Chip
+                    label="Archived"
+                    size="small"
+                    sx={{
+                      position: 'absolute', top: 4, right: 4, fontSize: '0.65rem', height: 20, zIndex: 1,
+                      bgcolor: 'grey.500', color: 'white',
+                    }}
+                  />
+                  {asset.thumbnailUrl ? (
+                    <CardMedia component="img" height="112" image={asset.thumbnailUrl} alt={asset.name} sx={{ objectFit: 'cover' }} />
+                  ) : (
+                    <Box sx={{ height: 112, bgcolor: 'grey.200', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <YouTubeIcon sx={{ fontSize: 36, color: 'grey.400' }} />
+                    </Box>
+                  )}
+                  <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                    <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                      {asset.name}
+                    </Typography>
+                    {asset.aspectRatio && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                        {getAspectRatioLabel(asset.aspectRatio)} ({asset.aspectRatio})
+                      </Typography>
+                    )}
+                  </CardContent>
+                  <CardActions sx={{ p: 0.5, pt: 0, justifyContent: 'flex-end' }}>
+                    <Tooltip title="Desarchivar">
+                      <IconButton size="small" onClick={() => handleUnarchive(asset.id, 'video')}>
+                        <UnarchiveIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </CardActions>
+                </Card>
+              ))}
+            </Box>
+          )}
+
+          <Typography variant="h6" gutterBottom>
+            Archived Images ({archivedImageAssets.length})
+          </Typography>
+          {archivedImageAssets.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              No archived images.
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+              {archivedImageAssets.map((asset) => (
+                <Card key={asset.id} sx={{ width: 200, position: 'relative', opacity: 0.8 }}>
+                  <Chip
+                    label="Archived"
+                    size="small"
+                    sx={{
+                      position: 'absolute', top: 4, right: 4, fontSize: '0.65rem', height: 20, zIndex: 1,
+                      bgcolor: 'grey.500', color: 'white',
+                    }}
+                  />
+                  <CardMedia component="img" height="112" image={asset.url} alt={asset.name} sx={{ objectFit: 'cover' }} />
+                  <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                    <Typography variant="caption" noWrap sx={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                      {asset.name}
+                    </Typography>
+                    {asset.aspectRatio && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                        {getAspectRatioLabel(asset.aspectRatio)} ({asset.aspectRatio})
+                      </Typography>
+                    )}
+                  </CardContent>
+                  <CardActions sx={{ p: 0.5, pt: 0, justifyContent: 'flex-end' }}>
+                    <Tooltip title="Desarchivar">
+                      <IconButton size="small" onClick={() => handleUnarchive(asset.id, 'image')}>
+                        <UnarchiveIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </CardActions>
+                </Card>
+              ))}
+            </Box>
+          )}
+        </>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+        <DialogTitle>Eliminar archivo</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            ¿Estás seguro de que quieres eliminar &quot;{deleteTarget?.name}&quot;? Esta acción no se puede deshacer.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+          <Button
+            color="error"
+            onClick={() => deleteTarget && handleDelete(deleteTarget.id, deleteTarget.type)}
+            disabled={!!deleting}
+          >
+            {deleting ? 'Eliminando...' : 'Eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Crop Dialog */}
       {cropImage && (

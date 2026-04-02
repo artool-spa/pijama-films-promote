@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getImageById, deleteImage } from '@/models/image';
+import { z } from 'zod';
+import { getImageById, updateImage, deleteImage } from '@/models/image';
 import { deleteFile } from '@/lib/storage';
 import { getPartnerFromRequest } from '@/lib/auth';
+
+const RenameSchema = z.object({ name: z.string().min(1).max(255) }).strict();
 
 type RouteParams = { params: Promise<{ filmId: string; id: string }> };
 
@@ -64,12 +67,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     // Delete from database (will fail if used by ads)
     const deletedImage = await deleteImage(id);
 
-    // Delete from storage
-    try {
-      await deleteFile(deletedImage.storageKey);
-    } catch (storageError) {
-      console.error('Error deleting image from storage:', storageError);
-      // Don't fail the request if storage deletion fails - the DB record is already deleted
+    // Delete from storage (skip external MUVI assets)
+    if (deletedImage.storageKey !== 'external') {
+      try {
+        await deleteFile(deletedImage.storageKey);
+      } catch (storageError) {
+        console.error('Error deleting image from storage:', storageError);
+        // Don't fail the request if storage deletion fails - the DB record is already deleted
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -80,5 +85,48 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       error instanceof Error ? error.message : 'Error al eliminar imagen';
 
     return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+/**
+ * PATCH /api/films/[filmId]/images/[id]
+ * Rename an image
+ */
+export async function PATCH(req: NextRequest, { params }: RouteParams) {
+  const partner = await getPartnerFromRequest(req);
+  if (!partner) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
+  try {
+    const { filmId, id } = await params;
+    const body = await req.json();
+    const { name } = RenameSchema.parse(body);
+
+    const image = await getImageById(id);
+    if (!image) {
+      return NextResponse.json({ error: 'Imagen no encontrada' }, { status: 404 });
+    }
+
+    if (image.filmMuviUuid !== filmId) {
+      return NextResponse.json({ error: 'Imagen no encontrada' }, { status: 404 });
+    }
+
+    const updated = await updateImage(id, { name });
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error('Error renaming image:', error);
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Nombre inválido', details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Error al renombrar imagen' },
+      { status: 500 }
+    );
   }
 }

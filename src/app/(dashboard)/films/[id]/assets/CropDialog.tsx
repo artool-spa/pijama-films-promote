@@ -243,6 +243,7 @@ export default function CropDialog({ open, image, filmMuviUuid, onClose, onCropC
         facebookEligible: result.facebookEligible || false,
         instagramEligible: result.instagramEligible || false,
         eligibilityError: result.eligibilityError,
+        archived: false,
         _count: { ads: 0 },
       };
 

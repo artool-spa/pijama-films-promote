@@ -49,6 +49,7 @@ export const ImageSchema = z.object({
   size: z.number().int(),
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
+  archived: z.boolean(),
   createdAt: z.coerce.date(),
   // Validation fields
   status: AssetStatusSchema,
@@ -94,7 +95,7 @@ export async function getImagesByFilmMuviUuid(filmMuviUuid: string) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
   const results = await prisma.image.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid },
+    where: { filmMuviUuid: validFilmMuviUuid, archived: false },
     orderBy: { createdAt: 'desc' },
   });
 
@@ -227,12 +228,13 @@ export type ImageEligibilityUpdate = z.infer<typeof ImageEligibilityUpdateSchema
 
 /**
  * Get images by film MUVI UUID with ad usage counts
+ * @param archived - filter by archived state (default: false = active images only)
  */
-export async function getImagesWithUsageByFilmMuviUuid(filmMuviUuid: string) {
+export async function getImagesWithUsageByFilmMuviUuid(filmMuviUuid: string, archived = false) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
   const results = await prisma.image.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid },
+    where: { filmMuviUuid: validFilmMuviUuid, archived },
     include: { _count: { select: { ads: true } } },
     orderBy: { createdAt: 'desc' },
   });
@@ -314,6 +316,20 @@ export async function setImageValidating(id: string) {
   const result = await prisma.image.update({
     where: { id: validId },
     data: { status: 'VALIDATING' },
+  });
+
+  return ImageSchema.parse(result);
+}
+
+/**
+ * Set image archived state (idempotent)
+ */
+export async function setImageArchived(id: string, archived: boolean) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.image.update({
+    where: { id: validId },
+    data: { archived },
   });
 
   return ImageSchema.parse(result);

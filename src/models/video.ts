@@ -51,6 +51,7 @@ export const VideoSchema = z.object({
   duration: z.number().int().nullable(),
   thumbnailUrl: z.string().nullable(),
   metaVideoId: z.string().nullable(),
+  archived: z.boolean(),
   createdAt: z.coerce.date(),
   // Validation fields
   status: AssetStatusSchema,
@@ -99,7 +100,7 @@ export async function getVideosByFilmMuviUuid(filmMuviUuid: string) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
   const results = await prisma.video.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid },
+    where: { filmMuviUuid: validFilmMuviUuid, archived: false },
     orderBy: { createdAt: 'desc' },
   });
 
@@ -266,12 +267,13 @@ export type VideoEligibilityUpdate = z.infer<typeof VideoEligibilityUpdateSchema
 
 /**
  * Get videos by film MUVI UUID with ad usage counts
+ * @param archived - filter by archived state (default: false = active videos only)
  */
-export async function getVideosWithUsageByFilmMuviUuid(filmMuviUuid: string) {
+export async function getVideosWithUsageByFilmMuviUuid(filmMuviUuid: string, archived = false) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
   const results = await prisma.video.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid },
+    where: { filmMuviUuid: validFilmMuviUuid, archived },
     include: { _count: { select: { ads: true } } },
     orderBy: { createdAt: 'desc' },
   });
@@ -353,6 +355,20 @@ export async function setVideoValidating(id: string) {
   const result = await prisma.video.update({
     where: { id: validId },
     data: { status: 'VALIDATING' },
+  });
+
+  return VideoSchema.parse(result);
+}
+
+/**
+ * Set video archived state (idempotent)
+ */
+export async function setVideoArchived(id: string, archived: boolean) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.video.update({
+    where: { id: validId },
+    data: { archived },
   });
 
   return VideoSchema.parse(result);

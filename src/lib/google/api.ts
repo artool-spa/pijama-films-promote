@@ -350,16 +350,9 @@ async function applyTargetingToCampaign(
   targeting: GoogleTargetingResult,
   campaignType: 'VIDEO' | 'DEMAND_GEN' = 'VIDEO'
 ): Promise<void> {
-  // Demand Gen campaigns don't support campaignCriteria targeting —
-  // all targeting (geo, demographics, audiences) is handled at the ad group level
-  if (campaignType === 'DEMAND_GEN') {
-    console.log('[Google] Skipping campaign criteria for Demand Gen (targeting is at ad group level)');
-    return;
-  }
-
   const operations: Array<{ create: unknown }> = [];
 
-  // Geo targeting
+  // Geo targeting — applies to ALL campaign types (including Demand Gen)
   for (const geoTarget of targeting.geoTargets) {
     operations.push({
       create: {
@@ -367,6 +360,15 @@ async function applyTargetingToCampaign(
         location: { geoTargetConstant: geoTarget },
       },
     });
+  }
+
+  // Demand Gen: only geo targeting at campaign level; demographics/audiences at ad group level
+  if (campaignType === 'DEMAND_GEN') {
+    if (operations.length > 0) {
+      await client.mutate('campaignCriteria', operations);
+      console.log('[Google] Applied', operations.length, 'geo targeting criteria for Demand Gen');
+    }
+    return;
   }
 
   // Video campaign: demographics and audiences

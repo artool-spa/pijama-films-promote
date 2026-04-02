@@ -231,6 +231,7 @@ model Image {
   size         Int // File size in bytes
   width        Int? // Image dimensions (optional)
   height       Int?
+  archived     Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   // Validation status
@@ -265,6 +266,7 @@ model Video {
   duration     Int? // Duration in seconds (optional)
   thumbnailUrl String? // Thumbnail URL (optional)
   metaVideoId  String? // Meta Ads video ID after upload to Meta
+  archived     Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   // Validation status
