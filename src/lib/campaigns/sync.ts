@@ -1,5 +1,6 @@
 import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
+import { setMetaVideoId } from '@/models/video';
 import { publish } from '@/lib/events';
 import { createLogger } from '@/lib/logger';
 
@@ -137,6 +138,7 @@ export async function syncCampaignToMeta(
         } else {
           const uploaded = await uploadAdVideo(meta, video.url, video.name);
           videoId = uploaded.video_id;
+          await setMetaVideoId(video.id, videoId);
         }
         if (!allVideoIds.includes(videoId)) {
           allVideoIds.push(videoId);

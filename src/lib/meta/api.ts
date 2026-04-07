@@ -444,7 +444,6 @@ export async function createAdSet(
       is_dynamic_creative: validated.is_dynamic_creative,
       dsa_beneficiary: validated.dsa_beneficiary,
       dsa_payor: validated.dsa_payor,
-      targeting_automation: validated.targeting_automation,
     },
     client.accessToken
   );

@@ -107,6 +107,10 @@ export const MetaTargetingSchema = z.object({
   exclusions: z.object({
     interests: z.array(InterestItemSchema).optional(),
   }).optional(),
+  // Advantage audience (required by Meta API for adset creation)
+  targeting_automation: z.object({
+    advantage_audience: z.number(),
+  }).optional(),
 });
 
 // Input type for targeting (before defaults)
@@ -140,10 +144,6 @@ export const MetaAdSetCreateSchema = z.object({
   // DSA compliance (required for EU-targeted campaigns)
   dsa_beneficiary: z.string().optional(),
   dsa_payor: z.string().optional(),
-  // Advantage audience targeting automation
-  targeting_automation: z.object({
-    advantage_audience: z.number(),
-  }).optional(),
 });
 
 export const MetaAdSetResponseSchema = z.object({
