@@ -84,7 +84,7 @@ export default function NavigationDrawer() {
             </ListItem>
           ))}
         </List>
-        <Divider />
+        {/* <Divider />
         <List>
           {settingsItems.map((item) => (
             <ListItem key={item.text} disablePadding>
@@ -97,7 +97,7 @@ export default function NavigationDrawer() {
               </ListItemButton>
             </ListItem>
           ))}
-        </List>
+        </List> */}
       </Box>
     </Drawer>
   );

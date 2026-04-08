@@ -257,7 +257,7 @@ export async function createCBOCampaignWithAdSets(
   const campaignData: MetaCampaignCreate = {
     name,
     objective,
-    status: 'PAUSED',
+    status: 'ACTIVE',
     special_ad_categories: [],
     bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
     start_time: startTime,
@@ -287,7 +287,7 @@ export async function createCBOCampaignWithAdSets(
       const imageAdSet = await createAdSet(client, {
         name: `${name} - Images`,
         campaign_id: campaign.id,
-        status: 'PAUSED',
+        status: 'ACTIVE',
         // NO budget - it's at campaign level with CBO
         start_time: startTime,
         end_time: endTime,
@@ -312,7 +312,7 @@ export async function createCBOCampaignWithAdSets(
       const videoAdSet = await createAdSet(client, {
         name: `${name} - Videos`,
         campaign_id: campaign.id,
-        status: 'PAUSED',
+        status: 'ACTIVE',
         // NO budget - it's at campaign level with CBO
         start_time: startTime,
         end_time: endTime,
@@ -835,7 +835,7 @@ export async function createDynamicCreativeAd(
     {
       name: data.name,
       adset_id: data.adsetId,
-      status: 'PAUSED',
+      status: 'ACTIVE',
       creative: {
         object_story_spec: objectStorySpec,
         asset_feed_spec: assetFeedSpec,
@@ -1035,7 +1035,7 @@ export async function createMultiLanguageAd(
     {
       name: data.name,
       adset_id: data.adsetId,
-      status: 'PAUSED',
+      status: 'ACTIVE',
       creative: {
         object_story_spec: objectStorySpec,
         asset_feed_spec: assetFeedSpec,

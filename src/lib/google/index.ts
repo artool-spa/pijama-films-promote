@@ -82,6 +82,7 @@ export {
   createDemandGenImageAd,
   createDemandGenCampaignWithAdGroup,
   getDisplayInsights,
+  getAdInsights,
   getAllCustomAudiences,
 } from './api';
 

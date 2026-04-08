@@ -115,12 +115,14 @@ export async function createVideoCampaign(
 
   // Create campaign budget first
   // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  // Budget must be a multiple of 10,000 micros ($0.01) to avoid NON_MULTIPLE_OF_MINIMUM_CURRENCY_UNIT error
   let dailyBudgetMicros = validated.budgetAmountMicros;
   if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
     const start = new Date(validated.startDate);
     const end = new Date(validated.endDate);
     const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+    dailyBudgetMicros = (validated.budgetAmountMicros / BigInt(days) / BigInt(10_000)) * BigInt(10_000);
+    if (dailyBudgetMicros < BigInt(10_000)) dailyBudgetMicros = BigInt(10_000);
   }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
@@ -278,7 +280,7 @@ export async function createVideoAd(
     {
       create: {
         adGroup: validated.adGroupResourceName,
-        status: 'PAUSED',
+        status: 'ENABLED',
         ad: {
           name: validated.name,
           finalUrls: [validated.finalUrl],
@@ -325,7 +327,7 @@ export async function createYouTubeCampaignWithAdGroup(
     budgetType: config.budgetType === 'DAILY' ? 'DAILY' : 'TOTAL',
     startDate: config.startDate,
     endDate: config.endDate,
-    status: 'PAUSED',
+    status: 'ENABLED',
     biddingStrategy: config.biddingStrategy as GoogleCampaignCreate['biddingStrategy'],
     targetCpvMicros: config.targetCpvMicros,
   });
@@ -337,7 +339,7 @@ export async function createYouTubeCampaignWithAdGroup(
   const adGroup = await createVideoAdGroup(client, {
     name: `${config.name} - Ad Group`,
     campaignResourceName: campaign.resourceName,
-    status: 'PAUSED',
+    status: 'ENABLED',
     cpvBidMicros: config.targetCpvMicros,
   });
 
@@ -350,18 +352,35 @@ export async function createYouTubeCampaignWithAdGroup(
 /**
  * Apply targeting criteria to a campaign.
  *
- * Demand Gen campaigns only support geo targeting at campaign level.
- * Video campaigns support geo, age, gender, and audience criteria.
+ * Demand Gen campaigns: geo targeting applied at ad group level via adGroupCriteria.
+ * Video campaigns: geo, age, gender, and audience criteria at campaign level.
  */
 async function applyTargetingToCampaign(
   client: GoogleAdsClient,
   campaignResourceName: string,
   targeting: GoogleTargetingResult,
-  campaignType: 'VIDEO' | 'DEMAND_GEN' = 'VIDEO'
+  campaignType: 'VIDEO' | 'DEMAND_GEN' = 'VIDEO',
+  adGroupResourceName?: string
 ): Promise<void> {
+  // Demand Gen: apply geo targeting at ad group level (campaignCriteria triggers
+  // OWNED_AND_OPERATED error in API v23 for Demand Gen campaigns)
+  if (campaignType === 'DEMAND_GEN') {
+    if (adGroupResourceName && targeting.geoTargets.length > 0) {
+      const geoOps = targeting.geoTargets.map((geoTarget) => ({
+        create: {
+          adGroup: adGroupResourceName,
+          location: { geoTargetConstant: geoTarget },
+        },
+      }));
+      await client.mutate('adGroupCriteria', geoOps);
+      log.info({ count: geoOps.length }, 'Applied geo targeting at ad group level for Demand Gen');
+    }
+    return;
+  }
+
   const operations: Array<{ create: unknown }> = [];
 
-  // Geo targeting — applies to ALL campaign types (including Demand Gen)
+  // Geo targeting at campaign level for Video campaigns
   for (const geoTarget of targeting.geoTargets) {
     operations.push({
       create: {
@@ -369,15 +388,6 @@ async function applyTargetingToCampaign(
         location: { geoTargetConstant: geoTarget },
       },
     });
-  }
-
-  // Demand Gen: only geo targeting at campaign level; demographics/audiences at ad group level
-  if (campaignType === 'DEMAND_GEN') {
-    if (operations.length > 0) {
-      await client.mutate('campaignCriteria', operations);
-      console.log('[Google] Applied', operations.length, 'geo targeting criteria for Demand Gen');
-    }
-    return;
   }
 
   // Video campaign: demographics and audiences
@@ -562,12 +572,14 @@ export async function createDemandGenCampaign(
 
   // Create campaign budget first
   // Google Ads only supports DAILY period — for lifetime budgets, divide total by campaign days
+  // Budget must be a multiple of 10,000 micros ($0.01) to avoid NON_MULTIPLE_OF_MINIMUM_CURRENCY_UNIT error
   let dailyBudgetMicros = validated.budgetAmountMicros;
   if (validated.budgetType === 'TOTAL' && validated.startDate && validated.endDate) {
     const start = new Date(validated.startDate);
     const end = new Date(validated.endDate);
     const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    dailyBudgetMicros = validated.budgetAmountMicros / BigInt(days);
+    dailyBudgetMicros = (validated.budgetAmountMicros / BigInt(days) / BigInt(10_000)) * BigInt(10_000);
+    if (dailyBudgetMicros < BigInt(10_000)) dailyBudgetMicros = BigInt(10_000);
   }
   const budgetResult = await client.mutate('campaignBudgets', [
     {
@@ -716,7 +728,7 @@ export async function createDemandGenImageAd(
     {
       create: {
         adGroup: validated.adGroupResourceName,
-        status: 'PAUSED',
+        status: 'ENABLED',
         ad: {
           name: validated.name,
           finalUrls: [validated.finalUrl],
@@ -766,19 +778,19 @@ export async function createDemandGenCampaignWithAdGroup(
     budgetType: config.budgetType === 'DAILY' ? 'DAILY' : 'TOTAL',
     startDate: config.startDate,
     endDate: config.endDate,
-    status: 'PAUSED',
+    status: 'ENABLED',
     biddingStrategy: config.biddingStrategy as DemandGenCampaignCreate['biddingStrategy'],
   });
 
-  // Step 2: Apply targeting criteria (Demand Gen only supports geo at campaign level)
-  await applyTargetingToCampaign(client, campaign.resourceName, config.targeting, 'DEMAND_GEN');
-
-  // Step 3: Create ad group (Demand Gen ad groups have no type per Google Ads docs)
+  // Step 2: Create ad group (Demand Gen ad groups have no type per Google Ads docs)
   const adGroup = await createDemandGenAdGroup(client, {
     name: `${config.name} - Ad Group`,
     campaignResourceName: campaign.resourceName,
-    status: 'PAUSED',
+    status: 'ENABLED',
   });
+
+  // Step 3: Apply geo targeting at ad group level (Demand Gen doesn't support campaign-level geo in API v23)
+  await applyTargetingToCampaign(client, campaign.resourceName, config.targeting, 'DEMAND_GEN', adGroup.resourceName);
 
   return {
     campaignResourceName: campaign.resourceName,

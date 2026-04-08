@@ -50,6 +50,9 @@ interface DisplayInsightsData {
   averageCpc: number;
   spend: number;
   conversions: number;
+  cpm: number;
+  cpc: number;
+  costPerConversion: number;
   dateStart: string;
   dateEnd: string;
 }
@@ -138,6 +141,9 @@ export async function GET(
             averageCpc: 0,
             spend: 0,
             conversions: 0,
+            cpm: 0,
+            cpc: 0,
+            costPerConversion: 0,
             dateStart: startDateStr,
             dateEnd: campaign.endDate?.toISOString().split('T')[0] || startDateStr,
           } satisfies DisplayInsightsData
@@ -198,6 +204,9 @@ export async function GET(
         averageCpc: displayInsights.averageCpc,
         spend: Number(displayInsights.costMicros) / 1_000_000,
         conversions: displayInsights.conversions,
+        cpm: displayInsights.cpm,
+        cpc: displayInsights.cpc,
+        costPerConversion: displayInsights.costPerConversion,
         dateStart: displayInsights.dateStart,
         dateEnd: displayInsights.dateEnd,
       };

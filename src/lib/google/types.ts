@@ -190,6 +190,9 @@ export const DisplayInsightsResponseSchema = z.object({
   averageCpc: z.number().default(0), // In currency (not micros)
   costMicros: z.bigint().default(BigInt(0)),
   conversions: z.number().default(0),
+  cpm: z.number().default(0), // Cost per 1000 impressions
+  cpc: z.number().default(0), // Cost per click (computed)
+  costPerConversion: z.number().default(0),
   dateStart: z.string(),
   dateEnd: z.string(),
 });

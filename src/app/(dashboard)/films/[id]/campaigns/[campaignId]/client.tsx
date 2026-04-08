@@ -26,6 +26,7 @@ import {
   YouTube as YouTubeIcon,
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
+  Google as GoogleIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import type { Film } from '@/models/film';
@@ -77,6 +78,9 @@ type DisplayInsightsData = {
   averageCpc: number;
   spend: number;
   conversions: number;
+  cpm: number;
+  cpc: number;
+  costPerConversion: number;
   dateStart: string;
   dateEnd: string;
 };
@@ -317,10 +321,10 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
           )}
           {hasGoogle && (
             <Chip
-              icon={<YouTubeIcon />}
-              label="YouTube"
+              icon={<GoogleIcon />}
+              label="Google Ads"
               size="small"
-              sx={{ bgcolor: '#FF0000', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+              sx={{ bgcolor: '#4285F4', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
             />
           )}
           <Chip
@@ -391,61 +395,69 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
 
           {/* Meta Metrics */}
           {hasMeta && (
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Budget
+            <Box sx={{ mt: 2, borderLeft: 3, borderColor: '#1877F2', pl: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <FacebookIcon sx={{ color: '#1877F2', fontSize: 20 }} />
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Meta Ads
                 </Typography>
-                <Typography variant="h5" color="primary">
-                  ${campaign.budget.toLocaleString()}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Spend
-                </Typography>
-                <Typography variant="h5">
-                  {insights ? `$${insights.spend.toLocaleString()}` : '-'}
-                </Typography>
-                {insights && insights.spend > 0 && (
-                  <Typography variant="caption" color="text.secondary">
-                    {((insights.spend / campaign.budget) * 100).toFixed(1)}%
+              </Box>
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Budget
                   </Typography>
-                )}
+                  <Typography variant="h5" color="primary">
+                    ${campaign.budget.toLocaleString()}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Spend
+                  </Typography>
+                  <Typography variant="h5">
+                    {insights ? `$${insights.spend.toLocaleString()}` : '-'}
+                  </Typography>
+                  {insights && insights.spend > 0 && (
+                    <Typography variant="caption" color="text.secondary">
+                      {((insights.spend / campaign.budget) * 100).toFixed(1)}%
+                    </Typography>
+                  )}
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Impressions
+                  </Typography>
+                  <Typography variant="h5">
+                    {insights ? insights.impressions.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Clicks
+                  </Typography>
+                  <Typography variant="h5">
+                    {insights ? insights.clicks.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Conversions
+                  </Typography>
+                  <Typography variant="h5" color="success.main">
+                    {insights ? insights.conversions.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    CTR
+                  </Typography>
+                  <Typography variant="h5">
+                    {insights ? `${insights.ctr.toFixed(2)}%` : '-'}
+                  </Typography>
+                </Grid>
               </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Impressions
-                </Typography>
-                <Typography variant="h5">
-                  {insights ? insights.impressions.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Clicks
-                </Typography>
-                <Typography variant="h5">
-                  {insights ? insights.clicks.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Conversions
-                </Typography>
-                <Typography variant="h5" color="success.main">
-                  {insights ? insights.conversions.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  CTR
-                </Typography>
-                <Typography variant="h5">
-                  {insights ? `${insights.ctr.toFixed(2)}%` : '-'}
-                </Typography>
-              </Grid>
-            </Grid>
+            </Box>
           )}
 
           {/* Google sync failed message */}
@@ -457,103 +469,124 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             </Box>
           )}
 
-          {/* Google Metrics */}
+          {/* Divider between platforms */}
+          {hasMeta && hasGoogle && googleSynced && <Divider sx={{ my: 2 }} />}
+
+          {/* Google Metrics - Demand Gen */}
           {hasGoogle && googleSynced && googleCampaignType === 'DEMAND_GEN' && (
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Budget
+            <Box sx={{ mt: 2, borderLeft: 3, borderColor: '#4285F4', pl: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <GoogleIcon sx={{ color: '#4285F4', fontSize: 20 }} />
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Google Ads
                 </Typography>
-                <Typography variant="h5" color="primary">
-                  ${campaign.budget.toLocaleString()}
-                </Typography>
+              </Box>
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Budget
+                  </Typography>
+                  <Typography variant="h5" color="primary">
+                    ${campaign.budget.toLocaleString()}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Spend
+                  </Typography>
+                  <Typography variant="h5">
+                    {displayInsights ? `$${displayInsights.spend.toLocaleString()}` : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Impressions
+                  </Typography>
+                  <Typography variant="h5">
+                    {displayInsights ? displayInsights.impressions.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Clicks
+                  </Typography>
+                  <Typography variant="h5">
+                    {displayInsights ? displayInsights.clicks.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Conversions
+                  </Typography>
+                  <Typography variant="h5" color="success.main">
+                    {displayInsights ? displayInsights.conversions.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    CTR
+                  </Typography>
+                  <Typography variant="h5">
+                    {displayInsights ? `${displayInsights.ctr.toFixed(2)}%` : '-'}
+                  </Typography>
+                </Grid>
               </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Spend
-                </Typography>
-                <Typography variant="h5">
-                  {displayInsights ? `$${displayInsights.spend.toLocaleString()}` : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Impressions
-                </Typography>
-                <Typography variant="h5" color="success.main">
-                  {displayInsights ? displayInsights.impressions.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Clicks
-                </Typography>
-                <Typography variant="h5">
-                  {displayInsights ? displayInsights.clicks.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  CTR
-                </Typography>
-                <Typography variant="h5">
-                  {displayInsights ? `${displayInsights.ctr.toFixed(2)}%` : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Avg. CPC
-                </Typography>
-                <Typography variant="h5">
-                  {displayInsights ? `$${displayInsights.averageCpc.toFixed(3)}` : '-'}
-                </Typography>
-              </Grid>
-            </Grid>
+            </Box>
           )}
+
+          {/* Divider between platforms (for YouTube legacy) */}
+          {hasMeta && hasGoogle && googleSynced && googleCampaignType === 'VIDEO' && !displayInsights && <Divider sx={{ my: 2 }} />}
 
           {/* YouTube Video Metrics (legacy) */}
           {hasGoogle && googleSynced && googleCampaignType === 'VIDEO' && (
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Budget
+            <Box sx={{ mt: 2, borderLeft: 3, borderColor: '#FF0000', pl: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <YouTubeIcon sx={{ color: '#FF0000', fontSize: 20 }} />
+                <Typography variant="subtitle2" fontWeight="bold">
+                  YouTube Ads
                 </Typography>
-                <Typography variant="h5" color="primary">
-                  ${campaign.budget.toLocaleString()}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Spend
-                </Typography>
-                <Typography variant="h5">
-                  {youtubeInsights ? `$${youtubeInsights.spend.toLocaleString()}` : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Video Views
-                </Typography>
-                <Typography variant="h5" color="success.main">
-                  {youtubeInsights ? youtubeInsights.videoViews.toLocaleString() : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  View Rate
-                </Typography>
-                <Typography variant="h5">
-                  {youtubeInsights ? `${(youtubeInsights.videoViewRate * 100).toFixed(1)}%` : '-'}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Avg. CPV
-                </Typography>
-                <Typography variant="h5">
-                  {youtubeInsights ? `$${youtubeInsights.averageCpv.toFixed(3)}` : '-'}
-                </Typography>
-              </Grid>
+              </Box>
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Budget
+                  </Typography>
+                  <Typography variant="h5" color="primary">
+                    ${campaign.budget.toLocaleString()}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Spend
+                  </Typography>
+                  <Typography variant="h5">
+                    {youtubeInsights ? `$${youtubeInsights.spend.toLocaleString()}` : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Video Views
+                  </Typography>
+                  <Typography variant="h5" color="success.main">
+                    {youtubeInsights ? youtubeInsights.videoViews.toLocaleString() : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    View Rate
+                  </Typography>
+                  <Typography variant="h5">
+                    {youtubeInsights ? `${(youtubeInsights.videoViewRate * 100).toFixed(1)}%` : '-'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Avg. CPV
+                  </Typography>
+                  <Typography variant="h5">
+                    {youtubeInsights ? `$${youtubeInsights.averageCpv.toFixed(3)}` : '-'}
+                  </Typography>
+                </Grid>
               <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Typography variant="caption" color="text.secondary" display="block">
                   100% Viewed
@@ -562,7 +595,8 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
                   {youtubeInsights ? `${(youtubeInsights.videoQuartile100Rate * 100).toFixed(1)}%` : '-'}
                 </Typography>
               </Grid>
-            </Grid>
+              </Grid>
+            </Box>
           )}
         </CardContent>
       </Card>
@@ -698,20 +732,31 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
       {/* Ads Table */}
       <Card>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Ads ({campaign.ads.length})
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">
+              Ads ({campaign.ads.length})
+            </Typography>
+            {campaign.ads.length > 0 && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => router.push(`/films/${film.id}/campaigns/${campaign.id}/ads`)}
+              >
+                Ver anuncios
+              </Button>
+            )}
+          </Box>
           {campaign.ads.length > 0 ? (
             <TableContainer>
               <Table>
                 <TableHead>
                   <TableRow>
                     <TableCell>Ad Name</TableCell>
+                    <TableCell align="center">Plataforma</TableCell>
                     <TableCell align="center">Status</TableCell>
                     <TableCell>Headlines</TableCell>
                     <TableCell align="center">Images</TableCell>
                     <TableCell align="center">Videos</TableCell>
-                    <TableCell align="center">Synced</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -721,6 +766,15 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
                         <Typography variant="body2" fontWeight="medium">
                           {ad.name}
                         </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {ad.metaAdId && (
+                          <FacebookIcon sx={{ fontSize: 18, color: '#1877F2', mr: 0.5 }} />
+                        )}
+                        {ad.googleAdId && (
+                          <GoogleIcon sx={{ fontSize: 18, color: '#4285F4' }} />
+                        )}
+                        {!ad.metaAdId && !ad.googleAdId && '-'}
                       </TableCell>
                       <TableCell align="center">
                         <Chip
@@ -736,13 +790,6 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
                       </TableCell>
                       <TableCell align="center">{ad.images.length}</TableCell>
                       <TableCell align="center">{ad.videos.length}</TableCell>
-                      <TableCell align="center">
-                        {ad.metaAdId ? (
-                          <Chip label="Yes" size="small" color="success" />
-                        ) : (
-                          <Chip label="No" size="small" variant="outlined" />
-                        )}
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
