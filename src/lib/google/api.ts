@@ -477,12 +477,24 @@ export async function getYouTubeInsights(
     ORDER BY segments.date
   `;
 
-  const response = await client.query<{
-    results?: Array<{
-      metrics?: Record<string, string>;
-      segments?: { date: string };
-    }>;
-  }>(query);
+  type MetricsRow = {
+    metrics?: Record<string, string>;
+    segments?: { date: string };
+  };
+  type StreamChunk = { results?: MetricsRow[] };
+
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+
+  // searchStream returns an array of chunks: [{results: [...]}, ...]
+  // search returns a single object: {results: [...]}
+  const allRows: MetricsRow[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) {
+      if (chunk.results) allRows.push(...chunk.results);
+    }
+  } else if (raw?.results) {
+    allRows.push(...raw.results);
+  }
 
   // Aggregate results
   let totalImpressions = 0;
@@ -498,24 +510,22 @@ export async function getYouTubeInsights(
   let weightedQ100 = 0;
   let count = 0;
 
-  if (response.results) {
-    for (const row of response.results) {
-      const m = row.metrics;
-      if (!m) continue;
+  for (const row of allRows) {
+    const m = row.metrics;
+    if (!m) continue;
 
-      totalImpressions += parseInt(m.impressions || '0', 10);
-      totalViews += parseInt(m.video_trueview_views || '0', 10);
-      totalCostMicros += BigInt(m.cost_micros || '0');
-      totalClicks += parseInt(m.clicks || '0', 10);
-      weightedViewRate += parseFloat(m.video_trueview_view_rate || '0');
-      weightedCpv += parseFloat(m.trueview_average_cpv || '0');
-      weightedCtr += parseFloat(m.ctr || '0');
-      weightedQ25 += parseFloat(m.video_quartile_p25_rate || '0');
-      weightedQ50 += parseFloat(m.video_quartile_p50_rate || '0');
-      weightedQ75 += parseFloat(m.video_quartile_p75_rate || '0');
-      weightedQ100 += parseFloat(m.video_quartile_p100_rate || '0');
-      count++;
-    }
+    totalImpressions += parseInt(m.impressions || '0', 10);
+    totalViews += parseInt(m.videoTrueviewViews || '0', 10);
+    totalCostMicros += BigInt(m.costMicros || '0');
+    totalClicks += parseInt(m.clicks || '0', 10);
+    weightedViewRate += parseFloat(m.videoTrueviewViewRate || '0');
+    weightedCpv += parseFloat(m.trueviewAverageCpv || '0');
+    weightedCtr += parseFloat(m.ctr || '0');
+    weightedQ25 += parseFloat(m.videoQuartileP25Rate || '0');
+    weightedQ50 += parseFloat(m.videoQuartileP50Rate || '0');
+    weightedQ75 += parseFloat(m.videoQuartileP75Rate || '0');
+    weightedQ100 += parseFloat(m.videoQuartileP100Rate || '0');
+    count++;
   }
 
   const avgDivisor = count || 1;
@@ -804,12 +814,24 @@ export async function getDisplayInsights(
     ORDER BY segments.date
   `;
 
-  const response = await client.query<{
-    results?: Array<{
-      metrics?: Record<string, string>;
-      segments?: { date: string };
-    }>;
-  }>(query);
+  type MetricsRow = {
+    metrics?: Record<string, string>;
+    segments?: { date: string };
+  };
+  type StreamChunk = { results?: MetricsRow[] };
+
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+
+  // searchStream returns an array of chunks: [{results: [...]}, ...]
+  // search returns a single object: {results: [...]}
+  const allRows: MetricsRow[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) {
+      if (chunk.results) allRows.push(...chunk.results);
+    }
+  } else if (raw?.results) {
+    allRows.push(...raw.results);
+  }
 
   // Aggregate results
   let totalImpressions = 0;
@@ -820,22 +842,21 @@ export async function getDisplayInsights(
   let weightedCpc = 0;
   let count = 0;
 
-  if (response.results) {
-    for (const row of response.results) {
-      const m = row.metrics;
-      if (!m) continue;
+  for (const row of allRows) {
+    const m = row.metrics;
+    if (!m) continue;
 
-      totalImpressions += parseInt(m.impressions || '0', 10);
-      totalClicks += parseInt(m.clicks || '0', 10);
-      totalCostMicros += BigInt(m.cost_micros || '0');
-      totalConversions += parseFloat(m.conversions || '0');
-      weightedCtr += parseFloat(m.ctr || '0');
-      weightedCpc += parseFloat(m.average_cpc || '0');
-      count++;
-    }
+    totalImpressions += parseInt(m.impressions || '0', 10);
+    totalClicks += parseInt(m.clicks || '0', 10);
+    totalCostMicros += BigInt(m.costMicros || '0');
+    totalConversions += parseFloat(m.conversions || '0');
+    weightedCtr += parseFloat(m.ctr || '0');
+    weightedCpc += parseFloat(m.averageCpc || '0');
+    count++;
   }
 
   const avgDivisor = count || 1;
+  const totalSpend = Number(totalCostMicros) / 1_000_000;
 
   return DisplayInsightsResponseSchema.parse({
     impressions: totalImpressions,
@@ -844,6 +865,93 @@ export async function getDisplayInsights(
     averageCpc: weightedCpc / avgDivisor,
     costMicros: totalCostMicros,
     conversions: totalConversions,
+    cpm: totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0,
+    cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+    costPerConversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
+    dateStart: startDate,
+    dateEnd: endDate,
+  });
+}
+
+// ============================================================================
+// PER-AD INSIGHTS
+// ============================================================================
+
+/**
+ * Get per-ad insights for a Google Ads ad using GAQL
+ */
+export async function getAdInsights(
+  client: GoogleAdsClient,
+  adResourceName: string,
+  startDate: string,
+  endDate: string
+): Promise<DisplayInsightsResponse> {
+  const query = `
+    SELECT
+      metrics.impressions,
+      metrics.clicks,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.cost_micros,
+      metrics.conversions,
+      segments.date
+    FROM ad_group_ad
+    WHERE ad_group_ad.resource_name = '${adResourceName}'
+      AND segments.date BETWEEN '${startDate}' AND '${endDate}'
+    ORDER BY segments.date
+  `;
+
+  type MetricsRow = {
+    metrics?: Record<string, string>;
+    segments?: { date: string };
+  };
+  type StreamChunk = { results?: MetricsRow[] };
+
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+
+  const allRows: MetricsRow[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) {
+      if (chunk.results) allRows.push(...chunk.results);
+    }
+  } else if (raw?.results) {
+    allRows.push(...raw.results);
+  }
+
+  let totalImpressions = 0;
+  let totalClicks = 0;
+  let totalCostMicros = BigInt(0);
+  let totalConversions = 0;
+  let weightedCtr = 0;
+  let weightedCpc = 0;
+  let count = 0;
+
+  for (const row of allRows) {
+    const m = row.metrics;
+    if (!m) continue;
+
+    totalImpressions += parseInt(m.impressions || '0', 10);
+    totalClicks += parseInt(m.clicks || '0', 10);
+    totalCostMicros += BigInt(m.costMicros || '0');
+    totalConversions += parseFloat(m.conversions || '0');
+    weightedCtr += parseFloat(m.ctr || '0');
+    weightedCpc += parseFloat(m.averageCpc || '0');
+    count++;
+  }
+
+  const avgDivisor = count || 1;
+  const totalSpend = Number(totalCostMicros) / 1_000_000;
+
+  return DisplayInsightsResponseSchema.parse({
+    impressions: totalImpressions,
+    clicks: totalClicks,
+    ctr: weightedCtr / avgDivisor,
+    averageCpc: weightedCpc / avgDivisor,
+    costMicros: totalCostMicros,
+    conversions: totalConversions,
+    cpm: totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0,
+    cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+    costPerConversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
     dateStart: startDate,
     dateEnd: endDate,
   });
@@ -912,13 +1020,23 @@ export async function getCampaignStatus(
     WHERE campaign.resource_name = '${campaignResourceName}'
   `;
 
-  const response = await client.query<{
-    results?: Array<{ campaign?: { status: string } }>;
-  }>(query);
+  type StatusRow = { campaign?: { status: string } };
+  type StreamChunk = { results?: StatusRow[] };
 
-  if (!response.results || response.results.length === 0) {
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+
+  const allRows: StatusRow[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) {
+      if (chunk.results) allRows.push(...chunk.results);
+    }
+  } else if (raw?.results) {
+    allRows.push(...raw.results);
+  }
+
+  if (allRows.length === 0) {
     throw new GoogleAdsApiError('Campaign not found in Google Ads');
   }
 
-  return response.results[0].campaign?.status || 'UNKNOWN';
+  return allRows[0].campaign?.status || 'UNKNOWN';
 }
