@@ -16,6 +16,7 @@ import type {
   MuviCast,
   MuviVideoAsset,
   MuviCustomField,
+  GetMoviesOptions,
 } from '#muvi';
 import prisma from '#prisma';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
@@ -471,6 +472,15 @@ export interface GetFilmsResult {
   currentPage: number;
 }
 
+// Sort option accepted by the films list (maps directly to Muvi's sortBy)
+export type FilmSortOption = NonNullable<GetMoviesOptions['sortBy']>;
+
+// Options for filtering/sorting the films list
+export type GetFilmsOptions = {
+  search?: string;
+  sort?: FilmSortOption;
+};
+
 /**
  * Get a paginated list of films from Muvi API
  * Optionally includes real campaign data from the database
@@ -478,10 +488,17 @@ export interface GetFilmsResult {
 export async function getFilms(
   page: number = 1,
   limit: number = 12,
+  options: GetFilmsOptions = {},
   includeCampaigns: boolean = true
 ): Promise<GetFilmsResult> {
   try {
-    const result = await getMovies(muvi, { page, perPage: limit });
+    const { search, sort } = options;
+    const result = await getMovies(muvi, {
+      page,
+      perPage: limit,
+      ...(search ? { contentName: search } : {}),
+      ...(sort ? { sortBy: sort } : {}),
+    });
 
     // Cache the movies for later use
     if (page === 1 && result.movies.length > 0) {

@@ -4,6 +4,7 @@ import {
   MuviMovie,
   MuviMovieDetails,
   MuviContentListResponseSchema,
+  MuviContentListEnvelopeSchema,
   GetMoviesOptions,
   GetMoviesResult,
 } from './types';
@@ -330,17 +331,22 @@ export async function getMovies(
       );
     }
 
-    // Validate response
+    // Validate response, falling back to a lenient envelope parse so an
+    // unexpected shape on an item field degrades gracefully instead of throwing.
     const result = MuviContentListResponseSchema.safeParse(data);
-    if (!result.success) {
-      logger.error({ issues: result.error.issues }, 'Muvi validation issues');
-      throw new MuviValidationError(
-        'Invalid content list response',
-        result.error.issues
-      );
-    }
-
-    const contentList = result.data.data.contentList;
+    const contentList = result.success
+      ? result.data.data.contentList
+      : (() => {
+          logger.error({ issues: result.error.issues }, 'Muvi validation issues');
+          const lenient = MuviContentListEnvelopeSchema.safeParse(data);
+          if (!lenient.success) {
+            throw new MuviValidationError(
+              'Invalid content list response',
+              result.error.issues
+            );
+          }
+          return lenient.data.data.contentList;
+        })();
 
     return {
       movies: contentList.content_list as MuviMovie[],
@@ -384,17 +390,22 @@ export async function getMovieDetails(
       );
     }
 
-    // Validate response
+    // Validate response, falling back to a lenient envelope parse so an
+    // unexpected shape on a detail field degrades gracefully instead of throwing.
     const result = MuviContentListResponseSchema.safeParse(data);
-    if (!result.success) {
-      logger.error({ issues: result.error.issues }, 'Muvi validation issues');
-      throw new MuviValidationError(
-        'Invalid content details response',
-        result.error.issues
-      );
-    }
-
-    const contentList = result.data.data.contentList.content_list;
+    const contentList = result.success
+      ? result.data.data.contentList.content_list
+      : (() => {
+          logger.error({ issues: result.error.issues }, 'Muvi validation issues');
+          const lenient = MuviContentListEnvelopeSchema.safeParse(data);
+          if (!lenient.success) {
+            throw new MuviValidationError(
+              'Invalid content details response',
+              result.error.issues
+            );
+          }
+          return lenient.data.data.contentList.content_list;
+        })();
 
     if (contentList.length === 0) {
       return null;
