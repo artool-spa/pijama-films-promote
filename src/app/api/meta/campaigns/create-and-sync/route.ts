@@ -8,6 +8,7 @@ import { getPartnerFromRequest } from '@/lib/auth';
 import { publish } from '@/lib/events';
 import { MetaApiError } from '#meta';
 import { areMetaAssetsReady, syncCampaignToMeta } from '@/lib/campaigns/sync';
+import { toFriendlyCampaignError } from '@/lib/campaigns/error-messages';
 import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 
 // Helper to publish campaign progress
@@ -80,7 +81,7 @@ const CampaignWithAdsCreateSchema = z.object({
 export async function POST(req: NextRequest) {
   const partner = await getPartnerFromRequest(req);
   if (!partner) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
   }
 
   try {
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { error: 'Datos inválidos', details: result.error.flatten() },
+        { error: 'Invalid campaign data', details: result.error.flatten() },
         { status: 400 }
       );
     }
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
     // Verify the partner exists
     const targetPartner = await getPartnerById(partner.id);
     if (!targetPartner) {
-      return NextResponse.json({ error: 'Partner no encontrado' }, { status: 404 });
+      return NextResponse.json({ error: 'Partner not found' }, { status: 404 });
     }
 
     // Step 1: Create or update campaign locally (DRAFT status)
@@ -171,7 +172,7 @@ export async function POST(req: NextRequest) {
 
     if (adsToCreate.length === 0) {
       return NextResponse.json(
-        { error: 'Se requiere al menos un anuncio con imagen o video' },
+        { error: 'At least one ad with an image or video is required' },
         { status: 400 }
       );
     }
@@ -202,7 +203,7 @@ export async function POST(req: NextRequest) {
       await publish(data.filmMuviUuid, {
         type: 'campaign_error',
         campaignId: campaign.id,
-        error: 'Meta: Videos are still uploading to Meta. Campaign will sync automatically when ready.',
+        error: 'Videos are still uploading to Meta. Your campaign will sync automatically when they finish.',
       });
 
       return NextResponse.json({
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest) {
         ads,
         synced: false,
         pendingAssets: true,
-        message: 'Campaña guardada. Los videos aún se están subiendo — la sincronización se completará automáticamente.',
+        message: 'Campaign saved. Your videos are still uploading — sync will finish automatically.',
       }, { status: 201 });
     }
 
@@ -253,7 +254,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof MetaApiError) {
       return NextResponse.json(
         {
-          error: 'Error al crear la campaña',
+          error: toFriendlyCampaignError(error, 'Meta'),
           details: error.message,
           code: error.errorCode,
         },
@@ -262,7 +263,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Error al crear la campaña' },
+      { error: 'Something went wrong while creating your campaign. Please try again, or contact support.' },
       { status: 500 }
     );
   }
