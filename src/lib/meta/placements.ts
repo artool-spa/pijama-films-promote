@@ -35,7 +35,7 @@ export interface PlacementTargeting {
  */
 export const FEED_ONLY_PLACEMENTS: PlacementTargeting = {
   publisher_platforms: ['facebook', 'instagram'],
-  facebook_positions: ['feed', 'video_feeds', 'marketplace', 'search', 'instream_video', 'right_hand_column'],
+  facebook_positions: ['feed', 'marketplace', 'search', 'instream_video', 'right_hand_column'],
   instagram_positions: ['stream', 'explore', 'explore_home', 'profile_feed', 'ig_search'],
 };
 

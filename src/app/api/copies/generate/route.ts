@@ -4,18 +4,10 @@ import {
   getGeminiClient,
   generateCopiesForFilm,
   CopyGenerationRequestSchema,
-  SupportedLanguage,
-  GeneratedCopy,
   GeminiApiError,
   GeminiValidationError,
 } from '#gemini';
 import { muvi, getMovieDetails } from '#muvi';
-import {
-  getCachedCopies,
-  getCachedLanguages,
-  saveCopies,
-  GeneratedCopyData,
-} from '@/models/generatedCopy';
 import type { FilmDataForPrompt } from '#gemini';
 
 /**
@@ -53,21 +45,6 @@ export async function POST(req: NextRequest) {
 
     const { filmId, languages } = result.data;
 
-    // Check which languages are already cached
-    const cachedLanguages = await getCachedLanguages(filmId);
-    const languagesToGenerate = languages.filter(
-      (lang) => !cachedLanguages.includes(lang)
-    );
-
-    // If all requested languages are cached, return cached data
-    if (languagesToGenerate.length === 0) {
-      const cachedCopies = await getCachedCopies(filmId, languages);
-      return NextResponse.json({
-        copies: cachedCopies,
-        cached: true,
-      });
-    }
-
     // Fetch film data from MUVI API
     const movie = await getMovieDetails(muvi, filmId);
     if (!movie) {
@@ -100,35 +77,15 @@ export async function POST(req: NextRequest) {
       duration: parseDuration(movie.video_details?.duration),
     };
 
-    // Generate copies for languages that aren't cached
+    // Always generate fresh copies for every requested language (no caching)
     const generatedCopies = await generateCopiesForFilm(
       getGeminiClient(),
       filmData,
-      languagesToGenerate
+      languages
     );
 
-    // Save generated copies to database
-    const copiesToSave: GeneratedCopyData[] = [];
-    for (const [language, copies] of Object.entries(generatedCopies)) {
-      for (const copy of copies) {
-        copiesToSave.push({
-          filmId,
-          language: language as SupportedLanguage,
-          headline: copy.headline,
-          primaryText: copy.primaryText,
-          description: copy.description,
-          callToAction: copy.callToAction,
-          variant: copy.variant,
-        });
-      }
-    }
-    await saveCopies(copiesToSave);
-
-    // Fetch all requested copies (cached + newly generated)
-    const allCopies = await getCachedCopies(filmId, languages);
-
     return NextResponse.json({
-      copies: allCopies,
+      copies: generatedCopies,
       cached: false,
     });
   } catch (error) {

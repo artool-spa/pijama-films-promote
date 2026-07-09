@@ -67,6 +67,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   AttachMoney as AttachMoneyIcon,
   Edit as EditIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
@@ -127,6 +128,10 @@ const ASSET_STATUS_STYLES: Record<AssetStatus, object> = {
 
 // Filter type for assets
 type AssetFilter = 'all' | 'promotable' | 'ready' | 'validating';
+
+// Enforced character limits for ad copies
+const COPY_TITLE_MAX_LENGTH = 40;
+const COPY_DESCRIPTION_MAX_LENGTH = 90;
 
 type DraftFormState = {
   selectedPlatforms?: string[];
@@ -463,6 +468,15 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   // Available variants for current language
   const availableVariants = useMemo(() => {
     return (['A', 'B', 'C'] as const).filter(v => copies[v]?.headline);
+  }, [copies]);
+
+  // Whether any alternative for the current language is blank (missing variant
+  // or a variant with an empty title/description). Used to offer AI generation.
+  const hasBlankCopies = useMemo(() => {
+    return (['A', 'B', 'C'] as const).some(v => {
+      const c = copies[v];
+      return !c || !c.headline?.trim() || !c.description?.trim();
+    });
   }, [copies]);
 
   // Budget validation
@@ -912,14 +926,11 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }));
   };
 
+  // Generate copies for a language, filling ONLY blank alternatives (missing
+  // variants or variants with an empty title/description). Existing, completed
+  // variants are preserved so user edits are never overwritten on regeneration.
   const generateCopiesForLanguage = async (langCode: string) => {
     setLoadingLanguages(prev => new Set(prev).add(langCode));
-
-    const emptyCopies = {
-      A: { headline: '', description: '' },
-      B: { headline: '', description: '' },
-      C: { headline: '', description: '' },
-    };
 
     try {
       const response = await fetch('/api/copies/generate', {
@@ -935,19 +946,34 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
       const { copies: generatedCopies } = await response.json();
       const langCopies = generatedCopies[langCode];
 
-      // Transform API response to UI format
-      const formattedCopies = langCopies?.reduce(
-        (acc: Record<string, { headline: string; description: string }>, copy: { headline: string; primaryText: string; variant: string }) => ({
-          ...acc,
-          [copy.variant]: { headline: copy.headline, description: copy.primaryText },
-        }),
-        {}
-      ) || emptyCopies;
+      // Transform API response to UI format, indexed by variant
+      const generatedByVariant: Record<string, { headline: string; description: string }> =
+        langCopies?.reduce(
+          (acc: Record<string, { headline: string; description: string }>, copy: { headline: string; primaryText: string; variant: string }) => ({
+            ...acc,
+            [copy.variant]: {
+              headline: copy.headline.slice(0, COPY_TITLE_MAX_LENGTH),
+              description: copy.primaryText.slice(0, COPY_DESCRIPTION_MAX_LENGTH),
+            },
+          }),
+          {}
+        ) || {};
 
-      setCopiesByLang(prev => ({ ...prev, [langCode]: formattedCopies }));
+      // Fill only blank alternatives, keeping any variant the user already has
+      setCopiesByLang(prev => {
+        const current = prev[langCode] || {};
+        const merged = { ...current };
+        (['A', 'B', 'C'] as const).forEach(v => {
+          const c = current[v];
+          const isBlank = !c || !c.headline?.trim() || !c.description?.trim();
+          if (isBlank && generatedByVariant[v]) {
+            merged[v] = generatedByVariant[v];
+          }
+        });
+        return { ...prev, [langCode]: merged };
+      });
     } catch (error) {
       console.error('Error generating copies:', error);
-      setCopiesByLang(prev => ({ ...prev, [langCode]: emptyCopies }));
     }
 
     setLoadingLanguages(prev => {
@@ -1751,6 +1777,20 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                   </Box>
                 ) : (
                   <>
+                    {hasBlankCopies && (
+                      <Box sx={{ mb: 3 }}>
+                        <Button
+                          variant="contained"
+                          startIcon={<AutoAwesomeIcon />}
+                          onClick={() => generateCopiesForLanguage(currentCopyLanguage)}
+                        >
+                          Generate copies
+                        </Button>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                          One or more alternatives are empty. Generate copies with AI to fill them in.
+                        </Typography>
+                      </Box>
+                    )}
                     {(['A', 'B', 'C'] as const).map((variant) => {
                       // Only render if this variant exists
                       if (!copies[variant]) return null;
@@ -1779,8 +1819,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                                 label="Title"
                                 value={copies[variant]?.headline || ''}
                                 onChange={(e) => handleCopyChange(variant, 'headline', e.target.value)}
-                                inputProps={{ maxLength: 100 }}
-                                helperText={`${(copies[variant]?.headline || '').length}/100`}
+                                inputProps={{ maxLength: COPY_TITLE_MAX_LENGTH }}
+                                helperText={`${(copies[variant]?.headline || '').length}/${COPY_TITLE_MAX_LENGTH}`}
                               />
                             </Grid>
                             <Grid size={{ xs: 12 }}>
@@ -1791,8 +1831,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                                 rows={3}
                                 value={copies[variant]?.description || ''}
                                 onChange={(e) => handleCopyChange(variant, 'description', e.target.value)}
-                                inputProps={{ maxLength: 500 }}
-                                helperText={`${(copies[variant]?.description || '').length}/500`}
+                                inputProps={{ maxLength: COPY_DESCRIPTION_MAX_LENGTH }}
+                                helperText={`${(copies[variant]?.description || '').length}/${COPY_DESCRIPTION_MAX_LENGTH}`}
                               />
                             </Grid>
                           </Grid>
