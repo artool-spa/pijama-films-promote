@@ -353,7 +353,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const router = useRouter();
 
   // Form state - Copies (multi-language, generated via API)
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(draft?.selectedLanguages ?? ['es']);
+  // Single language per campaign — kept as a 1-element array for downstream compatibility
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(
+    (draft?.selectedLanguages ?? ['es']).slice(0, 1)
+  );
   const [loadingLanguages, setLoadingLanguages] = useState<Set<string>>(new Set());
   const [copiesByLang, setCopiesByLang] = useState<Record<string, Record<string, { headline: string; description: string }>>>(draft?.copiesByLang ?? {});
   const [currentCopyLanguage, setCurrentCopyLanguage] = useState(draft?.selectedLanguages?.[0] ?? 'es');
@@ -1259,6 +1262,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
       let campaignId: string | undefined;
 
+      // Hard failures block the charge + redirect; soft/partial issues only warn.
+      const hardErrors: string[] = [];
+
       // If Meta platform selected, create via Meta API first
       if (hasMetaPlatform) {
         const metaPayload = { ...payloadWithDraft, budget: metaBudget };
@@ -1270,7 +1276,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         if (!metaResponse.ok) {
           const error = await metaResponse.json();
-          throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
+          throw new Error(error.error || error.details?.fieldErrors?.toString() || "We couldn't create your campaign. Please try again, or contact support.");
         }
 
         const metaResult = await metaResponse.json();
@@ -1279,16 +1285,18 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
         if (metaResult.pendingAssets) {
           setCampaignProgress(prev => ({
             ...prev,
-            message: metaResult.message || 'Meta: Videos are still uploading. Sync will complete automatically.',
+            message: metaResult.message || 'Videos are still uploading. Sync will complete automatically.',
           }));
         }
-        if (metaResult.syncError) {
+        if (metaResult.syncError && !metaResult.synced) {
+          hardErrors.push(`Meta: ${metaResult.syncError}`);
+        } else if (metaResult.syncError) {
           setCampaignProgress(prev => ({
             ...prev,
             error: `Meta: ${metaResult.syncError}`,
           }));
         }
-        if (metaResult.adErrors?.length > 0) {
+        if (metaResult.adErrors?.length > 0 && metaResult.synced) {
           setCampaignProgress(prev => ({
             ...prev,
             error: `Meta: ${metaResult.adErrors.map((e: { adId: string; error: string }) => e.error).join(', ')}`,
@@ -1312,13 +1320,12 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
           if (!googleResponse.ok) {
             const error = await googleResponse.json();
-            setCampaignProgress(prev => ({
-              ...prev,
-              error: `Google: ${error.error || 'Error syncing to Google'}`,
-            }));
+            hardErrors.push(`Google: ${error.error || "We couldn't create your campaign on Google Ads."}`);
           } else {
             const googleResult = await googleResponse.json();
-            if (googleResult.syncError) {
+            if (googleResult.syncError && !googleResult.synced) {
+              hardErrors.push(`Google: ${googleResult.syncError}`);
+            } else if (googleResult.syncError) {
               setCampaignProgress(prev => ({
                 ...prev,
                 error: `Google: ${googleResult.syncError}`,
@@ -1342,18 +1349,27 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         if (!googleResponse.ok) {
           const error = await googleResponse.json();
-          throw new Error(error.error || error.details?.fieldErrors?.toString() || 'Error creating campaign');
+          throw new Error(error.error || error.details?.fieldErrors?.toString() || "We couldn't create your campaign. Please try again, or contact support.");
         }
 
         const googleResult = await googleResponse.json();
         campaignId = googleResult.campaign.id;
 
-        if (googleResult.syncError) {
+        if (googleResult.syncError && !googleResult.synced) {
+          hardErrors.push(`Google: ${googleResult.syncError}`);
+        } else if (googleResult.syncError) {
           setCampaignProgress(prev => ({
             ...prev,
             error: `Google: ${googleResult.syncError}`,
           }));
         }
+      }
+
+      // A hard sync failure blocks the charge and redirect so the user is never
+      // charged for a campaign that did not reach the ad platform.
+      if (hardErrors.length > 0) {
+        setSubmitError(hardErrors.join('\n'));
+        return;
       }
 
       // Charge campaign budget from account
@@ -1370,7 +1386,7 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         if (!chargeResponse.ok) {
           const chargeError = await chargeResponse.json();
-          throw new Error(chargeError.error || 'Error charging campaign budget');
+          throw new Error(chargeError.error || "We couldn't charge your account for this campaign. Please try again.");
         }
 
         // Update local balance
@@ -1528,25 +1544,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
                   <Grid size={{ xs: 12 }}>
                     <Autocomplete
-                      multiple
                       options={LANGUAGES}
                       getOptionLabel={(option) => option.name}
-                      value={LANGUAGES.filter(l => selectedLanguages.includes(l.code))}
-                      onChange={(_, newValue) => setSelectedLanguages(newValue.map(v => v.code))}
+                      value={LANGUAGES.find(l => l.code === selectedLanguages[0]) ?? LANGUAGES[0]}
+                      onChange={(_, newValue) => {
+                        const code = newValue?.code ?? 'es';
+                        setSelectedLanguages([code]);
+                        setCurrentCopyLanguage(code);
+                      }}
                       isOptionEqualToValue={(option, value) => option.code === value.code}
+                      disableClearable
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          label="Languages"
-                          placeholder="Select languages"
+                          label="Language"
+                          placeholder="Select language"
                         />
                       )}
-                      renderTags={(value, getTagProps) =>
-                        value.map((option, index) => {
-                          const { key, ...tagProps } = getTagProps({ index });
-                          return <Chip key={key} label={option.name} {...tagProps} />;
-                        })
-                      }
                     />
                   </Grid>
 
@@ -2266,9 +2280,20 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
               </Box>
             )}
 
+            {/* Non-blocking warning for partial/soft sync issues */}
+            {campaignProgress.error && (
+              <Alert
+                severity="warning"
+                sx={{ mt: 3, whiteSpace: 'pre-line' }}
+                onClose={() => setCampaignProgress(prev => ({ ...prev, error: '' }))}
+              >
+                {campaignProgress.error}
+              </Alert>
+            )}
+
             {/* Error Display */}
             {submitError && (
-              <Alert severity="error" sx={{ mt: 3 }} onClose={() => setSubmitError(null)}>
+              <Alert severity="error" sx={{ mt: 3, whiteSpace: 'pre-line' }} onClose={() => setSubmitError(null)}>
                 {submitError}
               </Alert>
             )}

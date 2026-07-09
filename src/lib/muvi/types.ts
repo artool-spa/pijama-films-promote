@@ -34,18 +34,18 @@ export type MuviTokenResponse = z.infer<typeof MuviTokenResponseSchema>;
 
 // Image asset schema
 export const MuviImageAssetSchema = z.object({
-  file_uuid: z.string().optional(),
-  file_name: z.string().optional(),
-  file_url: z.string().optional(),
-  image_uuid: z.string().optional(),
+  file_uuid: z.string().nullish(),
+  file_name: z.string().nullish(),
+  file_url: z.string().nullish(),
+  image_uuid: z.string().nullish(),
 });
 
 export type MuviImageAsset = z.infer<typeof MuviImageAssetSchema>;
 
 // Resolution details schema
 export const MuviResolutionSchema = z.object({
-  resolution: z.string().optional(),
-  url: z.string().optional(),
+  resolution: z.string().nullish(),
+  url: z.string().nullish(),
 });
 
 export type MuviResolution = z.infer<typeof MuviResolutionSchema>;
@@ -74,15 +74,15 @@ export type MuviVideoAsset = z.infer<typeof MuviVideoAssetSchema>;
 
 // Cast details schema
 export const MuviCastSchema = z.object({
-  cast_uuid: z.string().optional(),
-  cast_name: z.string().optional(),
-  cast_bio: z.string().optional(),
+  cast_uuid: z.string().nullish(),
+  cast_name: z.string().nullish(),
+  cast_bio: z.string().nullish(),
   cast_image_uuid: z.string().nullish(),
   cast_image_details: MuviImageAssetSchema.nullish(),
   cast_type_details: z.object({
-    cast_type_uuid: z.string().optional(),
-    cast_type_name: z.string().optional(),
-  }).optional(),
+    cast_type_uuid: z.string().nullish(),
+    cast_type_name: z.string().nullish(),
+  }).nullish(),
 });
 
 export type MuviCast = z.infer<typeof MuviCastSchema>;
@@ -202,6 +202,24 @@ export const MuviContentListResponseSchema = z.object({
 });
 
 export type MuviContentListResponse = z.infer<typeof MuviContentListResponseSchema>;
+
+// Lenient envelope schema — validates only the response container, treating each
+// content item as an opaque record. Used as a fallback when the strict item
+// schema rejects a detail field, so an unexpected API shape degrades gracefully
+// instead of crashing the page.
+export const MuviContentListEnvelopeSchema = z.object({
+  code: z.number(),
+  status: z.string(),
+  message: z.string().optional(),
+  data: z.object({
+    contentList: z.object({
+      page_info: MuviPageInfoSchema.nullable().optional(),
+      content_list: z.array(z.record(z.string(), z.unknown())),
+    }),
+  }),
+});
+
+export type MuviContentListEnvelope = z.infer<typeof MuviContentListEnvelopeSchema>;
 
 // API response wrapper
 export const MuviApiResponseSchema = z.object({

@@ -1,10 +1,30 @@
 'use client';
 
-import { Suspense } from 'react';
-import { Container, Box, Typography, Grid, Pagination, Card, CardContent } from '@mui/material';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import {
+  Container,
+  Box,
+  Typography,
+  Grid,
+  Pagination,
+  Card,
+  CardContent,
+  TextField,
+  MenuItem,
+  InputAdornment,
+} from '@mui/material';
+import { Search as SearchIcon } from '@mui/icons-material';
 import { useRouter, useSearchParams } from 'next/navigation';
 import FilmCard from '@/components/FilmCard';
 import type { Film } from '@/models/film';
+
+const SORT_OPTIONS = [
+  { value: '', label: 'Relevance' },
+  { value: 'nto', label: 'Newest first' },
+  { value: 'otn', label: 'Oldest first' },
+  { value: 'atoz', label: 'Title (A-Z)' },
+  { value: 'ztoa', label: 'Title (Z-A)' },
+];
 
 type FilmsClientProps = {
   films: Film[];
@@ -22,7 +42,83 @@ type FilmsClientProps = {
     totalPages: number;
     total: number;
   };
+  search: string;
+  sort: string;
 };
+
+function FilmsFilterBar({ search, sort }: { search: string; sort: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [searchInput, setSearchInput] = useState(search);
+  // Track whether the current input change came from the user (vs. props sync)
+  const isUserEdit = useRef(false);
+
+  // Keep local input in sync when the URL/search prop changes externally
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
+
+  // Debounce pushing the search term to the URL
+  useEffect(() => {
+    if (!isUserEdit.current) return;
+    const handle = setTimeout(() => {
+      pushParams({ q: searchInput || null, page: null });
+    }, 400);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  const pushParams = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    router.push(query ? `/films?${query}` : '/films');
+  };
+
+  return (
+    <Card sx={{ mb: 4 }}>
+      <CardContent>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TextField
+            label="Search"
+            placeholder="Search by title"
+            size="small"
+            value={searchInput}
+            onChange={(e) => {
+              isUserEdit.current = true;
+              setSearchInput(e.target.value);
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ minWidth: 240, flexGrow: 1 }}
+          />
+          <TextField
+            select
+            label="Sort by"
+            size="small"
+            value={sort}
+            onChange={(e) => pushParams({ sort: e.target.value || null, page: null })}
+            sx={{ minWidth: 200 }}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
 
 function PaginationControls({ totalPages, currentPage }: { totalPages: number; currentPage: number }) {
   const router = useRouter();
@@ -49,7 +145,7 @@ function PaginationControls({ totalPages, currentPage }: { totalPages: number; c
   );
 }
 
-export default function FilmsClient({ films, aggregateStats, pagination }: FilmsClientProps) {
+export default function FilmsClient({ films, aggregateStats, pagination, search, sort }: FilmsClientProps) {
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {/* Page Header */}
@@ -112,7 +208,19 @@ export default function FilmsClient({ films, aggregateStats, pagination }: Films
         </CardContent>
       </Card>
 
+      {/* Search & Sort */}
+      <Suspense fallback={null}>
+        <FilmsFilterBar search={search} sort={sort} />
+      </Suspense>
+
       {/* Films Grid */}
+      {films.length === 0 ? (
+        <Box sx={{ py: 8, textAlign: 'center' }}>
+          <Typography variant="body1" color="text.secondary">
+            No films found
+          </Typography>
+        </Box>
+      ) : (
       <Grid container spacing={3}>
         {films.map((film) => (
           <Grid key={film.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
@@ -120,6 +228,7 @@ export default function FilmsClient({ films, aggregateStats, pagination }: Films
           </Grid>
         ))}
       </Grid>
+      )}
 
       {/* Pagination */}
       <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>Loading...</Box>}>
