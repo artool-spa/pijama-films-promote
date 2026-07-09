@@ -740,7 +740,7 @@ export async function createDemandGenImageAd(
             headlines,
             descriptions,
             businessName: validated.businessName,
-            callToActionText: 'Learn more',
+            callToActionText: 'See more',
           },
         },
       },

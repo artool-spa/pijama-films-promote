@@ -56,7 +56,7 @@ REQUIREMENTS:
 - Language: ${langName}
 - Each variant must have:
   * headline: Short, attention-grabbing (max 40 characters)
-  * primaryText: Main ad copy (100-150 characters)
+  * primaryText: Main ad copy (max 90 characters) and should have watch in Pijama Films
   * description: Supporting text (max 90 characters)
   * callToAction: One of: ${ctaOptions}
   * variant: "A", "B", or "C"

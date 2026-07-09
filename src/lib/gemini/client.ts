@@ -4,10 +4,10 @@ import { GeminiConfig, GeminiConfigSchema } from './types';
 import { GeminiConfigError, GeminiApiError } from './errors';
 
 // Model to use for copy generation (fast and cost-effective)
-// Using Gemini 2.0 Flash - stable model available until March 2026
-const MODEL_NAME = 'gemini-2.0-flash-001';
+// Gemini 3.5 Flash — served only from the Vertex AI 'global' endpoint (not regional).
+const MODEL_NAME = 'gemini-3.5-flash';
 // Vertex AI endpoint (supports service account authentication)
-const VERTEX_AI_LOCATION = 'us-central1';
+const VERTEX_AI_LOCATION = 'global';
 
 /**
  * GeminiClient manages the connection to Google's Generative AI API
@@ -71,8 +71,13 @@ export class GeminiClient {
   async generateContent(prompt: string): Promise<string> {
     const accessToken = await this.getAccessToken();
 
-    // Vertex AI endpoint format
-    const url = `https://${VERTEX_AI_LOCATION}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${VERTEX_AI_LOCATION}/publishers/google/models/${MODEL_NAME}:generateContent`;
+    // Vertex AI endpoint format.
+    // Global endpoint has no region prefix; regional endpoints do.
+    const host =
+      VERTEX_AI_LOCATION === 'global'
+        ? 'aiplatform.googleapis.com'
+        : `${VERTEX_AI_LOCATION}-aiplatform.googleapis.com`;
+    const url = `https://${host}/v1/projects/${this.projectId}/locations/${VERTEX_AI_LOCATION}/publishers/google/models/${MODEL_NAME}:generateContent`;
 
     const response = await fetch(url, {
       method: 'POST',

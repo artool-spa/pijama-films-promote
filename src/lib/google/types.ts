@@ -166,7 +166,7 @@ export const DemandGenImageAdCreateSchema = z.object({
   squareImageAssetResourceNames: z.array(z.string()).default([]),
   portraitImageAssetResourceNames: z.array(z.string()).default([]),
   logoImageAssetResourceNames: z.array(z.string()).min(1),
-  headlines: z.array(z.string().min(1).max(30)).min(1).max(5),
+  headlines: z.array(z.string().min(1).max(40)).min(1).max(5),
   descriptions: z.array(z.string().min(1).max(90)).min(1).max(5),
   finalUrl: z.string().url(),
   businessName: z.string().min(1).max(25),
