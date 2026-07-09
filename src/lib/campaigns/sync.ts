@@ -26,6 +26,13 @@ import {
   GoogleAdsApiError,
 } from '#google';
 import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
+import {
+  classifyPlacementBucket,
+  FEED_ONLY_PLACEMENTS,
+  STORY_ONLY_PLACEMENTS,
+  type AssetDimensions,
+  type PlacementTargeting,
+} from '@/lib/meta/placements';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
 
@@ -98,6 +105,22 @@ export function areGoogleImageAssetsReady(ads: Ad[]): boolean {
  * Sync a campaign to Meta Ads (create CBO campaign, ad sets, and ads).
  * Assumes ads are already created locally.
  */
+/**
+ * Decide manual placement targeting for an ad set based on its assets' aspect ratios.
+ * - both feed + story assets → undefined (keep automatic placements; the ad's
+ *   asset_customization_rules route each asset to the right placement)
+ * - feed only (no vertical asset uploaded) → exclude Story/Reels so horizontals never render there
+ * - story only → restrict to Story/Reels
+ */
+function computePlacementOverride(assets: AssetDimensions[]): PlacementTargeting | undefined {
+  const hasFeed = assets.some((a) => classifyPlacementBucket(a) === 'feed');
+  const hasStory = assets.some((a) => classifyPlacementBucket(a) === 'story');
+  if (hasFeed && hasStory) return undefined;
+  if (hasStory) return STORY_ONLY_PLACEMENTS;
+  if (hasFeed) return FEED_ONLY_PLACEMENTS;
+  return undefined;
+}
+
 export async function syncCampaignToMeta(
   campaign: CampaignWithPartnerAndAds,
   partnerName: string,
@@ -118,15 +141,20 @@ export async function syncCampaignToMeta(
 
   await emitProgress(filmId, campaign.id, 'media', 30, 'Processing media assets...');
 
-  // Collect all media
-  const allImageUrls: string[] = [];
-  const allVideoIds: string[] = [];
+  // Collect all media with aspect-ratio metadata (used for per-placement asset customization)
+  const allImages: Array<{ url: string } & AssetDimensions> = [];
+  const allVideos: Array<{ video_id: string } & AssetDimensions> = [];
   const videoUploadErrors: string[] = [];
 
   for (const ad of ads) {
     for (const image of ad.images) {
-      if (!allImageUrls.includes(image.url)) {
-        allImageUrls.push(image.url);
+      if (!allImages.some((i) => i.url === image.url)) {
+        allImages.push({
+          url: image.url,
+          aspectRatio: image.aspectRatio,
+          width: image.width,
+          height: image.height,
+        });
       }
     }
 
@@ -140,8 +168,13 @@ export async function syncCampaignToMeta(
           videoId = uploaded.video_id;
           await setMetaVideoId(video.id, videoId);
         }
-        if (!allVideoIds.includes(videoId)) {
-          allVideoIds.push(videoId);
+        if (!allVideos.some((v) => v.video_id === videoId)) {
+          allVideos.push({
+            video_id: videoId,
+            aspectRatio: video.aspectRatio,
+            width: video.width,
+            height: video.height,
+          });
         }
       } catch (err) {
         log.error({ err, videoId: video.id }, 'Failed to upload video');
@@ -150,8 +183,8 @@ export async function syncCampaignToMeta(
     }
   }
 
-  const effectiveHasImages = allImageUrls.length > 0;
-  const effectiveHasVideos = allVideoIds.length > 0;
+  const effectiveHasImages = allImages.length > 0;
+  const effectiveHasVideos = allVideos.length > 0;
 
   if (!effectiveHasImages && !effectiveHasVideos) {
     return {
@@ -210,6 +243,9 @@ export async function syncCampaignToMeta(
       optimizationGoal,
       dsaBeneficiary: partnerName,
       dsaPayor: partnerName,
+      // Exclude Story/Reels for ad sets whose assets have no Stories-suitable aspect ratio.
+      imagePlacements: effectiveHasImages ? computePlacementOverride(allImages) : undefined,
+      videoPlacements: effectiveHasVideos ? computePlacementOverride(allVideos) : undefined,
     });
 
     metaCampaignId = cboResult.campaignId;
@@ -283,7 +319,7 @@ export async function syncCampaignToMeta(
         bodies: uniqueBodies,
         descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
         callToAction,
-        imageUrls: allImageUrls,
+        images: allImages,
       });
 
       if (imageAd.ad_id) {
@@ -308,7 +344,7 @@ export async function syncCampaignToMeta(
         bodies: uniqueBodies,
         descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
         callToAction,
-        videoIds: allVideoIds,
+        videos: allVideos,
       });
 
       if (videoAd.ad_id) {
@@ -586,7 +622,10 @@ export async function syncCampaignToGoogle(
       syncedAds.push({ ...ad, googleAdId: googleAd.resourceName });
     } catch (error) {
       const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
-      log.error({ err: error, adId: ad.id }, 'Failed to create Google ad');
+      log.error(
+        { err: error, adId: ad.id, response: error instanceof GoogleAdsApiError ? error.response : undefined },
+        'Failed to create Google ad'
+      );
       adErrors.push({ adId: ad.id, error: errorMsg });
       // Only mark ad as error if Meta hasn't already synced it successfully
       if (!ad.metaAdId) {

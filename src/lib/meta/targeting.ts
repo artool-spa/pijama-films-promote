@@ -58,6 +58,10 @@ export interface BuiltTargeting {
   targeting_automation?: {
     advantage_audience: number;
   };
+  // Manual placement targeting (omitted = automatic/Advantage+ placements).
+  publisher_platforms?: string[];
+  facebook_positions?: string[];
+  instagram_positions?: string[];
 }
 
 // ============================================================================
