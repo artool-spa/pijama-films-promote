@@ -56,6 +56,19 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
 
+  // A campaign is "in period" when its run window overlaps the selected [startDate, endDate].
+  // ISO YYYY-MM-DD strings compare lexicographically, so string comparison is safe.
+  const isCampaignInPeriod = useCallback(
+    (c: NonNullable<Film['campaigns']>[number]) => {
+      const cStart = new Date(c.startDate).toISOString().split('T')[0];
+      const cEnd = c.endDate ? new Date(c.endDate).toISOString().split('T')[0] : null;
+      if (endDate && cStart > endDate) return false; // starts after the period
+      if (startDate && cEnd && cEnd < startDate) return false; // ended before the period
+      return true;
+    },
+    [startDate, endDate]
+  );
+
   // Fetch live metrics from Meta/Google for all synced campaigns
   const [liveStats, setLiveStats] = useState<{
     totalImpressions: number;
@@ -66,16 +79,27 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
   const fetchAllInsights = useCallback(async () => {
     const syncedCampaigns = films
       .flatMap(f => (f.campaigns || []).map(c => c))
-      .filter(c => c.metaCampaignId);
+      .filter(c => c.metaCampaignId && isCampaignInPeriod(c));
 
-    if (syncedCampaigns.length === 0) return;
+    if (syncedCampaigns.length === 0) {
+      setLiveStats({ totalImpressions: 0, totalSpend: 0, totalConversions: 0 });
+      return;
+    }
+
+    // Constrain the reported metrics to the selected period
+    const periodQuery = new URLSearchParams();
+    if (startDate) periodQuery.set('since', startDate);
+    if (endDate) periodQuery.set('until', endDate);
+    const qs = periodQuery.toString();
 
     let impressions = 0, spend = 0, conversions = 0;
 
     await Promise.all(syncedCampaigns.map(async (campaign) => {
       if (campaign.metaCampaignId) {
         try {
-          const res = await fetch(`/api/meta/campaigns/${campaign.id}/insights`);
+          const res = await fetch(
+            `/api/meta/campaigns/${campaign.id}/insights${qs ? `?${qs}` : ''}`
+          );
           const data = await res.json();
           if (data.data) {
             impressions += data.data.impressions || 0;
@@ -87,17 +111,18 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
     }));
 
     setLiveStats({ totalImpressions: impressions, totalSpend: spend, totalConversions: conversions });
-  }, [films]);
+  }, [films, isCampaignInPeriod, startDate, endDate]);
 
   useEffect(() => {
     fetchAllInsights();
   }, [fetchAllInsights]);
 
-  // Group campaigns by film and calculate aggregates
+  // Group campaigns by film and calculate aggregates.
+  // Only campaigns whose run window overlaps the selected period are counted,
+  // and films left with no in-period campaigns are dropped from the list.
   const filmsWithCampaigns: FilmWithAggregate[] = films
-    .filter((f) => f.campaigns && f.campaigns.length > 0)
     .map((film) => {
-      const campaigns = film.campaigns!;
+      const campaigns = (film.campaigns || []).filter(isCampaignInPeriod);
       const totalBudget = campaigns.reduce((sum, c) => sum + c.budget, 0);
       const activeCampaigns = campaigns.filter((c) => c.status === 'ACTIVE').length;
 
@@ -107,7 +132,8 @@ export default function CampaignsClient({ films, aggregateStats }: CampaignsClie
         campaignCount: campaigns.length,
         activeCampaigns,
       };
-    });
+    })
+    .filter((f) => f.campaignCount > 0);
 
   const handleRowClick = (filmId: string) => {
     router.push(`/films/${filmId}/campaigns`);

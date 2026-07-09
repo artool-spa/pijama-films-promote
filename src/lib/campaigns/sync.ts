@@ -28,6 +28,7 @@ import {
 import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
+import { appendUtmParams } from './utm';
 
 // Helper to publish campaign progress
 async function emitProgress(filmId: string, campaignId: string, step: string, progress: number, message: string) {
@@ -250,7 +251,12 @@ export async function syncCampaignToMeta(
   const allHeadlines: string[] = [];
   const allBodies: string[] = [];
   const allDescriptions: string[] = [];
-  const linkUrl = ads[0]?.linkUrl || '';
+  const linkUrl = appendUtmParams(ads[0]?.linkUrl || '', {
+    source: 'meta',
+    medium: 'cpc',
+    campaign: campaign.name,
+    content: campaign.language,
+  });
   const callToAction = ads[0]?.callToAction || 'LEARN_MORE';
 
   for (const ad of ads) {
@@ -578,7 +584,12 @@ export async function syncCampaignToGoogle(
         logoImageAssetResourceNames: [logoAssetResourceName],
         headlines: ad.headlines.map(h => h.substring(0, 30)).slice(0, 5),
         descriptions: ad.bodies.map(b => b.substring(0, 90)).slice(0, 5),
-        finalUrl: ad.linkUrl,
+        finalUrl: appendUtmParams(ad.linkUrl, {
+          source: 'google',
+          medium: 'cpc',
+          campaign: campaign.name,
+          content: campaign.language,
+        }),
         businessName: partnerName.substring(0, 25),
       });
 

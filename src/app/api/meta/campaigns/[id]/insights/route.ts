@@ -153,6 +153,9 @@ export async function GET(
 ) {
   const { id } = await params;
   const wantsPlatformBreakdown = request.nextUrl.searchParams.get('breakdown') === 'platform';
+  // Optional user-selected reporting period (clamped to the campaign's own range below)
+  const sinceParam = request.nextUrl.searchParams.get('since');
+  const untilParam = request.nextUrl.searchParams.get('until');
 
   try {
     // First, get the campaign from our database
@@ -214,10 +217,21 @@ export async function GET(
 
     const isActive = campaign.status === 'ACTIVE';
     const endDateStr = campaign.endDate?.toISOString().split('T')[0] || today;
+    // The campaign's own reportable window: [startDate, min(endDate, today)]
+    const campaignEnd = endDateStr > today ? today : endDateStr;
+
+    // Apply an optional user-selected period, clamped inside the campaign window.
+    // ISO YYYY-MM-DD strings compare lexicographically, so string min/max is safe.
+    const isIsoDate = (s: string | null): s is string =>
+      !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+    const since = isIsoDate(sinceParam) && sinceParam > startDateStr ? sinceParam : startDateStr;
+    let until = isIsoDate(untilParam) && untilParam < campaignEnd ? untilParam : campaignEnd;
+    // Guard against an inverted range (selected period entirely before the campaign)
+    if (until < since) until = since;
+
     const dateRange = {
-      since: startDateStr,
-      // Don't request future dates - use today if end date is in the future
-      until: endDateStr > today ? today : endDateStr,
+      since,
+      until,
     };
 
     const insightsFields = [
@@ -235,7 +249,7 @@ export async function GET(
 
     // Platform breakdown path
     if (wantsPlatformBreakdown) {
-      const platformCacheKey = `${id}:platform`;
+      const platformCacheKey = `${id}:platform:${dateRange.since}:${dateRange.until}`;
       const cachedPlatform = getCachedPlatformInsights(platformCacheKey);
       if (cachedPlatform) {
         return NextResponse.json({
@@ -342,7 +356,8 @@ export async function GET(
     }
 
     // Standard (non-breakdown) path
-    const cached = getCachedInsights(id);
+    const cacheKey = `${id}:${dateRange.since}:${dateRange.until}`;
+    const cached = getCachedInsights(cacheKey);
     if (cached) {
       return NextResponse.json({
         synced: true,
@@ -415,7 +430,7 @@ export async function GET(
     };
 
     // Cache the results
-    setCachedInsights(id, response, isActive);
+    setCachedInsights(cacheKey, response, isActive);
 
     return NextResponse.json({
       synced: true,

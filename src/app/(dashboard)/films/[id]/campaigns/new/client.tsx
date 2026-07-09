@@ -353,7 +353,10 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
   const router = useRouter();
 
   // Form state - Copies (multi-language, generated via API)
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(draft?.selectedLanguages ?? ['es']);
+  // Single language per campaign — kept as a 1-element array for downstream compatibility
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(
+    (draft?.selectedLanguages ?? ['es']).slice(0, 1)
+  );
   const [loadingLanguages, setLoadingLanguages] = useState<Set<string>>(new Set());
   const [copiesByLang, setCopiesByLang] = useState<Record<string, Record<string, { headline: string; description: string }>>>(draft?.copiesByLang ?? {});
   const [currentCopyLanguage, setCurrentCopyLanguage] = useState(draft?.selectedLanguages?.[0] ?? 'es');
@@ -1528,25 +1531,23 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
                   <Grid size={{ xs: 12 }}>
                     <Autocomplete
-                      multiple
                       options={LANGUAGES}
                       getOptionLabel={(option) => option.name}
-                      value={LANGUAGES.filter(l => selectedLanguages.includes(l.code))}
-                      onChange={(_, newValue) => setSelectedLanguages(newValue.map(v => v.code))}
+                      value={LANGUAGES.find(l => l.code === selectedLanguages[0]) ?? LANGUAGES[0]}
+                      onChange={(_, newValue) => {
+                        const code = newValue?.code ?? 'es';
+                        setSelectedLanguages([code]);
+                        setCurrentCopyLanguage(code);
+                      }}
                       isOptionEqualToValue={(option, value) => option.code === value.code}
+                      disableClearable
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          label="Languages"
-                          placeholder="Select languages"
+                          label="Language"
+                          placeholder="Select language"
                         />
                       )}
-                      renderTags={(value, getTagProps) =>
-                        value.map((option, index) => {
-                          const { key, ...tagProps } = getTagProps({ index });
-                          return <Chip key={key} label={option.name} {...tagProps} />;
-                        })
-                      }
                     />
                   </Grid>
 

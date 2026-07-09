@@ -170,10 +170,15 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     setInsightsError(null);
 
     try {
+      // Constrain the reported metrics to the selected period
+      const metaParams = new URLSearchParams({ breakdown: 'platform' });
+      if (startDate) metaParams.set('since', startDate);
+      if (endDate) metaParams.set('until', endDate);
+
       // Fetch Meta insights with platform breakdown if Meta platform is present and synced
       if (hasMeta && campaign.metaCampaignId) {
         const metaResponse = await fetch(
-          `/api/meta/campaigns/${campaign.id}/insights?breakdown=platform`
+          `/api/meta/campaigns/${campaign.id}/insights?${metaParams.toString()}`
         );
         const metaData = await metaResponse.json();
         if (metaData.synced && metaData.data) {
@@ -206,7 +211,7 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
     } finally {
       setInsightsLoading(false);
     }
-  }, [isSynced, hasMeta, hasGoogle, campaign.id, campaign.metaCampaignId]);
+  }, [isSynced, hasMeta, hasGoogle, campaign.id, campaign.metaCampaignId, startDate, endDate]);
 
   // Fetch insights on mount if campaign is synced
   useEffect(() => {
