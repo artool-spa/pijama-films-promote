@@ -111,6 +111,11 @@ export const MetaTargetingSchema = z.object({
   targeting_automation: z.object({
     advantage_audience: z.number(),
   }).optional(),
+  // Manual placement targeting. When omitted, Meta uses automatic (Advantage+) placements.
+  // Used to exclude Story/Reels for ad sets that have no Stories-suitable asset.
+  publisher_platforms: z.array(z.string()).optional(),
+  facebook_positions: z.array(z.string()).optional(),
+  instagram_positions: z.array(z.string()).optional(),
 });
 
 // Input type for targeting (before defaults)

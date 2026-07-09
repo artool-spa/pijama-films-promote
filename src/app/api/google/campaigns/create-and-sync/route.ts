@@ -8,6 +8,7 @@ import { getPartnerFromRequest } from '@/lib/auth';
 import { publish } from '@/lib/events';
 import { GoogleAdsApiError } from '#google';
 import { areGoogleImageAssetsReady, syncCampaignToGoogle } from '@/lib/campaigns/sync';
+import { toFriendlyCampaignError } from '@/lib/campaigns/error-messages';
 import { validateCampaignBudget } from '@/lib/campaigns/budget-validation';
 
 // Helper to publish campaign progress
@@ -76,7 +77,7 @@ const GoogleCampaignWithAdsCreateSchema = z.object({
 export async function POST(req: NextRequest) {
   const partner = await getPartnerFromRequest(req);
   if (!partner) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
   }
 
   try {
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { error: 'Datos invalidos', details: result.error.flatten() },
+        { error: 'Invalid campaign data', details: result.error.flatten() },
         { status: 400 }
       );
     }
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     const targetPartner = await getPartnerById(partner.id);
     if (!targetPartner) {
-      return NextResponse.json({ error: 'Partner no encontrado' }, { status: 404 });
+      return NextResponse.json({ error: 'Partner not found' }, { status: 404 });
     }
 
     // Step 1: Create or reuse campaign
@@ -161,11 +162,11 @@ export async function POST(req: NextRequest) {
       // Reuse existing campaign (multi-platform: Meta campaign already created)
       const existing = await getCampaignById(existingCampaignId);
       if (!existing) {
-        return NextResponse.json({ error: 'Campaña no encontrada' }, { status: 404 });
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
       }
       campaign = existing;
       ads = await getAdsByCampaignId(existingCampaignId);
-      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Usando campaña existente para Google Ads');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Using existing campaign for Google Ads');
     } else {
       // Create new campaign locally (DRAFT, platforms=[GOOGLE])
       campaign = await createCampaign({
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest) {
         targetCpvMicros: targetCpvMicros ? BigInt(targetCpvMicros) : undefined,
       });
 
-      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campana guardada localmente');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Campaign saved locally');
 
       // Step 2: Create ads locally (DRAFT)
       const adsToCreate = adsData.map(ad => ({
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
       }));
 
       ads = await createAdsForCampaign(campaign.id, adsToCreate);
-      await emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Anuncios guardados localmente');
+      await emitProgress(data.filmMuviUuid, campaign.id, 'ads', 20, 'Ads saved locally');
     }
 
     if (!autoSync) {
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
         ads,
         synced: false,
         pendingAssets: true,
-        message: 'Campaña guardada. Las imágenes aún no están disponibles — la sincronización se completará automáticamente.',
+        message: 'Campaign saved. Your images are not available yet — sync will finish automatically.',
       }, { status: 201 });
     }
 
@@ -260,7 +261,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof GoogleAdsApiError) {
       return NextResponse.json(
         {
-          error: 'Error al crear la campana',
+          error: toFriendlyCampaignError(error, 'Google'),
           details: error.message,
           code: error.errorCode,
         },
@@ -269,7 +270,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Error al crear la campana' },
+      { error: 'Something went wrong while creating your campaign. Please try again, or contact support.' },
       { status: 500 }
     );
   }

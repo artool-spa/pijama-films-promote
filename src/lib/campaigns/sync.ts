@@ -26,6 +26,14 @@ import {
   GoogleAdsApiError,
 } from '#google';
 import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
+import {
+  classifyPlacementBucket,
+  FEED_ONLY_PLACEMENTS,
+  STORY_ONLY_PLACEMENTS,
+  type AssetDimensions,
+  type PlacementTargeting,
+} from '@/lib/meta/placements';
+import { toFriendlyCampaignError } from '@/lib/campaigns/error-messages';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { Ad } from '@/models/ad';
 import { appendUtmParams } from './utm';
@@ -99,6 +107,22 @@ export function areGoogleImageAssetsReady(ads: Ad[]): boolean {
  * Sync a campaign to Meta Ads (create CBO campaign, ad sets, and ads).
  * Assumes ads are already created locally.
  */
+/**
+ * Decide manual placement targeting for an ad set based on its assets' aspect ratios.
+ * - both feed + story assets → undefined (keep automatic placements; the ad's
+ *   asset_customization_rules route each asset to the right placement)
+ * - feed only (no vertical asset uploaded) → exclude Story/Reels so horizontals never render there
+ * - story only → restrict to Story/Reels
+ */
+function computePlacementOverride(assets: AssetDimensions[]): PlacementTargeting | undefined {
+  const hasFeed = assets.some((a) => classifyPlacementBucket(a) === 'feed');
+  const hasStory = assets.some((a) => classifyPlacementBucket(a) === 'story');
+  if (hasFeed && hasStory) return undefined;
+  if (hasStory) return STORY_ONLY_PLACEMENTS;
+  if (hasFeed) return FEED_ONLY_PLACEMENTS;
+  return undefined;
+}
+
 export async function syncCampaignToMeta(
   campaign: CampaignWithPartnerAndAds,
   partnerName: string,
@@ -113,21 +137,26 @@ export async function syncCampaignToMeta(
       syncedAds: [],
       adErrors: [],
       videoUploadErrors: [],
-      syncError: 'META_PAGE_ID no está configurado. La campaña se guardó como borrador.',
+      syncError: 'Meta advertising is not configured on this server yet. Your campaign was saved as a draft — please contact support.',
     };
   }
 
   await emitProgress(filmId, campaign.id, 'media', 30, 'Processing media assets...');
 
-  // Collect all media
-  const allImageUrls: string[] = [];
-  const allVideoIds: string[] = [];
+  // Collect all media with aspect-ratio metadata (used for per-placement asset customization)
+  const allImages: Array<{ url: string } & AssetDimensions> = [];
+  const allVideos: Array<{ video_id: string } & AssetDimensions> = [];
   const videoUploadErrors: string[] = [];
 
   for (const ad of ads) {
     for (const image of ad.images) {
-      if (!allImageUrls.includes(image.url)) {
-        allImageUrls.push(image.url);
+      if (!allImages.some((i) => i.url === image.url)) {
+        allImages.push({
+          url: image.url,
+          aspectRatio: image.aspectRatio,
+          width: image.width,
+          height: image.height,
+        });
       }
     }
 
@@ -141,8 +170,13 @@ export async function syncCampaignToMeta(
           videoId = uploaded.video_id;
           await setMetaVideoId(video.id, videoId);
         }
-        if (!allVideoIds.includes(videoId)) {
-          allVideoIds.push(videoId);
+        if (!allVideos.some((v) => v.video_id === videoId)) {
+          allVideos.push({
+            video_id: videoId,
+            aspectRatio: video.aspectRatio,
+            width: video.width,
+            height: video.height,
+          });
         }
       } catch (err) {
         log.error({ err, videoId: video.id }, 'Failed to upload video');
@@ -151,8 +185,8 @@ export async function syncCampaignToMeta(
     }
   }
 
-  const effectiveHasImages = allImageUrls.length > 0;
-  const effectiveHasVideos = allVideoIds.length > 0;
+  const effectiveHasImages = allImages.length > 0;
+  const effectiveHasVideos = allVideos.length > 0;
 
   if (!effectiveHasImages && !effectiveHasVideos) {
     return {
@@ -160,7 +194,7 @@ export async function syncCampaignToMeta(
       syncedAds: [],
       adErrors: [],
       videoUploadErrors,
-      syncError: 'No se pudo procesar ningún medio',
+      syncError: 'None of the selected images or videos could be processed. Please re-upload your media and try again.',
     };
   }
 
@@ -211,6 +245,9 @@ export async function syncCampaignToMeta(
       optimizationGoal,
       dsaBeneficiary: partnerName,
       dsaPayor: partnerName,
+      // Exclude Story/Reels for ad sets whose assets have no Stories-suitable aspect ratio.
+      imagePlacements: effectiveHasImages ? computePlacementOverride(allImages) : undefined,
+      videoPlacements: effectiveHasVideos ? computePlacementOverride(allVideos) : undefined,
     });
 
     metaCampaignId = cboResult.campaignId;
@@ -223,10 +260,9 @@ export async function syncCampaignToMeta(
     log.error({ err: error }, 'Error syncing campaign to Meta');
     await markCampaignError(campaign.id).catch(() => {});
 
-    let syncError = 'Error al sincronizar con Meta';
+    const syncError = toFriendlyCampaignError(error, 'Meta');
     let syncErrorDetails: unknown = undefined;
     if (error instanceof MetaApiError) {
-      syncError = error.message;
       syncErrorDetails = {
         code: error.errorCode,
         subcode: error.errorSubcode,
@@ -289,14 +325,14 @@ export async function syncCampaignToMeta(
         bodies: uniqueBodies,
         descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
         callToAction,
-        imageUrls: allImageUrls,
+        images: allImages,
       });
 
       if (imageAd.ad_id) {
         imageAdId = imageAd.ad_id;
       }
     } catch (error) {
-      imageAdError = error instanceof MetaApiError ? error.message : 'Error creating image ad';
+      imageAdError = toFriendlyCampaignError(error, 'Meta');
       log.error({ err: error }, 'Image ad creation failed');
     }
   }
@@ -314,14 +350,14 @@ export async function syncCampaignToMeta(
         bodies: uniqueBodies,
         descriptions: uniqueDescriptions.length > 0 ? uniqueDescriptions : undefined,
         callToAction,
-        videoIds: allVideoIds,
+        videos: allVideos,
       });
 
       if (videoAd.ad_id) {
         videoAdId = videoAd.ad_id;
       }
     } catch (error) {
-      videoAdError = error instanceof MetaApiError ? error.message : 'Error creating video ad';
+      videoAdError = toFriendlyCampaignError(error, 'Meta');
       log.error({ err: error }, 'Video ad creation failed');
     }
   }
@@ -436,7 +472,7 @@ export async function syncCampaignToGoogle(
   const ads = campaign.ads;
   const filmId = campaign.filmMuviUuid;
 
-  await emitProgress(filmId, campaign.id, 'google_campaign', 40, 'Creando campana en Google Ads...');
+  await emitProgress(filmId, campaign.id, 'google_campaign', 40, 'Creating campaign in Google Ads...');
 
   let googleCampaignId: string;
   let googleAdGroupId: string;
@@ -465,16 +501,15 @@ export async function syncCampaignToGoogle(
     googleCampaignId = googleResult.campaignResourceName;
     googleAdGroupId = googleResult.adGroupResourceName;
 
-    await emitProgress(filmId, campaign.id, 'google_adgroup', 60, 'Campana y grupo de anuncios creados en Google');
+    await emitProgress(filmId, campaign.id, 'google_adgroup', 60, 'Campaign and ad group created in Google');
     await markGoogleCampaignSynced(campaign.id, googleCampaignId, googleAdGroupId);
   } catch (error) {
     log.error({ err: error }, 'Error syncing campaign to Google Ads');
     await markGoogleCampaignError(campaign.id).catch(() => {});
 
-    let syncError = 'Error al sincronizar con Google Ads';
+    const syncError = toFriendlyCampaignError(error, 'Google');
     let syncErrorDetails: unknown = undefined;
     if (error instanceof GoogleAdsApiError) {
-      syncError = error.message;
       syncErrorDetails = {
         code: error.errorCode,
         response: error.response,
@@ -514,7 +549,7 @@ export async function syncCampaignToGoogle(
       synced: false,
       syncedAds: [],
       adErrors: [],
-      syncError: 'Error al subir el logo de Pijama Films',
+      syncError: toFriendlyCampaignError(error, 'Google'),
       syncErrorDetails: error instanceof GoogleAdsApiError ? { code: error.errorCode, response: error.response } : undefined,
     };
   }
@@ -539,13 +574,13 @@ export async function syncCampaignToGoogle(
     });
 
     if (validImages.length === 0) {
-      adErrors.push({ adId: ad.id, error: 'No hay imágenes con formato válido para Google Ads (se requiere 1.91:1, 1:1, o 4:5, máximo 5MB)' });
+      adErrors.push({ adId: ad.id, error: 'No images with a valid format for Google Ads. Google requires 1.91:1, 1:1, or 4:5 aspect ratios, max 5MB.' });
       continue;
     }
 
     try {
       // Upload valid images as Google Ads assets
-      await emitProgress(filmId, campaign.id, 'image_upload', 70, `Subiendo imágenes: ${ad.name}...`);
+      await emitProgress(filmId, campaign.id, 'image_upload', 70, `Uploading images: ${ad.name}...`);
 
       const landscapeImageAssetResourceNames: string[] = [];
       const squareImageAssetResourceNames: string[] = [];
@@ -573,7 +608,7 @@ export async function syncCampaignToGoogle(
       }
 
       // Create Demand Gen image ad
-      await emitProgress(filmId, campaign.id, 'image_ad', 80, `Creando anuncio: ${ad.name}...`);
+      await emitProgress(filmId, campaign.id, 'image_ad', 80, `Creating ad: ${ad.name}...`);
 
       const googleAd = await createDemandGenImageAd(google, {
         name: ad.name,
@@ -597,7 +632,10 @@ export async function syncCampaignToGoogle(
       syncedAds.push({ ...ad, googleAdId: googleAd.resourceName });
     } catch (error) {
       const errorMsg = error instanceof GoogleAdsApiError ? error.message : 'Error creating Demand Gen ad';
-      log.error({ err: error, adId: ad.id }, 'Failed to create Google ad');
+      log.error(
+        { err: error, adId: ad.id, response: error instanceof GoogleAdsApiError ? error.response : undefined },
+        'Failed to create Google ad'
+      );
       adErrors.push({ adId: ad.id, error: errorMsg });
       // Only mark ad as error if Meta hasn't already synced it successfully
       if (!ad.metaAdId) {
@@ -609,7 +647,7 @@ export async function syncCampaignToGoogle(
   // Enable campaign and ad group after successful ad creation
   if (syncedAds.length > 0) {
     try {
-      await emitProgress(filmId, campaign.id, 'enabling', 90, 'Activando campaña en Google Ads...');
+      await emitProgress(filmId, campaign.id, 'enabling', 90, 'Activating campaign in Google Ads...');
 
       await updateCampaignStatus(google, googleCampaignId, 'ENABLED');
       await updateAdGroupStatus(google, googleAdGroupId, 'ENABLED');
@@ -622,7 +660,7 @@ export async function syncCampaignToGoogle(
       adErrors.push({ adId: 'campaign', error: 'Campaign created but could not be enabled' });
     }
 
-    await emitProgress(filmId, campaign.id, 'complete', 100, 'Campaña de Google Ads creada exitosamente!');
+    await emitProgress(filmId, campaign.id, 'complete', 100, 'Google Ads campaign created successfully!');
   }
 
   return {

@@ -27,6 +27,11 @@ import {
 } from './types';
 import { getLocaleIdsForLanguage } from './locales';
 import {
+  classifyPlacementBucket,
+  buildPlacementCustomizationRules,
+  type AssetDimensions,
+} from './placements';
+import {
   MetaApiError,
   MetaAuthError,
   MetaValidationError,
@@ -206,6 +211,16 @@ export interface CBOCampaignConfig {
   dsaBeneficiary?: string; // DSA compliance: advertiser name (required for EU countries)
   dsaPayor?: string; // DSA compliance: payor name (required for EU countries)
   optimizationGoal: 'OFFSITE_CONVERSIONS' | 'LANDING_PAGE_VIEWS' | 'LINK_CLICKS';
+  // Per-ad-set manual placement overrides, merged into the shared targeting. Used to exclude
+  // Story/Reels for an ad set whose assets have no Stories-suitable aspect ratio.
+  imagePlacements?: PlacementOverride;
+  videoPlacements?: PlacementOverride;
+}
+
+export interface PlacementOverride {
+  publisher_platforms?: string[];
+  facebook_positions?: string[];
+  instagram_positions?: string[];
 }
 
 /**
@@ -245,6 +260,8 @@ export async function createCBOCampaignWithAdSets(
     optimizationGoal,
     dsaBeneficiary,
     dsaPayor,
+    imagePlacements,
+    videoPlacements,
   } = config;
 
   if (!hasImages && !hasVideos) {
@@ -294,7 +311,7 @@ export async function createCBOCampaignWithAdSets(
         billing_event: 'IMPRESSIONS',
         optimization_goal: optimizationGoal,
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-        targeting,
+        targeting: { ...targeting, ...imagePlacements },
         promoted_object: promotedObject,
         is_dynamic_creative: true,
         dsa_beneficiary: dsaBeneficiary,
@@ -319,7 +336,7 @@ export async function createCBOCampaignWithAdSets(
         billing_event: 'IMPRESSIONS',
         optimization_goal: optimizationGoal,
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-        targeting,
+        targeting: { ...targeting, ...videoPlacements },
         promoted_object: promotedObject,
         is_dynamic_creative: true,
         dsa_beneficiary: dsaBeneficiary,
@@ -784,9 +801,12 @@ export async function createDynamicCreativeAd(
     bodies: string[];
     descriptions?: string[];
     callToAction: string;
-    imageHashes?: string[];
-    imageUrls?: string[]; // Direct URLs (preferred over imageHashes)
-    videoIds?: string[];
+    // Images carry aspect-ratio metadata so vertical assets can be routed to Story/Reels
+    // and horizontal assets to Feed via placement asset customization. `url` is preferred
+    // over `hash` (no upload required). Placement customization only applies to URL-based
+    // images; hash-only feeds fall back to a plain (non-customized) feed.
+    images?: Array<{ url?: string; hash?: string } & AssetDimensions>;
+    videos?: Array<{ video_id: string } & AssetDimensions>;
   }
 ): Promise<{ ad_id: string }> {
   const url = client.buildAdAccountUrl('ads');
@@ -807,24 +827,53 @@ export async function createDynamicCreativeAd(
 
   // Handle media: Meta doesn't allow mixing images and videos in the same ad
   // When both are provided, prioritize videos (they typically perform better)
-  const hasVideos = data.videoIds && data.videoIds.length > 0;
-  const hasImages = (data.imageUrls && data.imageUrls.length > 0) ||
-                    (data.imageHashes && data.imageHashes.length > 0);
+  const videos = data.videos ?? [];
+  const images = data.images ?? [];
+  const hasVideos = videos.length > 0;
+  const hasImages = images.length > 0;
 
   if (hasVideos) {
     // Use videos only - SINGLE_VIDEO format
-    assetFeedSpec.videos = data.videoIds!.map((video_id) => ({ video_id }));
     assetFeedSpec.ad_formats = ['SINGLE_VIDEO'];
     if (hasImages) {
       log.warn('Both images and videos provided - using videos only (Meta does not support mixing)');
     }
-  } else if (data.imageUrls && data.imageUrls.length > 0) {
-    // Prefer URLs over hashes (no upload required)
-    assetFeedSpec.images = data.imageUrls.map((url) => ({ url }));
+
+    // Route vertical videos to Story/Reels and horizontal/square videos to Feed when both exist.
+    const feedIds = videos.filter((v) => classifyPlacementBucket(v) === 'feed').map((v) => v.video_id);
+    const storyIds = videos.filter((v) => classifyPlacementBucket(v) === 'story').map((v) => v.video_id);
+    const customization = buildPlacementCustomizationRules('video', feedIds, storyIds);
+
+    if (customization) {
+      assetFeedSpec.videos = customization.videos;
+      assetFeedSpec.asset_customization_rules = customization.asset_customization_rules;
+      log.info({ feed: feedIds.length, story: storyIds.length }, 'Applying per-placement video customization');
+    } else {
+      assetFeedSpec.videos = videos.map(({ video_id }) => ({ video_id }));
+    }
+  } else if (hasImages) {
     assetFeedSpec.ad_formats = ['SINGLE_IMAGE'];
-  } else if (data.imageHashes && data.imageHashes.length > 0) {
-    assetFeedSpec.images = data.imageHashes.map((hash) => ({ hash }));
-    assetFeedSpec.ad_formats = ['SINGLE_IMAGE'];
+
+    // Placement asset customization only supports URL-based images here; fall back to a plain
+    // feed if any image lacks a URL (e.g. legacy hash-only inputs).
+    const allHaveUrls = images.every((img) => Boolean(img.url));
+
+    if (allHaveUrls) {
+      const feedUrls = images.filter((img) => classifyPlacementBucket(img) === 'feed').map((img) => img.url!);
+      const storyUrls = images.filter((img) => classifyPlacementBucket(img) === 'story').map((img) => img.url!);
+      const customization = buildPlacementCustomizationRules('image', feedUrls, storyUrls);
+
+      if (customization) {
+        assetFeedSpec.images = customization.images;
+        assetFeedSpec.asset_customization_rules = customization.asset_customization_rules;
+        log.info({ feed: feedUrls.length, story: storyUrls.length }, 'Applying per-placement image customization');
+      } else {
+        assetFeedSpec.images = images.map((img) => ({ url: img.url! }));
+      }
+    } else {
+      // Mixed/hash-only images: no placement customization
+      assetFeedSpec.images = images.map((img) => (img.url ? { url: img.url } : { hash: img.hash! }));
+    }
   }
 
   const objectStorySpec = {
