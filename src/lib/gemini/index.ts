@@ -52,7 +52,12 @@ export const gemini = {
 };
 
 // Re-export API functions
-export { generateCopiesForLanguage, generateCopiesForFilm, getVariant } from './api';
+export {
+  generateCopiesForLanguage,
+  generateCopiesForFilm,
+  pickVariantAngles,
+} from './api';
+export type { GenerateCopiesOptions } from './api';
 
 // Re-export types for consumers
 export type {

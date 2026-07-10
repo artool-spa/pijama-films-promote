@@ -27,16 +27,18 @@ export const SupportedLanguageSchema = z.enum([
 ]);
 export type SupportedLanguage = z.infer<typeof SupportedLanguageSchema>;
 
-export const VariantSchema = z.enum(['A', 'B', 'C']);
+export const VariantSchema = z.enum(['A', 'B', 'C', 'D', 'E', 'F']);
 export type Variant = z.infer<typeof VariantSchema>;
 
+// `description` and `callToAction` are optional: the generator no longer asks the
+// model for them, and the ad pipeline hardcodes the call-to-action.
 export const GeneratedCopyDataSchema = z.object({
   filmId: z.string().min(1),
   language: SupportedLanguageSchema,
   headline: z.string().min(1),
   primaryText: z.string().min(1),
-  description: z.string().min(1),
-  callToAction: z.string().min(1),
+  description: z.string().min(1).optional(),
+  callToAction: z.string().min(1).optional(),
   variant: VariantSchema,
 });
 
@@ -118,16 +120,17 @@ export async function saveCopies(copies: GeneratedCopyData[]): Promise<void> {
         update: {
           headline: copy.headline,
           primaryText: copy.primaryText,
-          description: copy.description,
-          callToAction: copy.callToAction,
+          // Columns are NOT NULL; default the optional fields when absent.
+          description: copy.description ?? '',
+          callToAction: copy.callToAction ?? '',
         },
         create: {
           filmId: copy.filmId,
           language: copy.language,
           headline: copy.headline,
           primaryText: copy.primaryText,
-          description: copy.description,
-          callToAction: copy.callToAction,
+          description: copy.description ?? '',
+          callToAction: copy.callToAction ?? '',
           variant: copy.variant,
         },
       })

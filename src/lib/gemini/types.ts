@@ -25,24 +25,28 @@ export const CopyGenerationRequestSchema = z.object({
 
 export type CopyGenerationRequest = z.infer<typeof CopyGenerationRequestSchema>;
 
-// Variant schema
-export const VariantSchema = z.enum(['A', 'B', 'C']);
+// Variant schema. Supports up to six labels so the copy generator can produce a
+// variable number of variants. The campaign UI only surfaces A/B/C today.
+export const VariantSchema = z.enum(['A', 'B', 'C', 'D', 'E', 'F']);
 export type Variant = z.infer<typeof VariantSchema>;
 
-// Single generated copy schema
+// Single generated copy schema.
+// `description` and `callToAction` are optional: the ad pipeline hardcodes the
+// call-to-action and never reads `description`, so the generator no longer asks
+// the model for them (frees character budget for headline/primaryText).
 export const GeneratedCopySchema = z.object({
   headline: z.string().min(1),
   primaryText: z.string().min(1),
-  description: z.string().min(1),
-  callToAction: z.string().min(1),
+  description: z.string().min(1).optional(),
+  callToAction: z.string().min(1).optional(),
   variant: VariantSchema,
 });
 
 export type GeneratedCopy = z.infer<typeof GeneratedCopySchema>;
 
-// Response from Gemini (3 variants per language)
+// Response from Gemini (one or more variants per language)
 export const GeminiCopyResponseSchema = z.object({
-  copies: z.array(GeneratedCopySchema).length(3),
+  copies: z.array(GeneratedCopySchema).min(1),
 });
 
 export type GeminiCopyResponse = z.infer<typeof GeminiCopyResponseSchema>;

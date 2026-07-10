@@ -926,10 +926,15 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }));
   };
 
-  // Generate copies for a language, filling ONLY blank alternatives (missing
-  // variants or variants with an empty title/description). Existing, completed
-  // variants are preserved so user edits are never overwritten on regeneration.
-  const generateCopiesForLanguage = async (langCode: string) => {
+  // Generate copies for a language. By default this fills ONLY blank
+  // alternatives (missing variants or variants with an empty title/description),
+  // preserving existing user edits. Pass { replaceAll: true } to overwrite every
+  // returned variant with fresh AI alternatives (used by the "Fresh
+  // alternatives" button).
+  const generateCopiesForLanguage = async (
+    langCode: string,
+    { replaceAll = false }: { replaceAll?: boolean } = {}
+  ) => {
     setLoadingLanguages(prev => new Set(prev).add(langCode));
 
     try {
@@ -959,14 +964,16 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
           {}
         ) || {};
 
-      // Fill only blank alternatives, keeping any variant the user already has
+      // By default fill only blank alternatives, keeping any variant the user
+      // already has. When replaceAll is set, overwrite every returned variant
+      // with the fresh AI alternatives.
       setCopiesByLang(prev => {
         const current = prev[langCode] || {};
         const merged = { ...current };
         (['A', 'B', 'C'] as const).forEach(v => {
           const c = current[v];
           const isBlank = !c || !c.headline?.trim() || !c.description?.trim();
-          if (isBlank && generatedByVariant[v]) {
+          if ((replaceAll || isBlank) && generatedByVariant[v]) {
             merged[v] = generatedByVariant[v];
           }
         });
@@ -1788,6 +1795,20 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                         </Button>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                           One or more alternatives are empty. Generate copies with AI to fill them in.
+                        </Typography>
+                      </Box>
+                    )}
+                    {availableVariants.length > 0 && (
+                      <Box sx={{ mb: 3 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<RefreshIcon />}
+                          onClick={() => generateCopiesForLanguage(currentCopyLanguage, { replaceAll: true })}
+                        >
+                          Fresh alternatives
+                        </Button>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                          Replace all alternatives with new AI-generated options.
                         </Typography>
                       </Box>
                     )}
