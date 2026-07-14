@@ -35,6 +35,18 @@ export const TEMPORAL_USERS: TemporalUser[] = [
     name: 'Producer 2',
     partnerId: 'pijamafilms',
   },
+  {
+    email: 'testpijamatest@gmail.com',
+    password: 'Casablanca_1942',
+    name: 'Test User',
+    partnerId: 'pijamafilms',
+  },
+  {
+    email: 'josefina@fabula.cl',
+    password: 'Metropolis_1927',
+    name: 'Josefina',
+    partnerId: 'pijamafilms',
+  },
 ];
 
 /**
