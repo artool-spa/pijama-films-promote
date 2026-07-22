@@ -324,11 +324,15 @@ export async function getMovies(
 
     // Check for API-level error (response without data)
     const apiResponse = data as { status?: string; code?: number; message?: string; data?: unknown };
+
     if (apiResponse?.status === 'FAILED' || (apiResponse?.code && !apiResponse?.data)) {
-      throw new MuviApiError(
-        `Muvi API error: ${apiResponse.message || 'Unknown error'}`,
-        { statusCode: apiResponse.code, endpoint: '/content' }
-      );
+      return {
+        movies: [] as MuviMovie[],
+        totalCount: 0,
+        page,
+        perPage,
+      }
+      
     }
 
     // Validate response, falling back to a lenient envelope parse so an

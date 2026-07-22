@@ -34,10 +34,19 @@ npx prisma generate      # Generate client
 npx prisma migrate dev   # Create migration
 npx prisma studio        # Open Prisma Studio
 
-# Deployment
-npm run deploy:coolify   # Deploy app to production (Coolify)
-npm run deploy:mercure   # Deploy Mercure SSE hub
-npm run deploy:env       # Push env vars to Coolify
+# Deployment (Google Cloud Run)
+npm run deploy:cloudrun          # Deploy app to production (Cloud Run)
+npm run deploy:cloudrun:secrets  # Push secrets to Secret Manager
+npm run deploy:cloudrun:mercure  # Deploy Mercure SSE hub (GCE)
+npm run deploy:gcp-setup         # One-time GCP infrastructure setup
+
+# Deploying requires gcloud CLI authenticated, the GCP infrastructure created
+# by deploy:gcp-setup, and secrets present via deploy:cloudrun:secrets.
+# The deploy builds the image locally, pushes to Artifact Registry, and
+# releases to Cloud Run. It does NOT commit or push git — do that yourself.
+#
+# The deploy:coolify / deploy:env / deploy:mercure scripts target the legacy
+# Coolify host and are no longer production. Do not use them.
 
 # Docker
 docker compose up        # Start PostgreSQL
