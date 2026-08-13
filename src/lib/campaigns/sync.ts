@@ -12,6 +12,7 @@ import {
   uploadAdVideo,
   buildTargeting,
   MetaApiError,
+  updateAd as metaUpdateAd,
 } from '#meta';
 import {
   google,
@@ -24,6 +25,7 @@ import {
   updateAdGroupStatus,
   buildGoogleTargeting,
   GoogleAdsApiError,
+  removeAd as googleRemoveAd,
 } from '#google';
 import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import {
@@ -670,4 +672,172 @@ export async function syncCampaignToGoogle(
     syncedAds,
     adErrors,
   };
+}
+
+// ============================================================================
+// RESYNC AFTER EDIT
+// ============================================================================
+
+/**
+ * After a producer edits an ad's creative content, push the new creative to Meta.
+ *
+ * Meta AdCreatives are immutable. The pattern is:
+ *   1) create a fresh Ad in the same ad set with the new creative
+ *   2) archive the old ad (status: 'ARCHIVED')
+ *   3) point our local record at the new metaAdId and reset approval to PENDING_REVIEW
+ *
+ * If step 1 fails (e.g. Meta rejects the new creative immediately), we leave the
+ * old ad running and surface the error.
+ */
+export async function resyncAdCreativeToMeta(
+  ad: Ad,
+  campaign: CampaignWithPartnerAndAds,
+  updatedFields: {
+    headlines: string[];
+    bodies: string[];
+    descriptions: string[];
+    callToAction: string;
+    linkUrl: string;
+  }
+): Promise<{ newMetaAdId: string }> {
+  if (!ad.metaAdId) {
+    throw new Error('Ad is not synced to Meta; cannot resync creative');
+  }
+
+  const adSetId = ad.adSetType === 'VIDEO' ? campaign.videoAdSetId : campaign.imageAdSetId;
+  if (!adSetId) {
+    throw new Error(`Missing Meta ad set for ${ad.adSetType} ads`);
+  }
+
+  const linkUrl = appendUtmParams(updatedFields.linkUrl, {
+    source: 'meta',
+    medium: 'paid_social',
+    campaign: campaign.name,
+    content: ad.id,
+  });
+
+  const images = ad.images.map((img) => ({
+    url: img.url,
+    width: img.width ?? undefined,
+    height: img.height ?? undefined,
+    aspectRatio: img.aspectRatio ?? undefined,
+  }));
+  const videos = ad.videos
+    .filter((v) => v.metaVideoId)
+    .map((v) => ({
+      video_id: v.metaVideoId!,
+    }));
+
+  const created = await createDynamicCreativeAd(meta, {
+    name: `${ad.name} (edit ${new Date().toISOString().slice(0, 10)})`,
+    adsetId: adSetId,
+    pageId: meta.pageId!,
+    linkUrl,
+    headlines: updatedFields.headlines,
+    bodies: updatedFields.bodies,
+    descriptions: updatedFields.descriptions.length > 0 ? updatedFields.descriptions : undefined,
+    callToAction: updatedFields.callToAction,
+    images: ad.adSetType === 'IMAGE' ? images : undefined,
+    videos: ad.adSetType === 'VIDEO' ? videos : undefined,
+  });
+
+  if (!created.ad_id) {
+    throw new MetaApiError('Meta returned no ad_id when creating the replacement ad');
+  }
+
+  // Archive the old ad so it stops delivering. Fire-and-forget: even if the
+  // archive request fails, the new ad is already live.
+  try {
+    await metaUpdateAd(meta, ad.metaAdId, { status: 'PAUSED' });
+    log.info({ oldMetaAdId: ad.metaAdId, newMetaAdId: created.ad_id }, 'Archived old Meta ad after resync');
+  } catch (err) {
+    log.warn({ err, oldMetaAdId: ad.metaAdId }, 'Failed to archive old Meta ad after resync');
+  }
+
+  return { newMetaAdId: created.ad_id };
+}
+
+/**
+ * After a producer edits an ad's creative, resync to Google Ads (Demand Gen
+ * ads are immutable — pattern is "create new, remove old").
+ *
+ * NOTE: This creates a fresh Demand Gen image ad. Google Ads image assets that
+ * were uploaded during the original sync are reused via `uploadImageAsset`
+ * (idempotent by content hash).
+ */
+export async function resyncAdCreativeToGoogle(
+  ad: Ad,
+  campaign: CampaignWithPartnerAndAds,
+  updatedFields: {
+    headlines: string[];
+    descriptions: string[];
+    linkUrl: string;
+  }
+): Promise<{ newGoogleAdId: string }> {
+  if (!ad.googleAdId) {
+    throw new Error('Ad is not synced to Google; cannot resync creative');
+  }
+  if (!campaign.googleAdGroupId) {
+    throw new Error('Missing Google ad group for this campaign');
+  }
+  if (ad.adSetType !== 'IMAGE') {
+    throw new Error('Only Demand Gen image ads can be resynced today');
+  }
+
+  // Re-upload image assets so we have Google Ads asset resource names to use.
+  // We reuse every image on the ad — Google will reject any that fail validation
+  // and the error will bubble back to the caller.
+  const eligibleImages = ad.images;
+  if (eligibleImages.length === 0) {
+    throw new Error('Ad has no images to resync');
+  }
+
+  const marketingResourceNames: string[] = [];
+  const squareResourceNames: string[] = [];
+  const portraitResourceNames: string[] = [];
+  for (const img of eligibleImages) {
+    const bucket = classifyPlacementBucket({
+      width: img.width ?? undefined,
+      height: img.height ?? undefined,
+      aspectRatio: img.aspectRatio ?? undefined,
+    });
+    const asset = await uploadImageAsset(google, img.url, `${ad.name} - ${img.name}`);
+    if (bucket === 'story') {
+      portraitResourceNames.push(asset.resourceName);
+    } else {
+      marketingResourceNames.push(asset.resourceName);
+      // Also route as square when the image is square-ish
+      if (img.aspectRatio === '1:1') squareResourceNames.push(asset.resourceName);
+    }
+  }
+
+  const created = await createDemandGenImageAd(google, {
+    name: `${ad.name} (edit ${new Date().toISOString().slice(0, 10)})`,
+    adGroupResourceName: campaign.googleAdGroupId,
+    finalUrl: appendUtmParams(updatedFields.linkUrl, {
+      source: 'google',
+      medium: 'display',
+      campaign: campaign.name,
+      content: ad.id,
+    }),
+    headlines: updatedFields.headlines,
+    descriptions: updatedFields.descriptions,
+    landscapeImageAssetResourceNames: marketingResourceNames,
+    squareImageAssetResourceNames: squareResourceNames,
+    portraitImageAssetResourceNames: portraitResourceNames,
+    logoImageAssetResourceNames: [],
+    businessName: campaign.partner.name,
+  });
+
+  try {
+    await googleRemoveAd(google, ad.googleAdId);
+    log.info(
+      { oldGoogleAdId: ad.googleAdId, newGoogleAdId: created.resourceName },
+      'Removed old Google ad after resync'
+    );
+  } catch (err) {
+    log.warn({ err, oldGoogleAdId: ad.googleAdId }, 'Failed to remove old Google ad after resync');
+  }
+
+  return { newGoogleAdId: created.resourceName };
 }

@@ -1020,6 +1020,165 @@ export async function updateAdGroupStatus(
 }
 
 /**
+ * Update the daily budget for a Google campaign. The campaign owns a
+ * `campaignBudget` resource — that's what we mutate.
+ */
+export async function updateCampaignBudget(
+  client: GoogleAdsClient,
+  campaignResourceName: string,
+  amountMicros: bigint
+): Promise<void> {
+  const query = `
+    SELECT campaign_budget.resource_name
+    FROM campaign
+    WHERE campaign.resource_name = '${campaignResourceName}'
+  `;
+
+  type BudgetRow = { campaign?: { campaignBudget?: string; campaign_budget?: string } };
+  type StreamChunk = { results?: BudgetRow[] };
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+  const rows: BudgetRow[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) if (chunk.results) rows.push(...chunk.results);
+  } else if (raw?.results) {
+    rows.push(...raw.results);
+  }
+  const budgetResourceName =
+    rows[0]?.campaign?.campaignBudget || rows[0]?.campaign?.campaign_budget;
+  if (!budgetResourceName) {
+    throw new GoogleAdsApiError('Campaign budget not found for this campaign');
+  }
+
+  await client.mutate('campaignBudgets', [
+    {
+      update: {
+        resourceName: budgetResourceName,
+        amountMicros: amountMicros.toString(),
+      },
+    },
+  ]);
+
+  log.info({ resourceName: budgetResourceName, amountMicros: amountMicros.toString() }, 'Campaign budget updated');
+}
+
+/**
+ * Update the end date of a Google campaign.
+ */
+export async function updateCampaignEndDate(
+  client: GoogleAdsClient,
+  campaignResourceName: string,
+  endDateIsoDate: string | null
+): Promise<void> {
+  await client.mutate('campaigns', [
+    {
+      update: {
+        resourceName: campaignResourceName,
+        ...(endDateIsoDate ? { endDateTime: `${endDateIsoDate} 23:59:59` } : { endDateTime: null }),
+      },
+    },
+  ]);
+  log.info({ resourceName: campaignResourceName, endDateIsoDate }, 'Campaign end date updated');
+}
+
+/**
+ * Remove an ad from Google Ads (used when swapping a rejected ad for a fresh
+ * one — Demand Gen ads are immutable, so the pattern is "create new, remove old").
+ */
+export async function removeAd(
+  client: GoogleAdsClient,
+  adGroupAdResourceName: string
+): Promise<void> {
+  await client.mutate('adGroupAds', [{ remove: adGroupAdResourceName }]);
+  log.info({ resourceName: adGroupAdResourceName }, 'Google ad removed');
+}
+
+/**
+ * Fetch approval/review state for a batch of Google ads.
+ */
+export type GoogleAdApprovalRaw = {
+  resourceName: string;
+  approvalStatus: string | null;
+  reviewStatus: string | null;
+  policyTopicEntries: Array<{
+    topic?: string;
+    type?: string;
+    evidences?: unknown[];
+    constraints?: unknown[];
+  }>;
+};
+
+export async function getAdApprovalStatuses(
+  client: GoogleAdsClient,
+  adResourceNames: string[]
+): Promise<GoogleAdApprovalRaw[]> {
+  if (adResourceNames.length === 0) return [];
+
+  const inClause = adResourceNames.map((r) => `'${r}'`).join(', ');
+  const query = `
+    SELECT
+      ad_group_ad.resource_name,
+      ad_group_ad.policy_summary.approval_status,
+      ad_group_ad.policy_summary.review_status,
+      ad_group_ad.policy_summary.policy_topic_entries
+    FROM ad_group_ad
+    WHERE ad_group_ad.resource_name IN (${inClause})
+  `;
+
+  type Row = {
+    adGroupAd?: {
+      resourceName?: string;
+      policySummary?: {
+        approvalStatus?: string;
+        reviewStatus?: string;
+        policyTopicEntries?: Array<{
+          topic?: string;
+          type?: string;
+          evidences?: unknown[];
+          constraints?: unknown[];
+        }>;
+      };
+    };
+    // Some client shapes return snake_case; handle both.
+    ad_group_ad?: {
+      resource_name?: string;
+      policy_summary?: {
+        approval_status?: string;
+        review_status?: string;
+        policy_topic_entries?: Array<{
+          topic?: string;
+          type?: string;
+          evidences?: unknown[];
+          constraints?: unknown[];
+        }>;
+      };
+    };
+  };
+  type StreamChunk = { results?: Row[] };
+
+  const raw = await client.query<StreamChunk | StreamChunk[]>(query);
+  const rows: Row[] = [];
+  if (Array.isArray(raw)) {
+    for (const chunk of raw) if (chunk.results) rows.push(...chunk.results);
+  } else if (raw?.results) {
+    rows.push(...raw.results);
+  }
+
+  return rows.map((row) => {
+    const camel = row.adGroupAd;
+    const snake = row.ad_group_ad;
+    const resourceName = camel?.resourceName || snake?.resource_name || '';
+    const summary = camel?.policySummary;
+    const summarySnake = snake?.policy_summary;
+    return {
+      resourceName,
+      approvalStatus: summary?.approvalStatus || summarySnake?.approval_status || null,
+      reviewStatus: summary?.reviewStatus || summarySnake?.review_status || null,
+      policyTopicEntries: summary?.policyTopicEntries || summarySnake?.policy_topic_entries || [],
+    };
+  });
+}
+
+/**
  * Get campaign status from Google Ads
  */
 export async function getCampaignStatus(

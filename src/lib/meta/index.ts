@@ -73,6 +73,7 @@ export {
   getAdSet,
   createAd,
   updateAd,
+  getAdApprovalStatus,
   uploadAdVideo,
   uploadAdImage,
   createAdCreative,
@@ -87,6 +88,7 @@ export {
   getSavedAudience,
   getAllSavedAudiences,
 } from './api';
+export type { MetaAdApprovalRaw } from './api';
 
 // Re-export CBO types
 export type {

@@ -12,6 +12,7 @@ import {
   MetaApiError,
 } from '#meta';
 import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
+import { describeCampaignError } from '@/lib/campaigns/error-messages';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -130,22 +131,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   } catch (error) {
     logger.error({ err: error }, 'Error syncing campaign to Meta');
 
-    await markCampaignError(id).catch(() => {});
+    const friendly = describeCampaignError(error, 'Meta');
+    await markCampaignError(id, {
+      message: friendly.body,
+      details: {
+        platform: 'META',
+        title: friendly.title,
+        suggestions: friendly.suggestions,
+        retryable: friendly.retryable,
+        rawErrorCode: error instanceof MetaApiError ? error.errorCode : undefined,
+      },
+    }).catch(() => {});
 
     if (error instanceof MetaApiError) {
       return NextResponse.json(
         {
-          error: 'Error al sincronizar con Meta',
-          details: error.message,
+          error: friendly.title,
+          details: friendly.body,
           code: error.errorCode,
         },
         { status: 502 }
       );
     }
 
-    return NextResponse.json(
-      { error: 'Error al sincronizar la campaña' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: friendly.body }, { status: 500 });
   }
 }

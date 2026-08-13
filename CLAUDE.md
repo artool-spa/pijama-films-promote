@@ -84,7 +84,7 @@ This project **strictly follows the MVC pattern**:
 3. ✅ **Views** = Client components receive non-nullable data
 4. ✅ **404 handling** = At server level with `notFound()`
 5. ✅ **Validation** = All inputs with Zod
-6. ✅ **Language** = English code, Spanish UI
+6. ✅ **Language** = English code and English UI
 
 ## Detailed Guidelines
 
@@ -119,7 +119,7 @@ Covers:
 - Domain entities (Producer, Film, Campaign, Metrics)
 - Business rules
 - User workflows
-- Spanish terminology
+- Domain terminology
 - Validation rules
 - UI/UX guidelines for non-technical users
 
@@ -155,9 +155,9 @@ Covers:
 
 ### Language Usage
 - **Code** (variables, functions, comments): **English**
-- **UI Text** (labels, buttons, messages): **Spanish**
+- **UI Text** (labels, buttons, messages): **English**
 - **Logs**: English
-- **User errors**: Spanish
+- **User errors**: English
 
 ### TypeScript
 - Strict mode enabled

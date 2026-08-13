@@ -14,17 +14,23 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Divider,
+  Alert,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Facebook as FacebookIcon,
   Google as GoogleIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
+import AdStatusBadge from '@/components/AdStatusBadge';
+import RejectionDetailsDialog from '@/components/RejectionDetailsDialog';
+import ApprovalWarningBanner from '@/components/ApprovalWarningBanner';
 import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
+import type { AdApprovalStatus } from '@/lib/campaigns/approval-status';
 
 type PlatformFilter = 'ALL' | 'META' | 'GOOGLE';
 
@@ -49,6 +55,9 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
   const [metaPreviews, setMetaPreviews] = useState<Record<string, string>>({});
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [loadingPreviews, setLoadingPreviews] = useState<Set<string>>(new Set());
+  const [detailsAdId, setDetailsAdId] = useState<string | null>(null);
+
+  const disapprovedCount = campaign.ads.filter((a) => a.approvalStatus === 'DISAPPROVED').length;
 
   const platforms = (campaign as Record<string, unknown>).platforms as string[] || [];
   const hasMeta = platforms.includes('META');
@@ -149,6 +158,12 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
         </Typography>
       </Box>
 
+      {/* Approval warning banner */}
+      <ApprovalWarningBanner
+        approvalSummary={campaign.approvalSummary}
+        disapprovedCount={disapprovedCount}
+      />
+
       {/* Platform Filter */}
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
         <ToggleButtonGroup
@@ -195,7 +210,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                 <Card variant="outlined" sx={{ height: '100%' }}>
                   <CardContent>
                     {/* Ad Header */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {platform === 'META' && (
                           <Chip
@@ -214,19 +229,35 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                           />
                         )}
                         {!platform && (
-                          <Chip label="Sin sincronizar" size="small" variant="outlined" />
+                          <Chip label="Not synced" size="small" variant="outlined" />
                         )}
                       </Box>
-                      <Chip
-                        label={ad.status}
-                        size="small"
-                        color={ad.status === 'ACTIVE' ? 'success' : ad.status === 'ERROR' ? 'error' : 'default'}
+                    </Box>
+                    <Box sx={{ mb: 1 }}>
+                      <AdStatusBadge
+                        operationalStatus={ad.status}
+                        approvalStatus={ad.approvalStatus as AdApprovalStatus}
+                        onOpenDetails={platform ? () => setDetailsAdId(ad.id) : undefined}
                       />
                     </Box>
 
                     <Typography variant="subtitle1" fontWeight="bold" gutterBottom noWrap>
                       {ad.name}
                     </Typography>
+
+                    {ad.approvalStatus === 'DISAPPROVED' && ad.rejectionReason && (
+                      <Alert
+                        severity="error"
+                        sx={{ mb: 2 }}
+                        action={
+                          <Button color="inherit" size="small" onClick={() => setDetailsAdId(ad.id)}>
+                            Details
+                          </Button>
+                        }
+                      >
+                        {ad.rejectionReason}
+                      </Alert>
+                    )}
 
                     {/* Ad Preview */}
                     <Box sx={{ mb: 2 }}>
@@ -364,7 +395,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                           </Grid>
                           <Grid size={4}>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              Costo/Conv.
+                              Cost/Conv.
                             </Typography>
                             <Typography variant="body2" fontWeight="medium">
                               {insights.costPerConversion > 0
@@ -375,6 +406,22 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                         </Grid>
                       </>
                     )}
+
+                    <Box sx={{ mt: 2 }}>
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        color={ad.approvalStatus === 'DISAPPROVED' ? 'error' : 'primary'}
+                        startIcon={<EditIcon />}
+                        onClick={() =>
+                          router.push(
+                            `/films/${film.id}/campaigns/${campaign.id}/ads/${ad.id}/edit`
+                          )
+                        }
+                      >
+                        {ad.approvalStatus === 'DISAPPROVED' ? 'Fix and resubmit' : 'Edit ad'}
+                      </Button>
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>
@@ -382,6 +429,39 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
           })}
         </Grid>
       )}
+
+      {detailsAdId && (() => {
+        const ad = campaign.ads.find((a) => a.id === detailsAdId);
+        if (!ad) return null;
+        const platform: 'META' | 'GOOGLE' | null = ad.metaAdId ? 'META' : ad.googleAdId ? 'GOOGLE' : null;
+        return (
+          <RejectionDetailsDialog
+            open
+            onClose={() => setDetailsAdId(null)}
+            adId={ad.id}
+            adName={ad.name}
+            platform={platform}
+            approvalStatus={ad.approvalStatus as AdApprovalStatus}
+            rejectionReason={ad.rejectionReason ?? null}
+            suggestedCorrection={ad.suggestedCorrection ?? null}
+            rejectionDetails={ad.rejectionDetails ?? null}
+            onEdit={() => {
+              setDetailsAdId(null);
+              router.push(`/films/${film.id}/campaigns/${campaign.id}/ads/${ad.id}/edit`);
+            }}
+            onRefresh={async () => {
+              const url = platform === 'META'
+                ? `/api/meta/ads/${ad.id}/approval`
+                : platform === 'GOOGLE'
+                  ? `/api/google/ads/${ad.id}/approval`
+                  : null;
+              if (!url) return;
+              await fetch(url).catch(() => {});
+              router.refresh();
+            }}
+          />
+        );
+      })()}
     </Container>
   );
 }

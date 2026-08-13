@@ -132,6 +132,11 @@ export interface SSECampaignErrorEvent {
   error: string;
 }
 
+export interface SSEAdApprovalChangedEvent {
+  type: 'ad_approval_changed';
+  campaignId: string;
+}
+
 export type SSEEvent =
   | SSEConnectedEvent
   | SSEHeartbeatEvent
@@ -148,4 +153,5 @@ export type SSEEvent =
   | SSEYouTubeVideoErrorEvent
   | SSECampaignProgressEvent
   | SSECampaignCompleteEvent
-  | SSECampaignErrorEvent;
+  | SSECampaignErrorEvent
+  | SSEAdApprovalChangedEvent;
