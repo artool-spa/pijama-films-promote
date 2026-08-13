@@ -58,6 +58,22 @@ enum GoogleEntityStatus {
   ERROR
 }
 
+// AdApprovalStatus - Platform review/approval state (orthogonal to operational status)
+// UNKNOWN: not yet queried from platform
+// PENDING_REVIEW: under platform review
+// APPROVED: cleared to run
+// APPROVED_LIMITED: Meta "limited delivery" / Google approved with restrictions
+// DISAPPROVED: rejected
+// APPEALED: user submitted an appeal
+enum AdApprovalStatus {
+  UNKNOWN
+  PENDING_REVIEW
+  APPROVED
+  APPROVED_LIMITED
+  DISAPPROVED
+  APPEALED
+}
+
 enum TransactionType {
   DEPOSIT
   CAMPAIGN_CHARGE
@@ -172,6 +188,15 @@ model Campaign {
   updatedAt      DateTime         @updatedAt
   syncedAt       DateTime?
   draftFormState Json?          // Serialized UI form state for draft resume
+
+  // Aggregated ad-approval snapshot (recomputed on every ad-status sync).
+  // Values: ALL_APPROVED | SOME_PENDING | SOME_DISAPPROVED | ALL_DISAPPROVED | UNKNOWN
+  approvalSummary       String?
+  // Last sync error persisted for UI (internal message; UI shows translated version)
+  lastSyncError         String?  @db.Text
+  lastSyncErrorAt       DateTime?
+  lastSyncErrorDetails  Json?
+
   ads            Ad[]
   transactions   AccountTransaction[]
 
@@ -211,8 +236,21 @@ model Ad {
   updatedAt  DateTime         @updatedAt
   syncedAt   DateTime?
 
+  // Platform review/approval tracking (orthogonal to operational status)
+  approvalStatus       AdApprovalStatus @default(UNKNOWN)
+  approvalCheckedAt    DateTime?
+  // Human-readable summary in Spanish shown in the UI header
+  rejectionReason      String?          @db.Text
+  // Machine-readable details: { platform, code?, policyTopics?, rawUserMsg?, suggestions?, receivedAt }
+  rejectionDetails     Json?
+  // Actionable Spanish suggestion for the producer
+  suggestedCorrection  String?          @db.Text
+  // Set once the user opens the review details (used for "new" badge)
+  reviewSeenAt         DateTime?
+
   @@index([campaignId])
   @@index([status])
+  @@index([approvalStatus])
 }
 
 // ============================================================================

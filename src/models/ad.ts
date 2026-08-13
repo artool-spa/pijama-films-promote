@@ -1,5 +1,6 @@
 import prisma from '#prisma';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 
 // ============================================================================
 // SHARED SCHEMAS
@@ -12,6 +13,9 @@ const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
 const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
 const GoogleEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ENABLED', 'PAUSED', 'REMOVED', 'ERROR']);
 const YouTubeAdFormatSchema = z.enum(['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS']);
+export const AdApprovalStatusSchema = z.enum(['UNKNOWN', 'PENDING_REVIEW', 'APPROVED', 'APPROVED_LIMITED', 'DISAPPROVED', 'APPEALED']);
+export type AdApprovalStatusValue = z.infer<typeof AdApprovalStatusSchema>;
+const ApprovalSummarySchema = z.enum(['ALL_APPROVED', 'SOME_PENDING', 'SOME_DISAPPROVED', 'ALL_DISAPPROVED', 'UNKNOWN']);
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -131,6 +135,12 @@ export const AdSchema = z.object({
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
+  approvalStatus: AdApprovalStatusSchema,
+  approvalCheckedAt: z.coerce.date().nullable(),
+  rejectionReason: z.string().nullable(),
+  rejectionDetails: z.unknown().nullable(),
+  suggestedCorrection: z.string().nullable(),
+  reviewSeenAt: z.coerce.date().nullable(),
 });
 
 export const PartnerSchema = z.object({
@@ -180,6 +190,10 @@ export const CampaignSchema = z.object({
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
+  approvalSummary: ApprovalSummarySchema.nullable(),
+  lastSyncError: z.string().nullable(),
+  lastSyncErrorAt: z.coerce.date().nullable(),
+  lastSyncErrorDetails: z.unknown().nullable(),
 });
 
 export const AdWithCampaignSchema = AdSchema.extend({
@@ -452,4 +466,127 @@ export async function markGoogleAdSynced(id: string, googleAdId: string, youtube
   });
 
   return AdSchema.parse(result);
+}
+
+// ============================================================================
+// APPROVAL / REVIEW TRACKING
+// ============================================================================
+
+/**
+ * Persist the platform-side review result for an ad.
+ * Called by the sync-ad-approvals cron and by on-demand refresh endpoints.
+ */
+export async function updateAdApproval(
+  id: string,
+  data: {
+    approvalStatus: AdApprovalStatusValue;
+    rejectionReason?: string | null;
+    rejectionDetails?: Prisma.InputJsonValue | null;
+    suggestedCorrection?: string | null;
+  }
+) {
+  const validId = IdSchema.parse(id);
+  const validated = z
+    .object({
+      approvalStatus: AdApprovalStatusSchema,
+      rejectionReason: z.string().nullable().optional(),
+      suggestedCorrection: z.string().nullable().optional(),
+    })
+    .parse({
+      approvalStatus: data.approvalStatus,
+      rejectionReason: data.rejectionReason,
+      suggestedCorrection: data.suggestedCorrection,
+    });
+
+  const result = await prisma.ad.update({
+    where: { id: validId },
+    data: {
+      approvalStatus: validated.approvalStatus,
+      approvalCheckedAt: new Date(),
+      rejectionReason: validated.rejectionReason ?? null,
+      rejectionDetails:
+        data.rejectionDetails === undefined
+          ? undefined
+          : data.rejectionDetails === null
+            ? Prisma.JsonNull
+            : data.rejectionDetails,
+      suggestedCorrection: validated.suggestedCorrection ?? null,
+      // When a new review comes in, clear the "seen" flag so the badge shows again.
+      reviewSeenAt:
+        validated.approvalStatus === 'DISAPPROVED' || validated.approvalStatus === 'APPROVED_LIMITED'
+          ? null
+          : undefined,
+    },
+    include: { images: true, videos: true },
+  });
+
+  return AdSchema.parse(result);
+}
+
+/**
+ * Mark that the producer has opened the review details for an ad.
+ */
+export async function markAdReviewSeen(id: string) {
+  const validId = IdSchema.parse(id);
+
+  const result = await prisma.ad.update({
+    where: { id: validId },
+    data: { reviewSeenAt: new Date() },
+    include: { images: true, videos: true },
+  });
+
+  return AdSchema.parse(result);
+}
+
+/**
+ * Get every ad that needs its approval status refreshed from Meta/Google.
+ */
+export async function getAdsNeedingApprovalRefresh(options: {
+  olderThanMinutes: number;
+  metaLimit?: number;
+  googleLimit?: number;
+}) {
+  const cutoff = new Date(Date.now() - options.olderThanMinutes * 60_000);
+
+  const [metaAds, googleAds] = await Promise.all([
+    prisma.ad.findMany({
+      where: {
+        metaAdId: { not: null },
+        campaign: { status: { in: ['PENDING', 'ACTIVE'] } },
+        OR: [{ approvalCheckedAt: null }, { approvalCheckedAt: { lt: cutoff } }],
+      },
+      select: { id: true, metaAdId: true, campaignId: true },
+      take: options.metaLimit ?? 50,
+      orderBy: { approvalCheckedAt: { sort: 'asc', nulls: 'first' } },
+    }),
+    prisma.ad.findMany({
+      where: {
+        googleAdId: { not: null },
+        campaign: { status: { in: ['PENDING', 'ACTIVE'] } },
+        OR: [{ approvalCheckedAt: null }, { approvalCheckedAt: { lt: cutoff } }],
+      },
+      select: {
+        id: true,
+        googleAdId: true,
+        campaignId: true,
+        campaign: { select: { partnerId: true } },
+      },
+      take: options.googleLimit ?? 50,
+      orderBy: { approvalCheckedAt: { sort: 'asc', nulls: 'first' } },
+    }),
+  ]);
+
+  return { metaAds, googleAds };
+}
+
+/**
+ * Get disapproved ads for a campaign (used by the UI banner).
+ */
+export async function getDisapprovedAdsByCampaign(campaignId: string) {
+  const validId = IdSchema.parse(campaignId);
+  const results = await prisma.ad.findMany({
+    where: { campaignId: validId, approvalStatus: 'DISAPPROVED' },
+    select: { id: true, name: true, rejectionReason: true, approvalStatus: true },
+  });
+  return results;
 }

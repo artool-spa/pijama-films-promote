@@ -27,11 +27,16 @@ import {
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
   Google as GoogleIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
 import type { ReactNode } from 'react';
+import { explainCampaignState } from '@/lib/campaigns/status-explainer';
+import { normalizeApprovalSummary, type ApprovalSummary } from '@/lib/campaigns/approval-status';
+import CampaignStatusCard from '@/components/CampaignStatusCard';
+import ApprovalWarningBanner from '@/components/ApprovalWarningBanner';
 
 type CampaignStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR' | 'FINISHED';
 
@@ -333,8 +338,13 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
             />
           )}
           <Chip
-            label={getStatusLabel(effectiveStatus)}
+            label={`Operational: ${getStatusLabel(effectiveStatus)}`}
             color={getStatusColor(effectiveStatus)}
+          />
+          <Chip
+            label={normalizeApprovalSummary(campaign.approvalSummary as ApprovalSummary | null).label}
+            color={normalizeApprovalSummary(campaign.approvalSummary as ApprovalSummary | null).color}
+            variant="outlined"
           />
           <Typography variant="caption" color="text.secondary">
             {new Date(campaign.startDate).toLocaleDateString('en-US')}
@@ -343,8 +353,46 @@ export default function CampaignDetailClient({ film, campaign }: CampaignDetailC
           {!isSynced && (
             <Chip label="Not synced" variant="outlined" size="small" />
           )}
+          <Box sx={{ flexGrow: 1 }} />
+          <Button
+            variant="outlined"
+            startIcon={<EditIcon />}
+            onClick={() => router.push(`/films/${film.id}/campaigns/${campaign.id}/edit`)}
+          >
+            Edit campaign
+          </Button>
         </Box>
       </Box>
+
+      <CampaignStatusCard
+        state={explainCampaignState({
+          status: campaign.status,
+          googleEntityStatus: campaign.googleEntityStatus,
+          approvalSummary: campaign.approvalSummary as ApprovalSummary | null,
+          disapprovedAdCount: campaign.ads.filter((a) => a.approvalStatus === 'DISAPPROVED').length,
+          lastSyncError: campaign.lastSyncError,
+          lastSyncErrorAt: campaign.lastSyncErrorAt,
+          syncedAt: campaign.syncedAt,
+          endDate: campaign.endDate,
+          platforms: campaign.platforms,
+        })}
+        onAction={(key) => {
+          if (key === 'review-ads') {
+            router.push(`/films/${film.id}/campaigns/${campaign.id}/ads`);
+          } else if (key === 'retry-sync') {
+            const url = campaign.platforms.includes('META')
+              ? `/api/meta/campaigns/${campaign.id}/sync`
+              : `/api/google/campaigns/${campaign.id}/sync`;
+            fetch(url, { method: 'POST' }).then(() => router.refresh()).catch(() => {});
+          }
+        }}
+      />
+
+      <ApprovalWarningBanner
+        approvalSummary={campaign.approvalSummary as ApprovalSummary | null}
+        disapprovedCount={campaign.ads.filter((a) => a.approvalStatus === 'DISAPPROVED').length}
+        onReviewRejected={() => router.push(`/films/${film.id}/campaigns/${campaign.id}/ads`)}
+      />
 
       {/* Date Filter */}
       <Card sx={{ mb: 3 }}>

@@ -13,6 +13,8 @@ const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
 const GoogleEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ENABLED', 'PAUSED', 'REMOVED', 'ERROR']);
 const YouTubeAdFormatSchema = z.enum(['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS']);
+const AdApprovalStatusSchema = z.enum(['UNKNOWN', 'PENDING_REVIEW', 'APPROVED', 'APPROVED_LIMITED', 'DISAPPROVED', 'APPEALED']);
+const ApprovalSummarySchema = z.enum(['ALL_APPROVED', 'SOME_PENDING', 'SOME_DISAPPROVED', 'ALL_DISAPPROVED', 'UNKNOWN']);
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -142,6 +144,12 @@ export const AdSchema = z.object({
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
+  approvalStatus: AdApprovalStatusSchema,
+  approvalCheckedAt: z.coerce.date().nullable(),
+  rejectionReason: z.string().nullable(),
+  rejectionDetails: z.unknown().nullable(),
+  suggestedCorrection: z.string().nullable(),
+  reviewSeenAt: z.coerce.date().nullable(),
 });
 
 export const PartnerSchema = z.object({
@@ -192,6 +200,10 @@ export const CampaignSchema = z.object({
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
   draftFormState: z.unknown().nullable(),
+  approvalSummary: ApprovalSummarySchema.nullable(),
+  lastSyncError: z.string().nullable(),
+  lastSyncErrorAt: z.coerce.date().nullable(),
+  lastSyncErrorDetails: z.unknown().nullable(),
 });
 
 export const CampaignWithAdsSchema = CampaignSchema.extend({
@@ -534,17 +546,91 @@ export async function markCampaignSynced(
 }
 
 /**
- * Mark campaign as having a sync error
+ * Mark campaign as having a sync error. When `error` is provided, persist
+ * details for the UI to display.
  */
-export async function markCampaignError(id: string) {
+export async function markCampaignError(
+  id: string,
+  error?: { message: string; details?: Prisma.InputJsonValue }
+) {
   const validId = IdSchema.parse(id);
 
   const result = await prisma.campaign.update({
     where: { id: validId },
-    data: { status: 'ERROR' },
+    data: {
+      status: 'ERROR',
+      lastSyncError: error?.message,
+      lastSyncErrorAt: error ? new Date() : undefined,
+      lastSyncErrorDetails: error?.details,
+    },
   });
 
   return CampaignSchema.parse(result);
+}
+
+/**
+ * Update only budget and endDate. Used by the "edit campaign" flow.
+ */
+export async function updateCampaignBudgetAndEndDate(
+  id: string,
+  data: { budget?: number; endDate?: Date | null }
+) {
+  const validId = IdSchema.parse(id);
+  const parsed = z
+    .object({
+      budget: z.number().positive().optional(),
+      endDate: z.coerce.date().nullable().optional(),
+    })
+    .parse(data);
+
+  const result = await prisma.campaign.update({
+    where: { id: validId },
+    data: {
+      budget: parsed.budget,
+      endDate: parsed.endDate ?? undefined,
+    },
+  });
+
+  return CampaignSchema.parse(result);
+}
+
+/**
+ * Compute the approval summary rollup from an ad's approval statuses.
+ * Pure — no I/O. Extracted here so it can be reused by sync helpers.
+ */
+export function computeApprovalSummary(
+  statuses: Array<'UNKNOWN' | 'PENDING_REVIEW' | 'APPROVED' | 'APPROVED_LIMITED' | 'DISAPPROVED' | 'APPEALED'>
+): 'ALL_APPROVED' | 'SOME_PENDING' | 'SOME_DISAPPROVED' | 'ALL_DISAPPROVED' | 'UNKNOWN' {
+  if (statuses.length === 0) return 'UNKNOWN';
+  if (statuses.every((s) => s === 'UNKNOWN')) return 'UNKNOWN';
+  if (statuses.every((s) => s === 'DISAPPROVED')) return 'ALL_DISAPPROVED';
+  if (statuses.some((s) => s === 'DISAPPROVED')) return 'SOME_DISAPPROVED';
+  if (statuses.some((s) => s === 'PENDING_REVIEW' || s === 'UNKNOWN')) return 'SOME_PENDING';
+  return 'ALL_APPROVED';
+}
+
+/**
+ * Recompute Campaign.approvalSummary from the current ad approval statuses.
+ */
+export async function recomputeApprovalSummary(campaignId: string) {
+  const validId = IdSchema.parse(campaignId);
+
+  const ads = await prisma.ad.findMany({
+    where: {
+      campaignId: validId,
+      OR: [{ metaAdId: { not: null } }, { googleAdId: { not: null } }],
+    },
+    select: { approvalStatus: true },
+  });
+
+  const summary = computeApprovalSummary(ads.map((a) => a.approvalStatus));
+
+  await prisma.campaign.update({
+    where: { id: validId },
+    data: { approvalSummary: summary },
+  });
+
+  return summary;
 }
 
 /**

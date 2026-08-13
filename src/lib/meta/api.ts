@@ -375,6 +375,8 @@ export async function updateCampaign(
     {
       name: data.name,
       status: data.status,
+      daily_budget: data.daily_budget,
+      lifetime_budget: data.lifetime_budget,
     },
     client.accessToken
   );
@@ -580,7 +582,9 @@ export async function createAd(
 }
 
 /**
- * Update an existing ad
+ * Update an existing ad. Supports swapping the creative on an already-live ad
+ * (Meta creatives are immutable but the ad can point to a new creative_id;
+ * this preserves the metaAdId and re-triggers Meta's policy review).
  */
 export async function updateAd(
   client: MetaClient,
@@ -593,6 +597,7 @@ export async function updateAd(
     {
       name: data.name,
       status: data.status,
+      creative: data.creative,
     },
     client.accessToken
   );
@@ -616,6 +621,34 @@ export async function updateAd(
     status: data.status,
     creative: data.creative ? { id: data.creative.creative_id } : undefined,
   };
+}
+
+/**
+ * Fetch the review/approval state for an ad from Meta.
+ * Returns raw fields — the caller normalizes to AdApprovalStatus.
+ */
+export type MetaAdApprovalRaw = {
+  id: string;
+  status?: string;
+  effective_status?: string;
+  issues_info?: Array<{
+    level?: string;
+    error_code?: number;
+    error_message?: string;
+    error_summary?: string;
+    error_type?: string;
+  }>;
+  recommendations?: Array<{ code?: string; message?: string }>;
+};
+
+export async function getAdApprovalStatus(
+  client: MetaClient,
+  metaAdId: string
+): Promise<MetaAdApprovalRaw> {
+  const fields =
+    'id,status,effective_status,issues_info{level,error_code,error_message,error_summary,error_type},recommendations';
+  const url = `${client.buildObjectUrl(metaAdId)}?fields=${fields}&access_token=${client.accessToken}`;
+  return executeRequest<MetaAdApprovalRaw>(client, url);
 }
 
 // ============================================================================

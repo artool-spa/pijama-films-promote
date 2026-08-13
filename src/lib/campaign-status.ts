@@ -15,17 +15,19 @@ export type NormalizedStatus = {
 export function normalizeMetaStatus(status: string): NormalizedStatus {
   switch (status) {
     case 'ACTIVE':
-      return { label: 'Activa', color: 'success' };
+      return { label: 'Active', color: 'success' };
     case 'PAUSED':
-      return { label: 'Pausada', color: 'warning' };
+      return { label: 'Paused', color: 'warning' };
     case 'DRAFT':
-      return { label: 'Borrador', color: 'default' };
+      return { label: 'Draft', color: 'default' };
     case 'PENDING':
-      return { label: 'Pendiente', color: 'info' };
+      return { label: 'Pending', color: 'info' };
+    case 'PENDING_ASSETS':
+      return { label: 'Preparing media', color: 'info' };
     case 'ERROR':
       return { label: 'Error', color: 'error' };
     case 'ARCHIVED':
-      return { label: 'Archivada', color: 'default' };
+      return { label: 'Archived', color: 'default' };
     default:
       return { label: status, color: 'default' };
   }
@@ -37,19 +39,19 @@ export function normalizeMetaStatus(status: string): NormalizedStatus {
 export function normalizeGoogleStatus(status: string | null): NormalizedStatus {
   switch (status) {
     case 'ENABLED':
-      return { label: 'Activa', color: 'success' };
+      return { label: 'Active', color: 'success' };
     case 'PAUSED':
-      return { label: 'Pausada', color: 'warning' };
+      return { label: 'Paused', color: 'warning' };
     case 'DRAFT':
-      return { label: 'Borrador', color: 'default' };
+      return { label: 'Draft', color: 'default' };
     case 'PENDING':
-      return { label: 'Pendiente', color: 'info' };
+      return { label: 'Pending', color: 'info' };
     case 'ERROR':
       return { label: 'Error', color: 'error' };
     case 'REMOVED':
-      return { label: 'Eliminada', color: 'default' };
+      return { label: 'Removed', color: 'default' };
     default:
-      return { label: status || 'Desconocido', color: 'default' };
+      return { label: status || 'Unknown', color: 'default' };
   }
 }
 
@@ -83,14 +85,34 @@ export function getPlatformLabel(platform: string): string {
 }
 
 /**
+ * Operational status = "is the campaign running on the platform?"
+ * Approval status  = "have the ads been approved by the platform?"
+ *
+ * These are two independent axes. A campaign can be ENABLED (operationally
+ * running) while individual ads inside are DISAPPROVED (not being shown).
+ */
+export function getOperationalStatus(
+  platforms: string[],
+  metaStatus: string,
+  googleEntityStatus: string | null
+): NormalizedStatus {
+  return getCampaignDisplayStatus(platforms, metaStatus, googleEntityStatus);
+}
+
+export type DualStatus = {
+  operational: NormalizedStatus;
+  approval: NormalizedStatus | null;
+};
+
+/**
  * YouTube ad format display labels
  */
 export function getYouTubeAdFormatLabel(format: string | null): string {
   switch (format) {
     case 'IN_STREAM_SKIPPABLE':
-      return 'In-Stream (Saltable)';
+      return 'In-Stream (Skippable)';
     case 'IN_STREAM_NON_SKIPPABLE':
-      return 'In-Stream (No Saltable)';
+      return 'In-Stream (Non-skippable)';
     case 'IN_FEED':
       return 'In-Feed';
     case 'BUMPER':
@@ -98,6 +120,6 @@ export function getYouTubeAdFormatLabel(format: string | null): string {
     case 'SHORTS':
       return 'Shorts';
     default:
-      return format || 'No definido';
+      return format || 'Not defined';
   }
 }

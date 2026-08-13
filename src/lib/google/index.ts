@@ -75,6 +75,10 @@ export {
   getYouTubeInsights,
   updateCampaignStatus,
   updateAdGroupStatus,
+  updateCampaignBudget,
+  updateCampaignEndDate,
+  removeAd,
+  getAdApprovalStatuses,
   getCampaignStatus,
   createDemandGenCampaign,
   createDemandGenAdGroup,
@@ -85,6 +89,7 @@ export {
   getAdInsights,
   getAllCustomAudiences,
 } from './api';
+export type { GoogleAdApprovalRaw } from './api';
 
 // Re-export custom audience type
 export type { GoogleCustomAudience } from './api';
