@@ -20,7 +20,7 @@ services:
       MERCURE_SUBSCRIBER_JWT_KEY: 'pijama-mercure-dev-secret-key-at-least-256-bits-long'
       MERCURE_EXTRA_DIRECTIVES: |
         anonymous
-        cors_origins http://localhost:3000
+        cors_origins http://localhost:3000 https://*.app.github.dev https://*.github.dev
     ports:
       - "9090:3001"
 
