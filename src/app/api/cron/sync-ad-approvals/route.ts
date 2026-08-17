@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getAdsNeedingApprovalRefresh, updateAdApproval } from '@/models/ad';
-import { recomputeApprovalSummary } from '@/models/campaign';
+import { recomputeApprovalSummary, getCampaignById } from '@/models/campaign';
 import { meta, getAdApprovalStatus, type MetaAdApprovalRaw } from '#meta';
 import { google, getAdApprovalStatuses, type GoogleAdApprovalRaw } from '#google';
 import { describeMetaPolicyIssue, describeGooglePolicyTopic } from '@/lib/campaigns/error-messages';
@@ -171,15 +171,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Recompute campaign rollups + emit SSE
+    // Recompute campaign rollups + emit realtime events
     for (const campaignId of affectedCampaigns) {
       try {
         await recomputeApprovalSummary(campaignId);
-        // Fire a lightweight event so any open UI can refresh.
-        await publish(campaignId, {
-          type: 'ad_approval_changed',
-          campaignId,
-        });
+
+        // Events are keyed by film, not by campaign - look up the owning film
+        // so open UIs actually receive this.
+        const campaign = await getCampaignById(campaignId);
+        if (campaign) {
+          await publish(campaign.filmMuviUuid, {
+            type: 'ad_approval_changed',
+            campaignId,
+          });
+        }
       } catch (err) {
         logger.warn({ err, campaignId }, 'Failed to recompute approvalSummary');
       }

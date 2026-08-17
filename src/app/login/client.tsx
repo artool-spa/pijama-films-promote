@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { clientAuth } from '@/lib/firebase/client';
 import {
   Box,
   Card,
@@ -27,10 +29,19 @@ export default function LoginClient() {
     setLoading(true);
 
     try {
+      // Authenticate against Firebase; the password never reaches our server.
+      const credential = await signInWithEmailAndPassword(
+        clientAuth(),
+        email,
+        password
+      );
+      const idToken = await credential.user.getIdToken();
+
+      // Exchange the ID token for our httpOnly session cookie.
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ idToken }),
       });
 
       const data = await response.json();
@@ -43,8 +54,15 @@ export default function LoginClient() {
       // Redirect to films page on success
       router.push('/films');
       router.refresh();
-    } catch {
-      setError('Connection error');
+    } catch (err) {
+      // Firebase returns granular codes; collapse them so we don't reveal
+      // whether an account exists.
+      const code = (err as { code?: string }).code;
+      setError(
+        code?.startsWith('auth/')
+          ? 'Invalid email or password'
+          : 'Connection error'
+      );
     } finally {
       setLoading(false);
     }

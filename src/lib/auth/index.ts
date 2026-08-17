@@ -29,12 +29,3 @@ export {
 } from './session';
 
 export type { SessionPayload } from './session';
-
-// Temporal users exports (for temporary auth)
-export {
-  validateCredentials,
-  getUserByEmail,
-  TEMPORAL_USERS,
-} from './temporal-users';
-
-export type { TemporalUser } from './temporal-users';

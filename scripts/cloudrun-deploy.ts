@@ -30,6 +30,7 @@ const CLOUD_SQL_CONNECTION = `${GCP_PROJECT}:${GCP_REGION}:${DB_INSTANCE}`;
 
 // Secrets to mount from Secret Manager as environment variables
 const SECRET_ENV_VARS = [
+  "SESSION_SECRET",
   "JWT_SECRET_KEY",
   "JWT_EXPIRATION_TIME",
   "MUVI_APP_ID",
@@ -51,8 +52,6 @@ const SECRET_ENV_VARS = [
   "GOOGLE_ADS_REFRESH_TOKEN",
   "GOOGLE_ADS_CUSTOMER_ID",
   "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
-  "MERCURE_URL",
-  "MERCURE_JWT_SECRET",
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "DATABASE_URL",
@@ -78,8 +77,10 @@ function buildImage(): string {
   console.log(`  Tag: ${imageTag}\n`);
 
   const buildArgs = [
-    `NEXT_PUBLIC_MERCURE_URL=${process.env.NEXT_PUBLIC_MERCURE_URL || ""}`,
     `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${process.env.BUILD_NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ""}`,
+    `NEXT_PUBLIC_FIREBASE_API_KEY=${process.env.NEXT_PUBLIC_FIREBASE_API_KEY || ""}`,
+    `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || ""}`,
+    `NEXT_PUBLIC_FIREBASE_PROJECT_ID=${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || ""}`,
   ]
     .map((arg) => `--build-arg "${arg}"`)
     .join(" ");
@@ -133,7 +134,7 @@ function deploy(imageTag: string): void {
     `--max-instances=3`,
     `--add-cloudsql-instances=${CLOUD_SQL_CONNECTION}`,
     `--set-secrets=${secretsFlag}`,
-    `--set-env-vars=NODE_ENV=production`,
+    `--set-env-vars=NODE_ENV=production,FIREBASE_PROJECT_ID=${GCP_PROJECT}`,
     `--allow-unauthenticated`,
     `--timeout=300`,
   ].join(" ");

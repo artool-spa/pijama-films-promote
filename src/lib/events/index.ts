@@ -1,4 +1,4 @@
-export { publish } from './mercure';
+export { publish, grantFilmEventAccess } from './firestore';
 
 import type { AssetStatus } from '@prisma/client';
 

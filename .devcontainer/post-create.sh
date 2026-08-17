@@ -10,7 +10,7 @@ corepack prepare yarn@1.22.22 --activate
 echo "==> Installing dependencies"
 yarn install --frozen-lockfile
 
-echo "==> Starting docker compose services (db, mercure)"
+echo "==> Starting docker compose services (db)"
 docker compose up -d
 
 echo "==> Waiting for PostgreSQL to accept connections"

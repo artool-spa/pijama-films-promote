@@ -5,21 +5,70 @@ interface AuthUser {
   password: string;
 }
 
+/**
+ * E2E credentials come from the environment - never hardcode them. Point these
+ * at throwaway users in a Firebase test project, provisioned with
+ * `scripts/firebase-provision-user.ts`.
+ */
+function envUser(prefix: string): AuthUser {
+  const email = process.env[`${prefix}_EMAIL`];
+  const password = process.env[`${prefix}_PASSWORD`];
+
+  if (!email || !password) {
+    throw new Error(`Missing ${prefix}_EMAIL / ${prefix}_PASSWORD for e2e tests`);
+  }
+
+  return { email, password };
+}
+
 export const TEST_USERS = {
-  admin: { email: 'admin@pijamafilms.com', password: 'pijama2026' },
-  producer1: { email: 'producer1@pijamafilms.com', password: 'pijama2026' },
-  producer2: { email: 'producer2@pijamafilms.com', password: 'pijama2026' },
+  get admin() {
+    return envUser('E2E_ADMIN');
+  },
+  get producer1() {
+    return envUser('E2E_PRODUCER1');
+  },
+  get producer2() {
+    return envUser('E2E_PRODUCER2');
+  },
 } as const;
 
 const BASE_URL = 'http://localhost:3000';
 
 /**
- * Login via API and return the session cookie value
+ * Sign in against Firebase Auth, then exchange the ID token for our session
+ * cookie - the same two-step flow the login page performs.
  */
 export async function getSessionCookie(user: AuthUser): Promise<string> {
+  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('NEXT_PUBLIC_FIREBASE_API_KEY is required for e2e tests');
+  }
+
   const apiContext = await request.newContext({ baseURL: BASE_URL });
+
+  const firebaseRes = await apiContext.post(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+    {
+      data: {
+        email: user.email,
+        password: user.password,
+        returnSecureToken: true,
+      },
+    }
+  );
+
+  if (!firebaseRes.ok()) {
+    throw new Error(
+      `Firebase sign-in failed for ${user.email}: ${firebaseRes.status()}`
+    );
+  }
+
+  const { idToken } = (await firebaseRes.json()) as { idToken: string };
+
   const response = await apiContext.post('/api/auth/login', {
-    data: { email: user.email, password: user.password },
+    data: { idToken },
   });
 
   if (!response.ok()) {

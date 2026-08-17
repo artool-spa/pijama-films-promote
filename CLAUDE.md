@@ -37,16 +37,16 @@ npx prisma studio        # Open Prisma Studio
 # Deployment (Google Cloud Run)
 npm run deploy:cloudrun          # Deploy app to production (Cloud Run)
 npm run deploy:cloudrun:secrets  # Push secrets to Secret Manager
-npm run deploy:cloudrun:mercure  # Deploy Mercure SSE hub (GCE)
 npm run deploy:gcp-setup         # One-time GCP infrastructure setup
+npm run deploy:firestore         # One-time Firestore setup (rules + TTL policy)
 
 # Deploying requires gcloud CLI authenticated, the GCP infrastructure created
 # by deploy:gcp-setup, and secrets present via deploy:cloudrun:secrets.
 # The deploy builds the image locally, pushes to Artifact Registry, and
 # releases to Cloud Run. It does NOT commit or push git — do that yourself.
 #
-# The deploy:coolify / deploy:env / deploy:mercure scripts target the legacy
-# Coolify host and are no longer production. Do not use them.
+# The deploy:coolify / deploy:env scripts target the legacy Coolify host and
+# are no longer production. Do not use them.
 
 # Docker
 docker compose up        # Start PostgreSQL
@@ -85,6 +85,46 @@ This project **strictly follows the MVC pattern**:
 4. ✅ **404 handling** = At server level with `notFound()`
 5. ✅ **Validation** = All inputs with Zod
 6. ✅ **Language** = English code and English UI
+7. ✅ **Security** = Always choose the most secure option (see [Security First](#security-first))
+
+## Security First
+
+**Always prefer the most secure solution available, even when a less secure one is faster or simpler.**
+When there is a trade-off between convenience and security, propose the secure option first, explain
+the cost, and let the user decide. Never silently pick the insecure shortcut.
+
+### Non-negotiable rules
+
+1. ❌ **Never expose production credentials.** Do not print, echo, copy, paste into a command, write
+   into a file, commit, or pass as a CLI argument any production connection string, password, API key,
+   token, or service-account key. This includes `DATABASE_URL` (the Postgres URL embeds the password).
+2. ❌ **Never point local tooling at the production database.** Do not run `prisma migrate dev`,
+   `prisma db push`, `prisma studio`, seeds, test suites, or ad-hoc scripts against production. Local
+   work runs against the local Docker Postgres (`docker compose up -d`).
+3. ✅ **Production migrations run in production.** Apply schema changes with `prisma migrate deploy`
+   executed from the deployed environment (Cloud Run job / Cloud SQL connector / IAM-authenticated
+   session), not from a developer laptop holding a production URL.
+4. ✅ **Secrets live in Secret Manager.** Production secrets are managed through
+   `npm run deploy:cloudrun:secrets` and read from GCP Secret Manager at runtime. `.env` files are
+   local-only and must stay out of git.
+5. ✅ **Least privilege.** Use the narrowest role, scope, and network exposure that makes the task
+   work. Prefer short-lived, IAM-based credentials over long-lived static passwords.
+6. ✅ **Redact in logs and errors.** Never log credentials, tokens, full connection strings, or
+   personal data. Error messages returned to users must not leak internal details.
+7. ✅ **Validate and authorize everything.** All input goes through Zod; every server action, API
+   route, and model query must verify the session and confirm the resource belongs to the
+   authenticated producer (no IDOR).
+8. ✅ **Flag risks explicitly.** If a requested change introduces a security risk, say so plainly
+   before implementing, and offer the secure alternative.
+
+### Example of what NOT to suggest
+
+> "The production database hasn't been migrated — just set your local `DATABASE_URL` to the
+> production Postgres URL and run `prisma migrate dev`."
+
+This leaks the production password into the local environment, shell history, and possibly logs, and
+runs a destructive dev-mode migration against live data. The secure path is to run
+`prisma migrate deploy` from the production environment using Secret Manager credentials.
 
 ## Detailed Guidelines
 
@@ -243,4 +283,4 @@ See `prisma/schema.prisma` for complete schema.
 
 ---
 
-**Remember**: Follow MVC strictly, validate all inputs, keep UX simple for non-technical film producers. Detailed implementation guidelines are in the Claude Code skills.
+**Remember**: Follow MVC strictly, validate all inputs, always take the most secure option (never handle production credentials locally), and keep UX simple for non-technical film producers. Detailed implementation guidelines are in the Claude Code skills.
