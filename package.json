@@ -26,7 +26,8 @@
     "e2e:debug": "npx playwright test --debug",
     "firestore:import-partners": "npx tsx scripts/firestore-import-partners.ts",
     "db:seed": "npx tsx scripts/firestore-seed.ts",
-    "user:provision": "npx tsx scripts/firebase-provision-user.ts"
+    "user:provision": "npx tsx scripts/firebase-provision-user.ts",
+    "users:seed": "npx tsx scripts/provision-seed-users.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.13.1",

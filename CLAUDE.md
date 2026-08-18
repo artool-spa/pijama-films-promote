@@ -35,6 +35,7 @@ npm run db:seed                         # Seed the special "pijamafilms" partner
 npm run firestore:import-partners       # Import partner records from a JSON export
 
 # Users (provisional auth: Firebase email + password)
+npm run users:seed                                     # the 5 in-house users, reset links
 npm run user:provision -- <email> <name> <partnerId>   # prints a one-time reset link
 npm run user:provision -- <email> <name> <partnerId> --password-stdin  # password via stdin
 
