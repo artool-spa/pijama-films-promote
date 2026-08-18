@@ -61,7 +61,21 @@ function getMetaClient(): MetaClient {
 }
 
 // Export the singleton instance
-export const meta = getMetaClient();
+/**
+ * Lazily initialised singleton, mirroring the Stripe client.
+ *
+ * Constructing it at import time threw whenever the credentials were absent,
+ * taking down every route whose import graph reaches this module — which is
+ * every build, since secrets are declared RUNTIME-only and Next evaluates each
+ * route module while collecting page data.
+ */
+export const meta = new Proxy({} as MetaClient, {
+  get(_target, prop, receiver) {
+    const client = getMetaClient();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 // Re-export API functions
 export {

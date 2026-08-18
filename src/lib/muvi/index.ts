@@ -50,8 +50,25 @@ function getMuviClient(): MuviTokenHandler {
   return client;
 }
 
-// Export the singleton instance
-export const muvi = getMuviClient();
+/**
+ * Lazily initialised singleton, mirroring the Stripe client.
+ *
+ * Constructing it eagerly threw at import time whenever the Muvi credentials
+ * were absent, which took down every route whose import graph reaches this
+ * module. That is exactly the situation during a build: secrets are declared
+ * RUNTIME-only, so the build has none of them, and Next evaluates every route
+ * module while collecting page data.
+ *
+ * The proxy keeps the import surface identical and defers construction — and
+ * the configuration error — to the first real use.
+ */
+export const muvi = new Proxy({} as MuviTokenHandler, {
+  get(_target, prop, receiver) {
+    const client = getMuviClient();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 // Re-export API functions
 export { getMovies, getMovieDetails } from './api';

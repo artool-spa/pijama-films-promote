@@ -64,7 +64,21 @@ function getGoogleAdsClient(): GoogleAdsClient {
 }
 
 // Export the singleton instance
-export const google = getGoogleAdsClient();
+/**
+ * Lazily initialised singleton, mirroring the Stripe client.
+ *
+ * Constructing it at import time threw whenever the credentials were absent,
+ * taking down every route whose import graph reaches this module — which is
+ * every build, since secrets are declared RUNTIME-only and Next evaluates each
+ * route module while collecting page data.
+ */
+export const google = new Proxy({} as GoogleAdsClient, {
+  get(_target, prop, receiver) {
+    const client = getGoogleAdsClient();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 // Re-export API functions
 export {
