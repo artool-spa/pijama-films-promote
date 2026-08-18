@@ -48,12 +48,10 @@ export const StorageConfigSchema = z.object({
   serviceAccountKeyPath: z.string().optional(),
   serviceAccountKeyJson: z.string().optional(),
   publicUrlBase: z.string().url().optional(),
-}).refine(
-  (data) => data.serviceAccountKeyPath || data.serviceAccountKeyJson,
-  {
-    message: 'Either GCS_SERVICE_ACCOUNT_KEY_PATH or GCS_SERVICE_ACCOUNT_KEY_JSON is required',
-  }
-);
+});
+// No credential field is required: with neither set, the client falls back to
+// Application Default Credentials, which is how it authenticates on App
+// Hosting (the runtime service account). An explicit key is only for local use.
 
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 

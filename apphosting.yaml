@@ -76,20 +76,16 @@ env:
   # ---------------------------------------------------------------------------
   # Google Cloud Storage
   #
-  # The bucket lives in the pijama-films project: the runtime SA above needs
-  # roles/storage.objectAdmin on it (cross-project), or move to a new bucket.
+  # Bucket in this project, uniform bucket-level access, allUsers granted
+  # objectViewer: the creatives have to be fetchable by Meta and Google.
+  # The runtime service account holds objectAdmin on it.
+  #
+  # There is deliberately no GCS_SERVICE_ACCOUNT_KEY_JSON: storage and Vertex
+  # AI both authenticate with Application Default Credentials, so no static
+  # key is injected into the runtime.
   # ---------------------------------------------------------------------------
   - variable: GCS_BUCKET_NAME
-    value: pijama-assets
-    availability:
-      - RUNTIME
-
-  # Static key for GCS + Vertex AI (Gemini). Can be dropped once
-  # src/lib/storage/types.ts stops requiring it and src/lib/gemini/client.ts
-  # takes the project id from the environment instead of the key JSON —
-  # App Hosting already provides ADC through the runtime SA.
-  - variable: GCS_SERVICE_ACCOUNT_KEY_JSON
-    secret: GCS_SERVICE_ACCOUNT_KEY_JSON
+    value: pijama-promote-assets
     availability:
       - RUNTIME
 
@@ -204,15 +200,3 @@ env:
     secret: GOOGLE_ADS_LOGIN_CUSTOMER_ID
     availability:
       - RUNTIME
-
-  # ---------------------------------------------------------------------------
-  # DATABASE_URL is intentionally absent.
-  #
-  # Prisma is still on the runtime path (15 files under src/), so the app will
-  # not boot without it — but the value is an open decision: the Cloud SQL
-  # instance lives in the pijama-films project and App Hosting has no
-  # --add-cloudsql-instances equivalent (no /cloudsql socket), so it needs
-  # either private IP + VPC access or public IP + SSL, plus roles/cloudsql.client
-  # for the runtime SA on pijama-films. The value in the local .env points at
-  # localhost.
-  # ---------------------------------------------------------------------------

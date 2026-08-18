@@ -10,16 +10,20 @@ const globalForGemini = global as unknown as { gemini: GeminiClient | undefined 
  */
 function createGeminiConfig() {
   const serviceAccountKeyJson = process.env.GCS_SERVICE_ACCOUNT_KEY_JSON;
+  // Vertex AI needs a project. A service-account key carries its own; with ADC
+  // it has to come from the environment.
+  const projectId =
+    process.env.GOOGLE_CLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
 
-  if (!serviceAccountKeyJson) {
+  if (!serviceAccountKeyJson && !projectId) {
     throw new GeminiConfigError(
-      'Missing required environment variable: GCS_SERVICE_ACCOUNT_KEY_JSON. ' +
-        'Please configure it in your .env file.',
-      ['GCS_SERVICE_ACCOUNT_KEY_JSON']
+      'Missing project configuration: set FIREBASE_PROJECT_ID (or provide ' +
+        'GCS_SERVICE_ACCOUNT_KEY_JSON) so Vertex AI knows which project to bill.',
+      ['FIREBASE_PROJECT_ID']
     );
   }
 
-  return { serviceAccountKeyJson };
+  return { serviceAccountKeyJson, projectId };
 }
 
 /**
