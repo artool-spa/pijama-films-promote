@@ -73,9 +73,13 @@ function getGoogleAdsClient(): GoogleAdsClient {
  * route module while collecting page data.
  */
 export const google = new Proxy({} as GoogleAdsClient, {
-  get(_target, prop, receiver) {
+  // `receiver` is deliberately omitted: forwarding it would run the client's
+  // getters with `this` bound to the proxy, so any getter reading internal
+  // state would recurse back through this handler and see nothing. That is how
+  // `muvi.productKey` came to throw "Product key not available" in production.
+  get(_target, prop) {
     const client = getGoogleAdsClient();
-    const value = Reflect.get(client, prop, receiver);
+    const value = Reflect.get(client, prop);
     return typeof value === 'function' ? value.bind(client) : value;
   },
 });

@@ -30,13 +30,14 @@ function getStripeClient(): Stripe {
 
 // Export a proxy that lazily initializes Stripe on first property access
 const stripe = new Proxy({} as Stripe, {
-  get(_target, prop, receiver) {
+  // `receiver` is deliberately omitted: forwarding it would run the client's
+  // getters with `this` bound to the proxy, so any getter reading internal
+  // state would recurse back through this handler and see nothing. That is how
+  // `muvi.productKey` came to throw "Product key not available" in production.
+  get(_target, prop) {
     const client = getStripeClient();
-    const value = Reflect.get(client, prop, receiver);
-    if (typeof value === 'function') {
-      return value.bind(client);
-    }
-    return value;
+    const value = Reflect.get(client, prop);
+    return typeof value === 'function' ? value.bind(client) : value;
   },
 });
 
