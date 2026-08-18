@@ -123,6 +123,30 @@ Still open, and outside the migration itself:
   email-and-password flow works. Once you have them, push them as secrets and
   add the two entries to `apphosting.yaml`.
 
+## Deployment
+
+The backend serves from
+`https://pijama-promote--pijama-promote-firebase.us-central1.hosted.app`
+(`/` 307 → `/login` 200). Rollouts are created with:
+
+    npx firebase-tools apphosting:rollouts:create pijama-promote \
+      --project=pijama-promote-firebase --git-branch firebase-migration --force
+
+Four things had to be fixed before the first build succeeded, all worth
+knowing before the next one:
+
+1. **Secret access.** Granting the runtime service account was not enough; the
+   build resolves secrets too. `apphosting:secrets:grantaccess` grants both.
+2. **Next.js version.** The adapter refuses to deploy versions affected by
+   CVE-2025-55182 outright.
+3. **Turbopack.** It panics in the builder — the buildpack installs modules
+   outside the project and symlinks `node_modules` to them, which Turbopack
+   rejects. The build script opts back into webpack.
+4. **Eager clients.** Secrets are RUNTIME-only, so the build environment has
+   none, and Next evaluates every route module while collecting page data. Any
+   module that builds a client at import time takes the build down with it.
+   Keep API clients lazy.
+
 ## Custom domain
 
 Target: `promote.pijamafilms.com`, which **today serves the legacy Coolify host**
