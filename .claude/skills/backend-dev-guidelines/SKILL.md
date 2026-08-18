@@ -257,9 +257,9 @@ const db = getFirestore(initializeApp());                 // ❌ initialise your
 - **Error Messages**: English (logs), Spanish (user-facing)
 
 ## Key Rules
-1. Never use Prisma client directly in API routes - always use model functions
+1. Never touch Firestore directly in API routes - always use model functions
 2. Server components call model functions directly, not API routes
 3. Handle 404 errors at server level with `notFound()`
 4. Never pass nullable data to client components
 5. All user input must be validated with Zod
-6. Import prisma as default: `import prisma from '#prisma'`
+6. Reach Firestore through `adminDb()` and the `@/lib/firestore` helpers

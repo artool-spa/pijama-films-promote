@@ -75,3 +75,31 @@ Decisions behind that table:
   (`getAggregateFromServer`); they are not client-side loops.
 - `BigInt` (`Campaign.targetCpvMicros`) has no Firestore equivalent. It is
   stored as a number: the value is micros of currency, far below 2^53.
+
+## Environment
+
+`pijama-promote-firebase`, backend `pijama-promote` (us-central1):
+
+- **Firestore** in us-central1, rules and indexes deployed, TTL policy active on
+  `events.expiresAt`.
+- **Assets** in `gs://pijama-promote-assets`: uniform bucket-level access,
+  `allUsers` granted `objectViewer` because Meta and Google fetch the creatives
+  directly, runtime service account granted `objectAdmin`.
+- **Credentials**: storage, Firestore and Vertex AI all use Application Default
+  Credentials — the runtime service account. No static service-account key is
+  injected; `GCS_SERVICE_ACCOUNT_KEY_JSON` is no longer referenced.
+- **Secrets**: 19 referenced by name from `apphosting.yaml`; values live in
+  Secret Manager. `SESSION_SECRET` and `CRON_SECRET` were generated fresh for
+  this environment rather than copied from production.
+
+Still open, and outside the migration itself:
+
+- **Firebase Auth users** have to be provisioned — the feature is new in this
+  branch, so no account exists in any project. Run
+  `scripts/firebase-provision-user.ts <email> <name> <partnerId>` per user; it
+  prints a one-time password-reset link and never handles a password.
+- **Stripe webhook**: the copied `STRIPE_WEBHOOK_SECRET` belongs to another
+  endpoint. Create the endpoint for this backend and push the new `whsec_`.
+- **`PIJAMA_CLIENT_ID` / `PIJAMA_CLIENT_SECRET`** (`src/lib/pijama/index.ts`)
+  are configured nowhere — not in Secret Manager, not in any `.env`. That
+  predates this migration, but the Pijama API calls will throw until they exist.
