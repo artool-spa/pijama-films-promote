@@ -4,88 +4,168 @@
       "collectionGroup": "images",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "archived", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "archived",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "images",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "images",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "originalUrl", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "originalUrl",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "videos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "archived", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "archived",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "videos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "videos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "filmMuviUuid", "order": "ASCENDING" },
-        { "fieldPath": "originalUrl", "order": "ASCENDING" }
+        {
+          "fieldPath": "filmMuviUuid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "originalUrl",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "campaigns",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "partnerId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "partnerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "campaigns",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "partnerId", "order": "ASCENDING" },
-        { "fieldPath": "objective", "order": "ASCENDING" }
+        {
+          "fieldPath": "partnerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "objective",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "campaigns",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "partnerId", "order": "ASCENDING" },
-        { "fieldPath": "platforms", "arrayConfig": "CONTAINS" }
+        {
+          "fieldPath": "partnerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "platforms",
+          "arrayConfig": "CONTAINS"
+        }
       ]
     },
     {
       "collectionGroup": "ads",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "campaignId", "order": "ASCENDING" },
-        { "fieldPath": "approvalStatus", "order": "ASCENDING" }
+        {
+          "fieldPath": "campaignId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "approvalStatus",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "transactions",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "stripePaymentIntentId", "order": "ASCENDING" }
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "stripePaymentIntentId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "campaigns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "budget",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
@@ -94,8 +174,14 @@
       "collectionGroup": "transactions",
       "fieldPath": "stripeSessionId",
       "indexes": [
-        { "queryScope": "COLLECTION", "order": "ASCENDING" },
-        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+        {
+          "queryScope": "COLLECTION",
+          "order": "ASCENDING"
+        },
+        {
+          "queryScope": "COLLECTION_GROUP",
+          "order": "ASCENDING"
+        }
       ]
     }
   ]
