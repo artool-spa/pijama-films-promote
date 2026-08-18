@@ -122,3 +122,32 @@ Still open, and outside the migration itself:
   the final authentication path, so until they exist only the provisional
   email-and-password flow works. Once you have them, push them as secrets and
   add the two entries to `apphosting.yaml`.
+
+## Custom domain
+
+Target: `promote.pijamafilms.com`, which **today serves the legacy Coolify host**
+(`A 64.176.6.210`). Pointing it at App Hosting is a production cutover, not a
+new setup, so the new backend should be deployed and verified on
+`https://pijama-promote--pijama-promote-firebase.us-central1.hosted.app` first.
+
+DNS for `pijamafilms.com` is on Route 53 (`ns-*.awsdns-*`).
+
+Neither the Firebase CLI nor gcloud exposes App Hosting custom domains or
+Firebase Auth authorized domains, so both steps are console-only:
+
+1. **App Hosting → backend `pijama-promote` → add custom domain.** Firebase
+   returns the records to publish (a TXT for verification, then A/AAAA).
+2. **Publish them in Route 53**, replacing the existing A record. Lower the TTL
+   beforehand so a rollback takes minutes rather than hours.
+3. **Authentication → Settings → Authorized domains: add
+   `promote.pijamafilms.com`.** Firebase Auth refuses sign-in from a domain it
+   does not know, so skipping this breaks login on the custom domain while
+   leaving everything else working — an easy failure to misdiagnose.
+4. **Stripe webhook**: create the endpoint against
+   `https://promote.pijamafilms.com/api/webhooks/stripe` and push the resulting
+   `whsec_`, so it is only done once.
+
+The application itself needs no change: it never hardcodes its own host. The
+Stripe checkout builds return URLs from the request `origin`
+(`src/app/api/account/checkout/route.ts`), so it follows whatever domain serves
+it.
