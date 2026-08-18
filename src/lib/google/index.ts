@@ -72,15 +72,20 @@ function getGoogleAdsClient(): GoogleAdsClient {
  * every build, since secrets are declared RUNTIME-only and Next evaluates each
  * route module while collecting page data.
  */
+// One instance per process, memoised here rather than by the factory: it only
+// caches outside production, so without this every property access would build
+// a fresh client. That is what broke the Muvi token — `getAccessToken()` stored
+// it on one instance and `productKey` read from another.
+let googleInstance: GoogleAdsClient | undefined;
+
 export const google = new Proxy({} as GoogleAdsClient, {
   // `receiver` is deliberately omitted: forwarding it would run the client's
-  // getters with `this` bound to the proxy, so any getter reading internal
-  // state would recurse back through this handler and see nothing. That is how
-  // `muvi.productKey` came to throw "Product key not available" in production.
+  // getters with `this` bound to the proxy, so a getter reading internal state
+  // would recurse back through this handler and see nothing.
   get(_target, prop) {
-    const client = getGoogleAdsClient();
-    const value = Reflect.get(client, prop);
-    return typeof value === 'function' ? value.bind(client) : value;
+    googleInstance ??= getGoogleAdsClient();
+    const value = Reflect.get(googleInstance, prop);
+    return typeof value === 'function' ? value.bind(googleInstance) : value;
   },
 });
 
