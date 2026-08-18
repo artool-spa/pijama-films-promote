@@ -25,6 +25,8 @@
     "e2e:headed": "npx playwright test --headed",
     "e2e:debug": "npx playwright test --debug",
     "firestore:import-partners": "npx tsx scripts/firestore-import-partners.ts",
+    "migrate:export": "bash scripts/postgres-export.sh",
+    "migrate:import": "npx tsx scripts/firestore-import.ts",
     "db:seed": "npx tsx scripts/firestore-seed.ts",
     "user:provision": "npx tsx scripts/firebase-provision-user.ts",
     "users:seed": "npx tsx scripts/provision-seed-users.ts"

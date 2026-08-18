@@ -65,6 +65,50 @@ Decisions behind that table:
       are the users, via `scripts/firestore-import-partners.ts`.
 - [x] **8. Cleanup** — Prisma, the `prisma/` directory, the `#prisma` alias,
       `DATABASE_URL` and the local Postgres container are gone.
+- [ ] **9. Full data migration** — every remaining table out of the legacy
+      Cloud SQL instance, see below.
+
+## Migrating the data
+
+The legacy database is `pijama-db` (POSTGRES_16, `pijama-films:us-west1`,
+database `pijama_films`). The migration is two commands, deliberately split so
+that only the first one holds a database credential:
+
+```bash
+# 1. Export — the only step that touches Postgres.
+PG_PASSWORD_FILE=<file> npm run migrate:export -- <export-dir>
+
+# 2. Import — reads JSON files, needs no database access.
+FIREBASE_PROJECT_ID=pijama-promote-firebase npm run migrate:import -- <export-dir> --dry-run
+FIREBASE_PROJECT_ID=pijama-promote-firebase npm run migrate:import -- <export-dir>
+```
+
+The export connects through the Cloud SQL Auth Proxy using your own ADC, so the
+instance needs no authorized network; the session is pinned to
+`default_transaction_read_only`, and the password is passed via `PGPASSFILE`
+rather than argv. Use the least-privileged role — `claude_readonly`, not the
+application's. The JSON files hold production data: delete them once the import
+is verified.
+
+The import is idempotent (documents are written under preserved ids) and
+refuses to run when the export contains a dangling foreign key, a duplicate
+`partnerId`, or a JSON column holding a nested array, which Firestore rejects.
+
+### How the shapes change
+
+Ids are preserved, so foreign keys keep working as document ids. Four things do
+change:
+
+| Postgres | Firestore | Why |
+|---|---|---|
+| `Account.id` (cuid) | `accounts/{partnerId}` | The id carries the one-account-per-partner constraint, and every lookup becomes a direct read. `AccountTransaction.accountId` is rewritten to match. |
+| `GeneratedCopy.id` (cuid) | `compositeId(filmId, language, variant)` | The composite unique index became the document id. |
+| `UserPreference.id` (cuid) | the email | It was the unique key. |
+| `_AdImages` / `_AdVideos` | `ads.imageIds` / `ads.videoIds` | Firestore has no join table; `src/models/hydrate.ts` resolves the arrays. |
+
+`scripts/__tests__/postgres-rows.test.ts` validates every transform with the
+models' own read schemas and then reads the result back through the model
+layer, so a column the migration forgets fails there rather than in production.
 
 ## Notes
 
