@@ -69,12 +69,20 @@ export async function middleware(request: NextRequest) {
   try {
     const { payload } = await jwtVerify(sessionCookie.value, getSecretKey());
 
-    // Add partner info and request path to headers
-    const response = NextResponse.next();
-    response.headers.set('x-pijama-partner-id', payload.partnerId as string);
-    response.headers.set('x-user-name', payload.name as string);
-    response.headers.set('x-request-path', pathname);
-    response.headers.set('x-request-method', request.method);
+    // Pass partner info to route handlers as *request* headers. Setting them
+    // on the response would also work (Next copies those onto the request) but
+    // would additionally ship the partner id and user name to the browser.
+    //
+    // The incoming headers must be cloned: Next deletes every request header
+    // absent from the override set, so building a fresh Headers() here would
+    // strip the cookie, user-agent and everything else.
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-pijama-partner-id', payload.partnerId as string);
+    requestHeaders.set('x-user-name', payload.name as string);
+    requestHeaders.set('x-request-path', pathname);
+    requestHeaders.set('x-request-method', request.method);
+
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
 
     return withRequestLog(request, response, start);
   } catch {

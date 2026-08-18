@@ -1,6 +1,6 @@
 export { publish, grantFilmEventAccess } from './firestore';
 
-import type { AssetStatus } from '@prisma/client';
+import type { AssetStatus } from '@/lib/assets/status';
 
 /**
  * Event types for SSE notifications

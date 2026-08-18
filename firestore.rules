@@ -25,27 +25,24 @@ service cloud.firestore {
     // reach, so the server records the authorized partners on the parent
     // document (see grantFilmEventAccess) after it has run its own check.
     match /filmEvents/{filmId} {
-      function mayReadFilm() {
-        return isSignedIn() && (
-          isSpecialPartner() ||
-          (
-            resource != null &&
-            partnerId() in resource.data.get('allowedPartnerIds', [])
-          )
-        );
+      // Whether the caller appears on the film's server-written allow list.
+      function isAllowedOnFilm(filmDoc) {
+        return filmDoc != null &&
+               partnerId() in filmDoc.data.get('allowedPartnerIds', []);
       }
 
-      allow read: if mayReadFilm();
+      allow read: if isSignedIn() &&
+                     (isSpecialPartner() || isAllowedOnFilm(resource));
       // Only the Admin SDK writes here; it bypasses these rules entirely.
       allow write: if false;
 
       match /events/{eventId} {
+        // The ACL lives on the parent document, so it has to be fetched.
+        // Identical get() paths are cached within a single evaluation.
         allow read: if isSignedIn() && (
           isSpecialPartner() ||
-          (
-            get(/databases/$(database)/documents/filmEvents/$(filmId)) != null &&
-            partnerId() in get(/databases/$(database)/documents/filmEvents/$(filmId))
-              .data.get('allowedPartnerIds', [])
+          isAllowedOnFilm(
+            get(/databases/$(database)/documents/filmEvents/$(filmId))
           )
         );
         allow write: if false;

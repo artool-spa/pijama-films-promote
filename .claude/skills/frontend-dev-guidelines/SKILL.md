@@ -138,7 +138,7 @@ Always use explicit types for props and state.
 
 **✅ CORRECT:**
 ```typescript
-import { Film } from '@prisma/client';
+import type { Film } from '@/models/film';
 
 type FilmCardProps = {
   film: Film;

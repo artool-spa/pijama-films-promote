@@ -2,7 +2,7 @@
  * Labels for asset status and UI elements
  */
 
-import type { AssetStatus } from '@prisma/client';
+import type { AssetStatus } from '@/lib/assets/status';
 
 // Asset status labels
 export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {

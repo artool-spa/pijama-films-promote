@@ -7,7 +7,6 @@ import { google, getAdApprovalStatuses, type GoogleAdApprovalRaw } from '#google
 import { describeMetaPolicyIssue, describeGooglePolicyTopic } from '@/lib/campaigns/error-messages';
 import { publish } from '@/lib/events';
 import type { AdApprovalStatusValue } from '@/models/ad';
-import type { Prisma } from '@prisma/client';
 
 const REFRESH_INTERVAL_MINUTES = 30;
 const META_BATCH_SIZE = 50;
@@ -122,7 +121,7 @@ export async function GET(req: NextRequest) {
           approvalStatus: status,
           rejectionReason: status === 'DISAPPROVED' || status === 'APPROVED_LIMITED' ? reason : null,
           suggestedCorrection: status === 'DISAPPROVED' || status === 'APPROVED_LIMITED' ? suggestion : null,
-          rejectionDetails: details as Prisma.InputJsonValue,
+          rejectionDetails: details,
         });
         affectedCampaigns.add(ad.campaignId);
         metaProcessed++;
@@ -157,7 +156,7 @@ export async function GET(req: NextRequest) {
             approvalStatus: status,
             rejectionReason: status === 'DISAPPROVED' || status === 'APPROVED_LIMITED' ? reason : null,
             suggestedCorrection: status === 'DISAPPROVED' || status === 'APPROVED_LIMITED' ? suggestion : null,
-            rejectionDetails: details as Prisma.InputJsonValue,
+            rejectionDetails: details,
           });
           affectedCampaigns.add(info.campaignId);
           googleProcessed++;

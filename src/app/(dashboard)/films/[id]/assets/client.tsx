@@ -60,7 +60,7 @@ import type { ImageWithUsage } from '@/models/image';
 import type { VideoWithUsage } from '@/models/video';
 import { AD_FORMATS, CROP_ASPECT_RATIOS, hasVerticalAsset, hasAssetForRatio, hasImageForRatio, hasVideoForRatio, getAspectRatioLabel } from '@/lib/assets/formats';
 import { ASSET_STATUS_LABELS, ASSET_STATUS_COLORS } from '@/lib/assets/labels';
-import type { AssetStatus } from '@prisma/client';
+import type { AssetStatus } from '@/lib/assets/status';
 import { useFilmEvents } from '@/hooks/useFilmEvents';
 import CropDialog from './CropDialog';
 

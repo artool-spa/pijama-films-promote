@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { google, getYouTubeInsights, getDisplayInsights, GoogleAdsApiError } from '#google';
-import prisma from '#prisma';
+import { getCampaignById } from '@/models/campaign';
 
 // In-memory cache for insights
 interface CachedInsights {
@@ -89,24 +89,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const campaign = await prisma.campaign.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        platforms: true,
-        googleCampaignId: true,
-        googleEntityStatus: true,
-        status: true,
-        startDate: true,
-        endDate: true,
-        ads: {
-          select: {
-            adSetType: true,
-          },
-          take: 1,
-        },
-      },
-    });
+    const campaign = await getCampaignById(id);
 
     if (!campaign) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });

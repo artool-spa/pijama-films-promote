@@ -5,9 +5,9 @@ Cloud SQL is not part of the target architecture.
 
 The model layer (`src/models/*.ts`) is the only seam that touches the database:
 every model exports functions that validate their result with Zod. The port
-keeps those signatures and schemas identical, so controllers (`page.tsx`) and
-views (`client.tsx`) are untouched. Models can therefore be moved one at a time
-while the rest of the app still runs on Prisma.
+kept those signatures and schemas identical, so controllers (`page.tsx`) and
+views (`client.tsx`) were never touched — which is what allowed the models to
+move one at a time, with the rest of the app still running on Prisma in between.
 
 ## Data model
 
@@ -20,7 +20,7 @@ while the rest of the app still runs on Prisma.
 | `Image`              | `images/{id}`                                    | auto |
 | `Video`              | `videos/{id}`                                    | auto |
 | `GeneratedCopy`      | `generatedCopies/{filmId__language__variant}`    | composite |
-| `Account`            | `accounts/{id}`                                  | auto |
+| `Account`            | `accounts/{partnerId}`                           | partner id |
 | `AccountTransaction` | `accounts/{accountId}/transactions/{id}`         | auto |
 
 Decisions behind that table:
@@ -36,6 +36,9 @@ Decisions behind that table:
 - **Many-to-many `Ad ↔ Image/Video`** becomes `imageIds: string[]` /
   `videoIds: string[]` on the ad document. `array-contains` covers the reverse
   lookup.
+- **An account is keyed by its partner.** One account per partner was a unique
+  column; here it is the document id, which also turns every lookup into a
+  direct read.
 - **`AccountTransaction` is a subcollection** of its account: it is always read
   through the account, and the account document is the transaction boundary for
   balance updates. Cross-account reporting uses a collection-group query.
@@ -51,21 +54,17 @@ Decisions behind that table:
 - [x] **1. Foundation** — `src/lib/firestore/index.ts`: collection names,
       `Timestamp` → `Date` conversion, `undefined` stripping, composite ids.
 - [x] **2. Self-contained models** — `userPreference`, `generatedCopy`.
-- [ ] **3. Assets** — `image`, `video`. Independent of the campaign graph.
-- [ ] **4. Campaign graph** — `partner`, `campaign`, `ad`, plus the four
-      insight API routes. The 44 `include:` become explicit fan-out reads; this
-      is where the read-shape work sits.
-- [ ] **5. Billing** — `account` and its transactions. Four Prisma
-      `$transaction` blocks become Firestore transactions on the account
-      document. Left last on purpose: it is the only place where a wrong
-      concurrent write costs money.
-- [ ] **6. Indexes** — composite indexes in `firestore.indexes.json` for the
-      queries phases 3–5 introduce.
-- [ ] **7. Data migration** — export from Cloud SQL, import into Firestore,
-      preserving ids. Only needed if the existing production data must be
-      carried over; not yet decided.
-- [ ] **8. Cleanup** — drop `prisma/`, `@prisma/client`, the `#prisma` import
-      alias and `DATABASE_URL`; update `CLAUDE.md` and the database skill.
+- [x] **3. Assets** — `image`, `video`.
+- [x] **4. Campaign graph** — `partner`, `campaign`, `ad`, the aggregate
+      helpers in `film`, the auth middleware and the four insight API routes.
+      The nested `include:` became `src/models/hydrate.ts`.
+- [x] **5. Billing** — `account` and its ledger, on Firestore transactions over
+      the account document.
+- [x] **6. Indexes** — `firestore.indexes.json`, deployed.
+- [x] **7. Data** — the environment starts empty; the only records carried over
+      are the users, via `scripts/firestore-import-partners.ts`.
+- [x] **8. Cleanup** — Prisma, the `prisma/` directory, the `#prisma` alias,
+      `DATABASE_URL` and the local Postgres container are gone.
 
 ## Notes
 

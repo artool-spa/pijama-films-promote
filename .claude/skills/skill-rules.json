@@ -3,7 +3,7 @@
     {
       "name": "backend-dev-guidelines",
       "triggers": {
-        "keywords": ["model", "prisma", "database", "api", "route", "server", "controller", "zod", "validation"],
+        "keywords": ["model", "firestore", "database", "api", "route", "server", "controller", "zod", "validation"],
         "filePatterns": ["src/models/**", "src/app/api/**", "src/app/**/page.tsx"],
         "intents": ["create model", "add api route", "server component", "database query"]
       },
@@ -33,8 +33,8 @@
     {
       "name": "database-guidelines",
       "triggers": {
-        "keywords": ["schema", "migration", "prisma", "query", "transaction", "index"],
-        "filePatterns": ["prisma/schema.prisma"],
+        "keywords": ["schema", "firestore", "collection", "query", "transaction", "index"],
+        "filePatterns": ["firestore.rules", "firestore.indexes.json"],
         "intents": ["modify schema", "add migration", "optimize query"]
       },
       "priority": "high",

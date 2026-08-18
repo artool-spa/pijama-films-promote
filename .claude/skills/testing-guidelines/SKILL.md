@@ -27,23 +27,20 @@ src/
 ### Example Model Test
 ```typescript
 import { describe, it, expect, beforeEach } from 'vitest';
+import { FakeFirestore } from '@/test/firestore-fake';
+
+const db = new FakeFirestore();
+
+// Mock at the module boundary so the model's real logic runs.
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => db }));
+
 import { createFilm, getFilmById, updateFilm } from '../film';
-import prisma from '#prisma';
 
 describe('Film Model', () => {
-  let producerId: string;
+  const producerId = 'producer-1';
 
-  beforeEach(async () => {
-    // Setup: create test producer
-    const producer = await prisma.producer.create({
-      data: {
-        email: 'test@test.com',
-        firstName: 'Test',
-        lastName: 'Producer',
-        saltHash: 'hash',
-      },
-    });
-    producerId = producer.id;
+  beforeEach(() => {
+    db.reset();
   });
 
   it('should create a film', async () => {
@@ -220,12 +217,11 @@ it('should validate film title', () => {});
 it('should create and update a film', () => {});
 ```
 
-4. **Cleanup After Tests**
+4. **Reset State Between Tests**
 ```typescript
-afterEach(async () => {
-  // Clean up test data
-  await prisma.film.deleteMany();
-  await prisma.producer.deleteMany();
+beforeEach(() => {
+  // The fake holds everything in memory; one call clears it.
+  db.reset();
 });
 ```
 
@@ -243,16 +239,16 @@ global.fetch = vi.fn(() =>
 );
 ```
 
-### Mock Prisma (if needed)
+### Mock Firestore
+Prefer `FakeFirestore` (`src/test/firestore-fake.ts`) over hand-written mocks:
+it stores documents, so assertions are about behaviour rather than about which
+method was called.
+
 ```typescript
-vi.mock('#prisma', () => ({
-  default: {
-    film: {
-      findMany: vi.fn(() => Promise.resolve([])),
-      create: vi.fn((data) => Promise.resolve({ id: '1', ...data.data })),
-    },
-  },
-}));
+import { FakeFirestore } from '@/test/firestore-fake';
+
+const db = new FakeFirestore();
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => db }));
 ```
 
 ## Key Rules

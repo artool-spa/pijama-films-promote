@@ -1,6 +1,7 @@
-import prisma from '#prisma';
-import { AssetStatus } from '@prisma/client';
 import { z } from 'zod';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, IdSchema as DocIdSchema, docData, sanitize } from '@/lib/firestore';
+import { AssetStatusSchema, type AssetStatus } from '@/lib/assets/status';
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -36,11 +37,8 @@ export type VideoUpdateInput = z.infer<typeof VideoUpdateSchema>;
 // VALIDATION SCHEMAS - OUTPUT (validate database results)
 // ============================================================================
 
-// Zod schema for AssetStatus enum
-const AssetStatusSchema = z.enum(['PENDING', 'VALIDATING', 'READY', 'INVALID', 'ERROR']);
-
 export const VideoSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   filmMuviUuid: z.string(),
   name: z.string(),
   originalUrl: z.string(),
@@ -71,8 +69,71 @@ export const VideoSchema = z.object({
 export type Video = z.infer<typeof VideoSchema>;
 
 // Input validation helpers
-const IdSchema = z.string().cuid();
+const IdSchema = DocIdSchema;
 const FilmMuviUuidSchema = z.string().min(1);
+
+// ============================================================================
+// FIRESTORE HELPERS
+// ============================================================================
+
+function videos() {
+  return adminDb().collection(COLLECTIONS.videos);
+}
+
+/**
+ * Column defaults Postgres used to apply. Firestore stores exactly what it is
+ * given, so a create has to write them explicitly.
+ */
+function createDefaults() {
+  return {
+    archived: false,
+    status: 'PENDING' as AssetStatus,
+    validatedAt: null,
+    validationError: null,
+    width: null,
+    height: null,
+    aspectRatio: null,
+    duration: null,
+    thumbnailUrl: null,
+    metaVideoId: null,
+    facebookEligible: false,
+    instagramEligible: false,
+    youtubeEligible: false,
+    youtubeVideoId: null,
+    eligibilityError: null,
+  };
+}
+
+/**
+ * Apply a partial update and return the resulting document, mirroring what
+ * Prisma's `update` returned. `update` rejects when the document is missing
+ * instead of creating one, which is the behaviour the callers rely on.
+ */
+async function updateAndFetch(id: string, data: Record<string, unknown>): Promise<Video> {
+  const ref = videos().doc(id);
+  await ref.update(sanitize(data));
+
+  const snap = await ref.get();
+  return VideoSchema.parse(docData(snap));
+}
+
+/**
+ * How many ads reference this video. The join table became a `videoIds` array
+ * on the ad document, so this is an aggregation over index entries.
+ */
+async function countAdsUsing(videoId: string): Promise<number> {
+  const snap = await adminDb()
+    .collection(COLLECTIONS.ads)
+    .where('videoIds', 'array-contains', videoId)
+    .count()
+    .get();
+
+  return snap.data().count;
+}
+
+function byCreatedAtDesc(a: Video, b: Video): number {
+  return b.createdAt.getTime() - a.createdAt.getTime();
+}
 
 // ============================================================================
 // QUERY FUNCTIONS
@@ -84,9 +145,8 @@ const FilmMuviUuidSchema = z.string().min(1);
 export async function getVideoById(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.video.findUnique({
-    where: { id: validId },
-  });
+  const snap = await videos().doc(validId).get();
+  const result = docData(snap);
 
   if (!result) return null;
 
@@ -99,12 +159,12 @@ export async function getVideoById(id: string) {
 export async function getVideosByFilmMuviUuid(filmMuviUuid: string) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
-  const results = await prisma.video.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid, archived: false },
-    orderBy: { createdAt: 'desc' },
-  });
+  const snap = await videos()
+    .where('filmMuviUuid', '==', validFilmMuviUuid)
+    .where('archived', '==', false)
+    .get();
 
-  return z.array(VideoSchema).parse(results);
+  return snap.docs.map((doc) => VideoSchema.parse(docData(doc))).sort(byCreatedAtDesc);
 }
 
 /**
@@ -113,11 +173,15 @@ export async function getVideosByFilmMuviUuid(filmMuviUuid: string) {
 export async function getVideosByIds(ids: string[]) {
   const validIds = z.array(IdSchema).parse(ids);
 
-  const results = await prisma.video.findMany({
-    where: { id: { in: validIds } },
-  });
+  if (validIds.length === 0) return [];
 
-  return z.array(VideoSchema).parse(results);
+  // `getAll` has no 30-element ceiling, unlike a `where in` query.
+  const snaps = await adminDb().getAll(...validIds.map((id) => videos().doc(id)));
+
+  return snaps
+    .map(docData)
+    .filter((data): data is Record<string, unknown> => data !== null)
+    .map((data) => VideoSchema.parse(data));
 }
 
 /**
@@ -127,16 +191,15 @@ export async function getVideoByOriginalUrl(originalUrl: string, filmMuviUuid: s
   const validOriginalUrl = z.string().min(1).parse(originalUrl);
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
-  const result = await prisma.video.findFirst({
-    where: {
-      originalUrl: validOriginalUrl,
-      filmMuviUuid: validFilmMuviUuid,
-    },
-  });
+  const snap = await videos()
+    .where('filmMuviUuid', '==', validFilmMuviUuid)
+    .where('originalUrl', '==', validOriginalUrl)
+    .limit(1)
+    .get();
 
-  if (!result) return null;
+  if (snap.empty) return null;
 
-  return VideoSchema.parse(result);
+  return VideoSchema.parse(docData(snap.docs[0]));
 }
 
 // ============================================================================
@@ -149,11 +212,18 @@ export async function getVideoByOriginalUrl(originalUrl: string, filmMuviUuid: s
 export async function createVideo(data: VideoCreateInput) {
   const validated = VideoCreateSchema.parse(data);
 
-  const result = await prisma.video.create({
-    data: validated,
-  });
+  const ref = videos().doc();
+  // `validated` is sanitized before the spread: an absent optional field must
+  // fall back to its default, not overwrite it with undefined.
+  const document = {
+    ...createDefaults(),
+    ...sanitize(validated),
+    createdAt: new Date(),
+  };
 
-  return VideoSchema.parse(result);
+  await ref.set(document);
+
+  return VideoSchema.parse({ id: ref.id, ...document });
 }
 
 /**
@@ -163,12 +233,7 @@ export async function updateVideo(id: string, data: VideoUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = VideoUpdateSchema.parse(data);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: validated,
-  });
-
-  return VideoSchema.parse(result);
+  return updateAndFetch(validId, validated);
 }
 
 /**
@@ -177,28 +242,19 @@ export async function updateVideo(id: string, data: VideoUpdateInput) {
 export async function deleteVideo(id: string) {
   const validId = IdSchema.parse(id);
 
-  const video = await prisma.video.findUnique({
-    where: { id: validId },
-    include: {
-      _count: {
-        select: { ads: true },
-      },
-    },
-  });
+  const video = await getVideoById(validId);
 
   if (!video) {
     throw new Error('Video not found');
   }
 
-  if (video._count.ads > 0) {
+  if ((await countAdsUsing(validId)) > 0) {
     throw new Error('Cannot delete a video that is being used by ads');
   }
 
-  const result = await prisma.video.delete({
-    where: { id: validId },
-  });
+  await videos().doc(validId).delete();
 
-  return VideoSchema.parse(result);
+  return video;
 }
 
 /**
@@ -208,12 +264,7 @@ export async function setMetaVideoId(id: string, metaVideoId: string) {
   const validId = IdSchema.parse(id);
   const validMetaVideoId = z.string().min(1).parse(metaVideoId);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: { metaVideoId: validMetaVideoId },
-  });
-
-  return VideoSchema.parse(result);
+  return updateAndFetch(validId, { metaVideoId: validMetaVideoId });
 }
 
 /**
@@ -223,15 +274,10 @@ export async function setYoutubeVideoId(id: string, youtubeVideoId: string) {
   const validId = IdSchema.parse(id);
   const validYoutubeVideoId = z.string().min(1).parse(youtubeVideoId);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: {
-      youtubeVideoId: validYoutubeVideoId,
-      youtubeEligible: true,
-    },
+  return updateAndFetch(validId, {
+    youtubeVideoId: validYoutubeVideoId,
+    youtubeEligible: true,
   });
-
-  return VideoSchema.parse(result);
 }
 
 // ============================================================================
@@ -272,16 +318,18 @@ export type VideoEligibilityUpdate = z.infer<typeof VideoEligibilityUpdateSchema
 export async function getVideosWithUsageByFilmMuviUuid(filmMuviUuid: string, archived = false) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
-  const results = await prisma.video.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid, archived },
-    include: { _count: { select: { ads: true } } },
-    orderBy: { createdAt: 'desc' },
-  });
+  const snap = await videos()
+    .where('filmMuviUuid', '==', validFilmMuviUuid)
+    .where('archived', '==', archived)
+    .get();
 
-  return results.map((result) => ({
-    ...VideoSchema.parse(result),
-    _count: { ads: result._count.ads },
-  }));
+  const parsed = snap.docs.map((doc) => VideoSchema.parse(docData(doc))).sort(byCreatedAtDesc);
+
+  // One aggregation per video, issued together: a film holds a handful of
+  // videos, and each count reads index entries rather than documents.
+  const counts = await Promise.all(parsed.map((video) => countAdsUsing(video.id)));
+
+  return parsed.map((video, index) => ({ ...video, _count: { ads: counts[index] } }));
 }
 
 export type VideoWithUsage = Awaited<ReturnType<typeof getVideosWithUsageByFilmMuviUuid>>[number];
@@ -295,15 +343,14 @@ export async function getVideosByFilmMuviUuidWithStatus(
 ) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
-  const results = await prisma.video.findMany({
-    where: {
-      filmMuviUuid: validFilmMuviUuid,
-      ...(status && { status }),
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  let query = videos().where('filmMuviUuid', '==', validFilmMuviUuid);
+  if (status) {
+    query = query.where('status', '==', status);
+  }
 
-  return z.array(VideoSchema).parse(results);
+  const snap = await query.get();
+
+  return snap.docs.map((doc) => VideoSchema.parse(docData(doc))).sort(byCreatedAtDesc);
 }
 
 /**
@@ -320,15 +367,10 @@ export async function updateVideoValidation(id: string, data: VideoValidationUpd
   const validId = IdSchema.parse(id);
   const validated = VideoValidationUpdateSchema.parse(data);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: {
-      ...validated,
-      validatedAt: validated.validatedAt || new Date(),
-    },
+  return updateAndFetch(validId, {
+    ...validated,
+    validatedAt: validated.validatedAt || new Date(),
   });
-
-  return VideoSchema.parse(result);
 }
 
 /**
@@ -338,12 +380,7 @@ export async function updateVideoEligibility(id: string, data: VideoEligibilityU
   const validId = IdSchema.parse(id);
   const validated = VideoEligibilityUpdateSchema.parse(data);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: validated,
-  });
-
-  return VideoSchema.parse(result);
+  return updateAndFetch(validId, validated);
 }
 
 /**
@@ -352,12 +389,7 @@ export async function updateVideoEligibility(id: string, data: VideoEligibilityU
 export async function setVideoValidating(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: { status: 'VALIDATING' },
-  });
-
-  return VideoSchema.parse(result);
+  return updateAndFetch(validId, { status: 'VALIDATING' });
 }
 
 /**
@@ -366,10 +398,5 @@ export async function setVideoValidating(id: string) {
 export async function setVideoArchived(id: string, archived: boolean) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.video.update({
-    where: { id: validId },
-    data: { archived },
-  });
-
-  return VideoSchema.parse(result);
+  return updateAndFetch(validId, { archived });
 }

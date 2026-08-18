@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server';
-import prisma from '#prisma';
-import type { Partner } from '@prisma/client';
+import {
+  getPartnerRecordById,
+  getPartnerRecordByPartnerId,
+  type Partner,
+} from '@/models/partner';
 
 /**
  * Extract and validate partner from request headers.
@@ -19,9 +22,7 @@ export async function getPartnerFromRequest(
   const partnerId = req.headers.get('x-partner-id');
   if (partnerId) {
     try {
-      const partner = await prisma.partner.findUnique({
-        where: { id: partnerId },
-      });
+      const partner = await getPartnerRecordById(partnerId);
       if (partner) return partner;
     } catch {
       // Continue to fallback
@@ -32,10 +33,7 @@ export async function getPartnerFromRequest(
   const pijamaPartnerId = req.headers.get('x-pijama-partner-id');
   if (pijamaPartnerId) {
     try {
-      const partner = await prisma.partner.findUnique({
-        where: { partnerId: pijamaPartnerId },
-      });
-      return partner;
+      return await getPartnerRecordByPartnerId(pijamaPartnerId);
     } catch {
       return null;
     }
@@ -60,10 +58,7 @@ export async function getPartnerByPijamaIdFromRequest(
   }
 
   try {
-    const partner = await prisma.partner.findUnique({
-      where: { partnerId: pijamaPartnerId },
-    });
-    return partner;
+    return await getPartnerRecordByPartnerId(pijamaPartnerId);
   } catch {
     return null;
   }

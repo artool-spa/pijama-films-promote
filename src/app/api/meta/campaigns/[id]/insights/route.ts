@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { meta, getInsights, MetaApiError } from '@/lib/meta';
 import type { MetaInsightData } from '@/lib/meta/types';
-import prisma from '#prisma';
+import { getCampaignById } from '@/models/campaign';
 
 // In-memory cache for insights
 interface CachedInsights {
@@ -159,18 +159,7 @@ export async function GET(
 
   try {
     // First, get the campaign from our database
-    const campaign = await prisma.campaign.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        metaCampaignId: true, // CBO campaign ID
-        imageAdSetId: true,
-        videoAdSetId: true,
-        status: true,
-        startDate: true,
-        endDate: true,
-      },
-    });
+    const campaign = await getCampaignById(id);
 
     if (!campaign) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });

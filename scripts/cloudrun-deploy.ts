@@ -21,6 +21,10 @@ config({ path: resolve(process.cwd(), ".env") });
 
 // Configuration
 const GCP_PROJECT = process.env.GCP_PROJECT || "pijama-films";
+// Firebase Auth + Firestore may live in a different project than Cloud Run.
+// Defaults to GCP_PROJECT when they are the same.
+const FIREBASE_PROJECT =
+  process.env.FIREBASE_PROJECT_ID || GCP_PROJECT;
 const GCP_REGION = process.env.GCP_REGION || "us-west1";
 const SERVICE_NAME = "pijamafilms-app";
 const DB_INSTANCE = "pijama-db";
@@ -134,7 +138,7 @@ function deploy(imageTag: string): void {
     `--max-instances=3`,
     `--add-cloudsql-instances=${CLOUD_SQL_CONNECTION}`,
     `--set-secrets=${secretsFlag}`,
-    `--set-env-vars=NODE_ENV=production,FIREBASE_PROJECT_ID=${GCP_PROJECT}`,
+    `--set-env-vars=NODE_ENV=production,FIREBASE_PROJECT_ID=${FIREBASE_PROJECT}`,
     `--allow-unauthenticated`,
     `--timeout=300`,
   ].join(" ");
@@ -159,6 +163,30 @@ async function main() {
   console.log(`  Region:   ${GCP_REGION}`);
   console.log(`  Service:  ${SERVICE_NAME}`);
   console.log(`  Registry: ${IMAGE_BASE}`);
+  console.log(`  Firebase: ${FIREBASE_PROJECT}`);
+
+  // The server writes events with FIREBASE_PROJECT_ID and the browser reads
+  // them with NEXT_PUBLIC_FIREBASE_PROJECT_ID. If those disagree, publishing
+  // and subscribing hit different databases and events silently never arrive.
+  const clientProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  if (clientProject && clientProject !== FIREBASE_PROJECT) {
+    console.error(
+      `\n  Firebase project mismatch:\n` +
+        `    server (FIREBASE_PROJECT_ID):             ${FIREBASE_PROJECT}\n` +
+        `    client (NEXT_PUBLIC_FIREBASE_PROJECT_ID): ${clientProject}\n\n` +
+        `  Events would be published to one database and read from another.\n` +
+        `  Set both to the same project before deploying.`
+    );
+    process.exit(1);
+  }
+
+  if (!clientProject) {
+    console.error(
+      `\n  NEXT_PUBLIC_FIREBASE_PROJECT_ID is not set - the browser could not\n` +
+        `  reach Firestore and realtime updates would be dead on arrival.`
+    );
+    process.exit(1);
+  }
 
   try {
     const imageTag = buildImage();

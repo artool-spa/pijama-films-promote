@@ -1,7 +1,7 @@
-import prisma from '#prisma';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
-import type { BudgetType, CampaignObjective, AdPlatform } from '@prisma/client';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, IdSchema as DocIdSchema, docData, sanitize } from '@/lib/firestore';
+import { withAds, withPartner, adsForCampaign, createdAtMillis } from './hydrate';
 
 // ============================================================================
 // SHARED SCHEMAS
@@ -15,6 +15,12 @@ const GoogleEntityStatusSchema = z.enum(['DRAFT', 'PENDING', 'ENABLED', 'PAUSED'
 const YouTubeAdFormatSchema = z.enum(['IN_STREAM_SKIPPABLE', 'IN_STREAM_NON_SKIPPABLE', 'IN_FEED', 'BUMPER', 'SHORTS']);
 const AdApprovalStatusSchema = z.enum(['UNKNOWN', 'PENDING_REVIEW', 'APPROVED', 'APPROVED_LIMITED', 'DISAPPROVED', 'APPEALED']);
 const ApprovalSummarySchema = z.enum(['ALL_APPROVED', 'SOME_PENDING', 'SOME_DISAPPROVED', 'ALL_DISAPPROVED', 'UNKNOWN']);
+
+/** Replace the enums Prisma used to generate. */
+export type MetaEntityStatus = z.infer<typeof MetaEntityStatusSchema>;
+export type CampaignObjective = z.infer<typeof CampaignObjectiveSchema>;
+export type BudgetType = z.infer<typeof BudgetTypeSchema>;
+export type AdPlatform = z.infer<typeof AdPlatformSchema>;
 
 // ============================================================================
 // VALIDATION SCHEMAS - INPUT (strict, no extra fields allowed)
@@ -49,7 +55,7 @@ export const CampaignCreateSchema = z
     // Film reference (MUVI UUID)
     filmMuviUuid: z.string().min(1),
     // Partner relation
-    partnerId: z.string().cuid(),
+    partnerId: DocIdSchema,
     // Draft form state
     draftFormState: z.unknown().optional(),
   })
@@ -90,7 +96,7 @@ export type CampaignUpdateInput = z.infer<typeof CampaignUpdateSchema>;
 // ============================================================================
 
 const ImageSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   filmMuviUuid: z.string(),
   name: z.string(),
   originalUrl: z.string(),
@@ -105,7 +111,7 @@ const ImageSchema = z.object({
 });
 
 const VideoSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   filmMuviUuid: z.string(),
   name: z.string(),
   originalUrl: z.string(),
@@ -126,7 +132,7 @@ const VideoSchema = z.object({
 const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
 
 export const AdSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   metaAdId: z.string().nullable(),
   googleAdId: z.string().nullable(),
   youtubeAdFormat: YouTubeAdFormatSchema.nullable(),
@@ -140,7 +146,7 @@ export const AdSchema = z.object({
   linkUrl: z.string(),
   images: z.array(ImageSchema),
   videos: z.array(VideoSchema),
-  campaignId: z.string().cuid(),
+  campaignId: DocIdSchema,
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
@@ -153,7 +159,7 @@ export const AdSchema = z.object({
 });
 
 export const PartnerSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   partnerId: z.string(),
   name: z.string(),
   createdAt: z.coerce.date(),
@@ -161,7 +167,7 @@ export const PartnerSchema = z.object({
 });
 
 export const CampaignSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   // Platform discriminator (array for multi-platform)
   platforms: z.array(AdPlatformSchema),
   // CBO Meta IDs (dedicated campaign per local campaign)
@@ -173,7 +179,9 @@ export const CampaignSchema = z.object({
   googleAdGroupId: z.string().nullable(),
   googleEntityStatus: GoogleEntityStatusSchema.nullable(),
   googleBidStrategy: z.string().nullable(),
-  targetCpvMicros: z.bigint().nullable(),
+  // Stored as a number: Firestore has no BigInt, and micros of currency stay
+  // far below 2^53. Coerced back so callers keep receiving a bigint.
+  targetCpvMicros: z.coerce.bigint().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
   objective: CampaignObjectiveSchema,
@@ -195,7 +203,7 @@ export const CampaignSchema = z.object({
   billingEvent: z.string(),
   bidStrategy: z.string(),
   filmMuviUuid: z.string(),
-  partnerId: z.string().cuid(),
+  partnerId: DocIdSchema,
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
@@ -225,8 +233,69 @@ export type CampaignWithPartner = z.infer<typeof CampaignWithPartnerSchema>;
 export type CampaignWithPartnerAndAds = z.infer<typeof CampaignWithPartnerAndAdsSchema>;
 
 // Input validation helpers
-const IdSchema = z.string().cuid();
+const IdSchema = DocIdSchema;
 const FilmMuviUuidSchema = z.string().min(1);
+
+// ============================================================================
+// FIRESTORE HELPERS
+// ============================================================================
+
+type Doc = Record<string, unknown>;
+
+function campaigns() {
+  return adminDb().collection(COLLECTIONS.campaigns);
+}
+
+/**
+ * Column defaults Postgres applied on insert. Firestore stores only what it is
+ * handed, so every field the output schema requires has to be written.
+ */
+function createDefaults() {
+  return {
+    status: 'DRAFT' as MetaEntityStatus,
+    metaCampaignId: null,
+    imageAdSetId: null,
+    videoAdSetId: null,
+    googleCampaignId: null,
+    googleAdGroupId: null,
+    googleEntityStatus: null,
+    googleBidStrategy: null,
+    targetCpvMicros: null,
+    endDate: null,
+    pixelId: null,
+    optimizationGoal: 'OFFSITE_CONVERSIONS',
+    billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    syncedAt: null,
+    draftFormState: null,
+    approvalSummary: null,
+    lastSyncError: null,
+    lastSyncErrorAt: null,
+    lastSyncErrorDetails: null,
+  };
+}
+
+/** Firestore has no BigInt; micros are stored as a plain number. */
+function encodeCpv(value: bigint | undefined): number | undefined {
+  return value === undefined ? undefined : Number(value);
+}
+
+async function updateAndFetch(id: string, data: Doc): Promise<Campaign> {
+  const ref = campaigns().doc(id);
+  await ref.update(sanitize(data));
+
+  const snap = await ref.get();
+  return CampaignSchema.parse(docData(snap));
+}
+
+async function campaignDocs(query: FirebaseFirestore.Query): Promise<Doc[]> {
+  const snap = await query.get();
+
+  return snap.docs
+    .map(docData)
+    .filter((doc): doc is Doc => doc !== null)
+    .sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
+}
 
 // ============================================================================
 // QUERY FUNCTIONS
@@ -238,22 +307,17 @@ const FilmMuviUuidSchema = z.string().min(1);
 export async function getCampaignById(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.campaign.findUnique({
-    where: { id: validId },
-    include: {
-      partner: true,
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-  });
+  const snap = await campaigns().doc(validId).get();
+  const campaign = docData(snap);
 
-  if (!result) return null;
+  if (!campaign) return null;
 
-  return CampaignWithPartnerAndAdsSchema.parse(result);
+  const [ads, [withPartnerDoc]] = await Promise.all([
+    adsForCampaign(validId),
+    withPartner([campaign]),
+  ]);
+
+  return CampaignWithPartnerAndAdsSchema.parse({ ...withPartnerDoc, ads });
 }
 
 /**
@@ -262,20 +326,12 @@ export async function getCampaignById(id: string) {
 export async function getCampaignsByFilmMuviUuid(filmMuviUuid: string) {
   const validFilmMuviUuid = FilmMuviUuidSchema.parse(filmMuviUuid);
 
-  const results = await prisma.campaign.findMany({
-    where: { filmMuviUuid: validFilmMuviUuid, status: { not: 'DRAFT' } },
-    include: {
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const docs = await campaignDocs(campaigns().where('filmMuviUuid', '==', validFilmMuviUuid));
+  // `status != DRAFT` is filtered here rather than in the query: an inequality
+  // would force the sort onto `status` and demand a composite index.
+  const published = docs.filter((doc) => doc.status !== 'DRAFT');
 
-  return z.array(CampaignWithAdsSchema).parse(results);
+  return z.array(CampaignWithAdsSchema).parse(await withAds(published));
 }
 
 /**
@@ -284,20 +340,9 @@ export async function getCampaignsByFilmMuviUuid(filmMuviUuid: string) {
 export async function getCampaignsByPartnerId(partnerId: string) {
   const validPartnerId = IdSchema.parse(partnerId);
 
-  const results = await prisma.campaign.findMany({
-    where: { partnerId: validPartnerId },
-    include: {
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const docs = await campaignDocs(campaigns().where('partnerId', '==', validPartnerId));
 
-  return z.array(CampaignWithAdsSchema).parse(results);
+  return z.array(CampaignWithAdsSchema).parse(await withAds(docs));
 }
 
 /**
@@ -310,58 +355,44 @@ export async function getCampaignsByPartnerAndObjective(
   const validPartnerId = IdSchema.parse(partnerId);
   const validObjective = CampaignObjectiveSchema.parse(objective);
 
-  const results = await prisma.campaign.findMany({
-    where: { partnerId: validPartnerId, objective: validObjective },
-    include: {
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const docs = await campaignDocs(
+    campaigns().where('partnerId', '==', validPartnerId).where('objective', '==', validObjective)
+  );
 
-  return z.array(CampaignWithAdsSchema).parse(results);
+  return z.array(CampaignWithAdsSchema).parse(await withAds(docs));
 }
 
 /**
  * Get all active campaigns
  */
 export async function getActiveCampaigns() {
-  const results = await prisma.campaign.findMany({
-    where: {
-      status: 'ACTIVE',
-      metaCampaignId: { not: null },
-    },
-    select: {
-      id: true,
-      metaCampaignId: true,
-      imageAdSetId: true,
-      videoAdSetId: true,
-      ads: {
-        where: { metaAdId: { not: null } },
-        select: { id: true, metaAdId: true, adSetType: true },
-      },
-    },
-  });
+  const docs = await campaignDocs(campaigns().where('status', '==', 'ACTIVE'));
+  const synced = docs.filter((doc) => doc.metaCampaignId !== null);
+
+  const hydrated = await withAds(synced);
 
   const ActiveCampaignSchema = z.object({
-    id: z.string().cuid(),
+    id: DocIdSchema,
     metaCampaignId: z.string(),
     imageAdSetId: z.string().nullable(),
     videoAdSetId: z.string().nullable(),
     ads: z.array(
       z.object({
-        id: z.string().cuid(),
+        id: DocIdSchema,
         metaAdId: z.string(),
-        adSetType: z.enum(['IMAGE', 'VIDEO']),
+        adSetType: AdSetTypeSchema,
       })
     ),
   });
 
-  return z.array(ActiveCampaignSchema).parse(results);
+  // Only ads that reached Meta are relevant here, matching the nested
+  // `where: { metaAdId: { not: null } }` of the original query.
+  return z.array(ActiveCampaignSchema).parse(
+    hydrated.map((campaign) => ({
+      ...campaign,
+      ads: (campaign.ads as Doc[]).filter((ad) => ad.metaAdId !== null),
+    }))
+  );
 }
 
 /**
@@ -370,93 +401,76 @@ export async function getActiveCampaigns() {
 export async function getDraftCampaignsByPartnerId(partnerId: string) {
   const validPartnerId = IdSchema.parse(partnerId);
 
-  const results = await prisma.campaign.findMany({
-    where: { partnerId: validPartnerId, status: 'DRAFT' },
-    include: {
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
+  const snap = await campaigns()
+    .where('partnerId', '==', validPartnerId)
+    .where('status', '==', 'DRAFT')
+    .get();
 
-  return z.array(CampaignWithAdsSchema).parse(results);
+  const docs = snap.docs
+    .map(docData)
+    .filter((doc): doc is Doc => doc !== null)
+    .sort((a, b) => {
+      const left = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0;
+      const right = b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0;
+      return right - left;
+    });
+
+  return z.array(CampaignWithAdsSchema).parse(await withAds(docs));
 }
 
 /**
  * Get all campaigns with PENDING_ASSETS status (waiting for video uploads)
  */
 export async function getCampaignsPendingAssets() {
-  const results = await prisma.campaign.findMany({
-    where: { status: 'PENDING_ASSETS' },
-    include: {
-      partner: true,
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'asc' },
-  });
+  const docs = await campaignDocs(campaigns().where('status', '==', 'PENDING_ASSETS'));
+  // The original ordered oldest first.
+  const oldestFirst = [...docs].reverse();
 
-  return z.array(CampaignWithPartnerAndAdsSchema).parse(results);
+  const hydrated = await withAds(await withPartner(oldestFirst));
+
+  return z.array(CampaignWithPartnerAndAdsSchema).parse(hydrated);
 }
 
 // ============================================================================
 // MUTATION FUNCTIONS
 // ============================================================================
 
+async function insertCampaign(data: CampaignCreateInput) {
+  const validated = CampaignCreateSchema.parse(data);
+  const { draftFormState, targetCpvMicros, ...rest } = validated;
+
+  const ref = campaigns().doc();
+  const now = new Date();
+  const document = {
+    ...createDefaults(),
+    // Sanitized before the spread so an absent optional field falls back to its
+    // default instead of overwriting it with undefined.
+    ...sanitize(rest),
+    targetCpvMicros: encodeCpv(targetCpvMicros) ?? null,
+    draftFormState: draftFormState === undefined ? null : draftFormState,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await ref.set(document);
+
+  const [hydrated] = await withPartner([{ id: ref.id, ...document }]);
+
+  return CampaignWithPartnerSchema.parse(hydrated);
+}
+
 /**
  * Create a new campaign
  */
 export async function createCampaign(data: CampaignCreateInput) {
-  const validated = CampaignCreateSchema.parse(data);
-  const { draftFormState, ...rest } = validated;
-
-  const result = await prisma.campaign.create({
-    data: {
-      ...rest,
-      budgetType: rest.budgetType as BudgetType,
-      objective: rest.objective as CampaignObjective,
-      platforms: rest.platforms as AdPlatform[],
-      status: 'DRAFT',
-      draftFormState: draftFormState !== undefined
-        ? (draftFormState as Prisma.InputJsonValue)
-        : undefined,
-    },
-    include: { partner: true },
-  });
-
-  return CampaignWithPartnerSchema.parse(result);
+  return insertCampaign(data);
 }
 
 /**
  * Save a draft campaign with form state
  */
 export async function saveDraftCampaign(data: CampaignCreateInput) {
-  const validated = CampaignCreateSchema.parse(data);
-  const { draftFormState, ...rest } = validated;
-
-  const result = await prisma.campaign.create({
-    data: {
-      ...rest,
-      budgetType: rest.budgetType as BudgetType,
-      objective: rest.objective as CampaignObjective,
-      platforms: rest.platforms as AdPlatform[],
-      status: 'DRAFT',
-      draftFormState: draftFormState !== undefined
-        ? (draftFormState as Prisma.InputJsonValue)
-        : undefined,
-    },
-    include: { partner: true },
-  });
-
-  return CampaignWithPartnerSchema.parse(result);
+  return insertCampaign(data);
 }
 
 /**
@@ -465,28 +479,18 @@ export async function saveDraftCampaign(data: CampaignCreateInput) {
 export async function updateCampaign(id: string, data: CampaignUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = CampaignUpdateSchema.parse(data);
-  const { draftFormState: rawDraftFormState, ...rest } = validated;
+  const { draftFormState, ...rest } = validated;
 
   // Determine if any Meta IDs are being set (indicates sync)
   const isSyncing = rest.metaCampaignId || rest.imageAdSetId || rest.videoAdSetId;
 
-  // Handle JSON null for draftFormState (Prisma requires Prisma.JsonNull)
-  const draftFormState = rawDraftFormState === null
-    ? Prisma.JsonNull
-    : rawDraftFormState !== undefined
-      ? (rawDraftFormState as Prisma.InputJsonValue)
-      : undefined;
-
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      ...rest,
-      draftFormState,
-      syncedAt: isSyncing ? new Date() : undefined,
-    },
+  return updateAndFetch(validId, {
+    ...rest,
+    // null clears the stored form state; undefined leaves it untouched.
+    draftFormState,
+    syncedAt: isSyncing ? new Date() : undefined,
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -495,22 +499,16 @@ export async function updateCampaign(id: string, data: CampaignUpdateInput) {
 export async function deleteCampaign(id: string) {
   const validId = IdSchema.parse(id);
 
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: validId },
-    select: { status: true },
-  });
+  const snap = await campaigns().doc(validId).get();
+  const campaign = docData(snap);
 
-  const statusResult = z.object({ status: MetaEntityStatusSchema }).nullable().parse(campaign);
-
-  if (statusResult?.status !== 'DRAFT') {
+  if (campaign?.status !== 'DRAFT') {
     throw new Error('Solo se pueden eliminar campañas en estado borrador');
   }
 
-  const result = await prisma.campaign.delete({
-    where: { id: validId },
-  });
+  await campaigns().doc(validId).delete();
 
-  return CampaignSchema.parse(result);
+  return CampaignSchema.parse(campaign);
 }
 
 /**
@@ -531,18 +529,14 @@ export async function markCampaignSynced(
   const validImageAdSetId = imageAdSetId ? z.string().min(1).parse(imageAdSetId) : undefined;
   const validVideoAdSetId = videoAdSetId ? z.string().min(1).parse(videoAdSetId) : undefined;
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      metaCampaignId: validMetaCampaignId,
-      imageAdSetId: validImageAdSetId,
-      videoAdSetId: validVideoAdSetId,
-      status: 'PENDING',
-      syncedAt: new Date(),
-    },
+  return updateAndFetch(validId, {
+    metaCampaignId: validMetaCampaignId,
+    imageAdSetId: validImageAdSetId,
+    videoAdSetId: validVideoAdSetId,
+    status: 'PENDING',
+    syncedAt: new Date(),
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -551,21 +545,17 @@ export async function markCampaignSynced(
  */
 export async function markCampaignError(
   id: string,
-  error?: { message: string; details?: Prisma.InputJsonValue }
+  error?: { message: string; details?: unknown }
 ) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      status: 'ERROR',
-      lastSyncError: error?.message,
-      lastSyncErrorAt: error ? new Date() : undefined,
-      lastSyncErrorDetails: error?.details,
-    },
+  return updateAndFetch(validId, {
+    status: 'ERROR',
+    lastSyncError: error?.message,
+    lastSyncErrorAt: error ? new Date() : undefined,
+    lastSyncErrorDetails: error?.details,
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -583,15 +573,11 @@ export async function updateCampaignBudgetAndEndDate(
     })
     .parse(data);
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      budget: parsed.budget,
-      endDate: parsed.endDate ?? undefined,
-    },
+  return updateAndFetch(validId, {
+    budget: parsed.budget,
+    endDate: parsed.endDate ?? undefined,
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -615,20 +601,22 @@ export function computeApprovalSummary(
 export async function recomputeApprovalSummary(campaignId: string) {
   const validId = IdSchema.parse(campaignId);
 
-  const ads = await prisma.ad.findMany({
-    where: {
-      campaignId: validId,
-      OR: [{ metaAdId: { not: null } }, { googleAdId: { not: null } }],
-    },
-    select: { approvalStatus: true },
-  });
+  const snap = await adminDb()
+    .collection(COLLECTIONS.ads)
+    .where('campaignId', '==', validId)
+    .get();
 
-  const summary = computeApprovalSummary(ads.map((a) => a.approvalStatus));
+  // Only ads that reached a platform carry a meaningful review state; the
+  // original expressed this as `OR [metaAdId, googleAdId] IS NOT NULL`.
+  const statuses = snap.docs
+    .map(docData)
+    .filter((ad): ad is Doc => ad !== null)
+    .filter((ad) => ad.metaAdId !== null || ad.googleAdId !== null)
+    .map((ad) => AdApprovalStatusSchema.parse(ad.approvalStatus));
 
-  await prisma.campaign.update({
-    where: { id: validId },
-    data: { approvalSummary: summary },
-  });
+  const summary = computeApprovalSummary(statuses);
+
+  await campaigns().doc(validId).update({ approvalSummary: summary, updatedAt: new Date() });
 
   return summary;
 }
@@ -639,12 +627,7 @@ export async function recomputeApprovalSummary(campaignId: string) {
 export async function markCampaignPendingAssets(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: { status: 'PENDING_ASSETS' },
-  });
-
-  return CampaignSchema.parse(result);
+  return updateAndFetch(validId, { status: 'PENDING_ASSETS', updatedAt: new Date() });
 }
 
 // ============================================================================
@@ -664,26 +647,19 @@ export async function markGoogleCampaignSynced(
   const validGoogleAdGroupId = z.string().min(1).parse(googleAdGroupId);
 
   // Preserve PENDING_ASSETS status if Meta hasn't synced yet
-  const current = await prisma.campaign.findUnique({
-    where: { id: validId },
-    select: { status: true, metaCampaignId: true },
-  });
-  const newStatus = (current?.status === 'PENDING_ASSETS' && !current?.metaCampaignId)
-    ? 'PENDING_ASSETS'
-    : 'PENDING';
+  const snap = await campaigns().doc(validId).get();
+  const current = docData(snap);
+  const newStatus =
+    current?.status === 'PENDING_ASSETS' && !current?.metaCampaignId ? 'PENDING_ASSETS' : 'PENDING';
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      googleCampaignId: validGoogleCampaignId,
-      googleAdGroupId: validGoogleAdGroupId,
-      googleEntityStatus: 'PENDING',
-      status: newStatus,
-      syncedAt: new Date(),
-    },
+  return updateAndFetch(validId, {
+    googleCampaignId: validGoogleCampaignId,
+    googleAdGroupId: validGoogleAdGroupId,
+    googleEntityStatus: 'PENDING',
+    status: newStatus,
+    syncedAt: new Date(),
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -692,15 +668,11 @@ export async function markGoogleCampaignSynced(
 export async function markGoogleCampaignError(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.campaign.update({
-    where: { id: validId },
-    data: {
-      googleEntityStatus: 'ERROR',
-      status: 'ERROR',
-    },
+  return updateAndFetch(validId, {
+    googleEntityStatus: 'ERROR',
+    status: 'ERROR',
+    updatedAt: new Date(),
   });
-
-  return CampaignSchema.parse(result);
 }
 
 /**
@@ -709,21 +681,11 @@ export async function markGoogleCampaignError(id: string) {
 export async function getGoogleCampaignsByPartnerId(partnerId: string) {
   const validPartnerId = IdSchema.parse(partnerId);
 
-  const results = await prisma.campaign.findMany({
-    where: {
-      partnerId: validPartnerId,
-      platforms: { has: 'GOOGLE' },
-    },
-    include: {
-      ads: {
-        include: {
-          images: true,
-          videos: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const docs = await campaignDocs(
+    campaigns()
+      .where('partnerId', '==', validPartnerId)
+      .where('platforms', 'array-contains', 'GOOGLE')
+  );
 
-  return z.array(CampaignWithAdsSchema).parse(results);
+  return z.array(CampaignWithAdsSchema).parse(await withAds(docs));
 }

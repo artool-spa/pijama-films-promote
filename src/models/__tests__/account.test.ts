@@ -1,5 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import prisma from '#prisma';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { FakeFirestore } from '@/test/firestore-fake';
+
+const db = new FakeFirestore();
+
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: () => db,
+}));
+
 import {
   getOrCreateAccount,
   getAccountWithTransactions,
@@ -14,41 +21,11 @@ import {
 } from '../account';
 
 describe('Account Model', () => {
-  let partnerId: string;
-  let campaignId: string;
+  const partnerId = 'partner-1';
+  const campaignId = 'campaign-1';
 
-  beforeEach(async () => {
-    // Create test partner
-    const partner = await prisma.partner.create({
-      data: {
-        partnerId: `test-partner-${Date.now()}`,
-        name: 'Test Partner',
-      },
-    });
-    partnerId = partner.id;
-
-    // Create test campaign
-    const campaign = await prisma.campaign.create({
-      data: {
-        name: 'Test Campaign',
-        objective: 'CONVERSIONS',
-        budget: 100,
-        startDate: new Date(),
-        filmMuviUuid: 'test-film-uuid',
-        partnerId: partnerId,
-      },
-    });
-    campaignId = campaign.id;
-  });
-
-  afterEach(async () => {
-    // Cleanup in order (transactions → accounts → campaigns → partners)
-    await prisma.accountTransaction.deleteMany({
-      where: { account: { partnerId } },
-    });
-    await prisma.account.deleteMany({ where: { partnerId } });
-    await prisma.campaign.deleteMany({ where: { partnerId } });
-    await prisma.partner.deleteMany({ where: { id: partnerId } });
+  beforeEach(() => {
+    db.reset();
   });
 
   describe('getOrCreateAccount', () => {
@@ -77,7 +54,7 @@ describe('Account Model', () => {
 
     it('should return correct balance after deposit', async () => {
       await getOrCreateAccount(partnerId);
-      await recordDeposit(partnerId, 100, `session-${Date.now()}`, `pi-${Date.now()}`);
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
 
       const balance = await getAccountBalance(partnerId);
       expect(balance).toBe(100);
@@ -95,9 +72,11 @@ describe('Account Model', () => {
 
     it('should return transactions ordered by createdAt desc', async () => {
       await getOrCreateAccount(partnerId);
-      const ts = Date.now();
-      await recordDeposit(partnerId, 50, `session-${ts}-1`, `pi-${ts}-1`);
-      await recordDeposit(partnerId, 100, `session-${ts}-2`, `pi-${ts}-2`);
+      vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
+      await recordDeposit(partnerId, 50, 'session-1', 'pi-1');
+      vi.setSystemTime(new Date('2026-08-02T00:00:00.000Z'));
+      await recordDeposit(partnerId, 100, 'session-2', 'pi-2');
+      vi.useRealTimers();
 
       const result = await getAccountWithTransactions(partnerId);
       expect(result.transactions).toHaveLength(2);
@@ -108,8 +87,7 @@ describe('Account Model', () => {
 
   describe('recordDeposit', () => {
     it('should credit balance and create completed transaction', async () => {
-      const ts = Date.now();
-      const transaction = await recordDeposit(partnerId, 250, `session-${ts}`, `pi-${ts}`);
+      const transaction = await recordDeposit(partnerId, 250, 'session-1', 'pi-1');
 
       expect(transaction.type).toBe('DEPOSIT');
       expect(transaction.status).toBe('COMPLETED');
@@ -121,14 +99,12 @@ describe('Account Model', () => {
     });
 
     it('should update pending transaction if one exists', async () => {
-      const ts = Date.now();
-      const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.2, 6.2, 'session-1');
 
-      const transaction = await recordDeposit(partnerId, 100, sessionId, `pi-${ts}`);
+      const transaction = await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
 
       expect(transaction.status).toBe('COMPLETED');
-      expect(transaction.stripePaymentIntentId).toBe(`pi-${ts}`);
+      expect(transaction.stripePaymentIntentId).toBe('pi-1');
 
       // Should only have one transaction
       const result = await getAccountWithTransactions(partnerId);
@@ -136,19 +112,24 @@ describe('Account Model', () => {
     });
 
     it('should accumulate multiple deposits', async () => {
-      const ts = Date.now();
-      await recordDeposit(partnerId, 100, `session-${ts}-1`, `pi-${ts}-1`);
-      await recordDeposit(partnerId, 200, `session-${ts}-2`, `pi-${ts}-2`);
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
+      await recordDeposit(partnerId, 200, 'session-2', 'pi-2');
 
       const balance = await getAccountBalance(partnerId);
       expect(balance).toBe(300);
+    });
+
+    it('should create the account when the deposit arrives first', async () => {
+      const transaction = await recordDeposit(partnerId, 75, 'session-1', 'pi-1');
+
+      expect(transaction.balanceAfter).toBe(75);
+      expect((await getOrCreateAccount(partnerId)).balance).toBe(75);
     });
   });
 
   describe('chargeCampaignBudget', () => {
     it('should debit balance and create charge transaction', async () => {
-      const ts = Date.now();
-      await recordDeposit(partnerId, 500, `session-${ts}`, `pi-${ts}`);
+      await recordDeposit(partnerId, 500, 'session-1', 'pi-1');
 
       const transaction = await chargeCampaignBudget(partnerId, campaignId, 100, 'Test Campaign');
 
@@ -175,12 +156,22 @@ describe('Account Model', () => {
         chargeCampaignBudget(partnerId, campaignId, 100, 'Test Campaign')
       ).rejects.toThrow('Account not found');
     });
+
+    it('should not move the balance when the charge is rejected', async () => {
+      await recordDeposit(partnerId, 50, 'session-1', 'pi-1');
+
+      await expect(
+        chargeCampaignBudget(partnerId, campaignId, 100, 'Test Campaign')
+      ).rejects.toThrow('Insufficient balance');
+
+      expect(await getAccountBalance(partnerId)).toBe(50);
+      expect((await getAccountWithTransactions(partnerId)).transactions).toHaveLength(1);
+    });
   });
 
   describe('refundCampaignBudget', () => {
     it('should credit balance back and create refund transaction', async () => {
-      const ts = Date.now();
-      await recordDeposit(partnerId, 500, `session-${ts}`, `pi-${ts}`);
+      await recordDeposit(partnerId, 500, 'session-1', 'pi-1');
       await chargeCampaignBudget(partnerId, campaignId, 200, 'Test Campaign');
 
       const transaction = await refundCampaignBudget(partnerId, campaignId, 200, 'Test Campaign');
@@ -197,14 +188,13 @@ describe('Account Model', () => {
 
   describe('createPendingDeposit', () => {
     it('should create a pending deposit transaction without changing balance', async () => {
-      const ts = Date.now();
-      const transaction = await createPendingDeposit(partnerId, 100, 106.20, 6.20, `session-${ts}`);
+      const transaction = await createPendingDeposit(partnerId, 100, 106.2, 6.2, 'session-1');
 
       expect(transaction.type).toBe('DEPOSIT');
       expect(transaction.status).toBe('PENDING');
       expect(transaction.amount).toBe(100);
-      expect(transaction.stripeFee).toBe(6.20);
-      expect(transaction.grossAmount).toBe(106.20);
+      expect(transaction.stripeFee).toBe(6.2);
+      expect(transaction.grossAmount).toBe(106.2);
       expect(transaction.balanceAfter).toBe(0); // Balance unchanged
 
       const balance = await getAccountBalance(partnerId);
@@ -214,40 +204,42 @@ describe('Account Model', () => {
 
   describe('recordDeposit idempotency', () => {
     it('should not double-credit when called twice with the same session', async () => {
-      const ts = Date.now();
-      const sessionId = `session-${ts}`;
-      const paymentIntentId = `pi-${ts}`;
-
-      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.2, 6.2, 'session-1');
 
       // First call: should credit the balance
-      const tx1 = await recordDeposit(partnerId, 100, sessionId, paymentIntentId);
+      const tx1 = await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
       expect(tx1.status).toBe('COMPLETED');
 
       const balanceAfterFirst = await getAccountBalance(partnerId);
       expect(balanceAfterFirst).toBe(100);
 
       // Second call: should return the same transaction without crediting again
-      const tx2 = await recordDeposit(partnerId, 100, sessionId, paymentIntentId);
+      const tx2 = await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
       expect(tx2.id).toBe(tx1.id);
       expect(tx2.status).toBe('COMPLETED');
 
       const balanceAfterSecond = await getAccountBalance(partnerId);
       expect(balanceAfterSecond).toBe(100); // Still 100, not 200
     });
+
+    it('should keep each session independent', async () => {
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
+      await recordDeposit(partnerId, 100, 'session-2', 'pi-2');
+
+      expect(await getAccountBalance(partnerId)).toBe(200);
+    });
   });
 
   describe('cancelPendingDeposit', () => {
     it('should cancel a pending deposit', async () => {
-      const ts = Date.now();
-      const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
+      await createPendingDeposit(partnerId, 100, 106.2, 6.2, 'session-1');
 
-      const result = await cancelPendingDeposit(sessionId);
+      const result = await cancelPendingDeposit('session-1');
 
       expect(result).not.toBeNull();
       expect(result!.status).toBe('CANCELLED');
-      expect(result!.stripeSessionId).toBe(sessionId);
+      expect(result!.stripeSessionId).toBe('session-1');
 
       // Balance should remain unchanged
       const balance = await getAccountBalance(partnerId);
@@ -255,12 +247,10 @@ describe('Account Model', () => {
     });
 
     it('should return null for an already completed transaction', async () => {
-      const ts = Date.now();
-      const sessionId = `session-${ts}`;
-      await createPendingDeposit(partnerId, 100, 106.20, 6.20, sessionId);
-      await recordDeposit(partnerId, 100, sessionId, `pi-${ts}`);
+      await createPendingDeposit(partnerId, 100, 106.2, 6.2, 'session-1');
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
 
-      const result = await cancelPendingDeposit(sessionId);
+      const result = await cancelPendingDeposit('session-1');
       expect(result).toBeNull();
     });
 
@@ -272,35 +262,33 @@ describe('Account Model', () => {
 
   describe('creditFeeAdjustment', () => {
     it('should credit adjustment and create ADJUSTMENT transaction', async () => {
-      const ts = Date.now();
       // First deposit some funds
-      await recordDeposit(partnerId, 100, `session-${ts}`, `pi-${ts}`);
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
 
-      const transaction = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
+      const transaction = await creditFeeAdjustment(partnerId, 1.5, 'pi-1');
 
       expect(transaction).not.toBeNull();
       expect(transaction!.type).toBe('ADJUSTMENT');
       expect(transaction!.status).toBe('COMPLETED');
-      expect(transaction!.amount).toBe(1.50);
-      expect(transaction!.balanceAfter).toBe(101.50);
-      expect(transaction!.stripePaymentIntentId).toBe(`pi-${ts}`);
+      expect(transaction!.amount).toBe(1.5);
+      expect(transaction!.balanceAfter).toBe(101.5);
+      expect(transaction!.stripePaymentIntentId).toBe('pi-1');
 
       const balance = await getAccountBalance(partnerId);
-      expect(balance).toBe(101.50);
+      expect(balance).toBe(101.5);
     });
 
     it('should be idempotent — return existing adjustment on second call', async () => {
-      const ts = Date.now();
-      await recordDeposit(partnerId, 100, `session-${ts}`, `pi-${ts}`);
+      await recordDeposit(partnerId, 100, 'session-1', 'pi-1');
 
-      const tx1 = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
-      const tx2 = await creditFeeAdjustment(partnerId, 1.50, `pi-${ts}`);
+      const tx1 = await creditFeeAdjustment(partnerId, 1.5, 'pi-1');
+      const tx2 = await creditFeeAdjustment(partnerId, 1.5, 'pi-1');
 
       expect(tx1!.id).toBe(tx2!.id);
 
       // Balance should only be credited once
       const balance = await getAccountBalance(partnerId);
-      expect(balance).toBe(101.50);
+      expect(balance).toBe(101.5);
     });
   });
 
@@ -309,6 +297,12 @@ describe('Account Model', () => {
       const account = await updateStripeCustomerId(partnerId, 'cus_test123');
 
       expect(account.stripeCustomerId).toBe('cus_test123');
+    });
+
+    it('should survive a reload', async () => {
+      await updateStripeCustomerId(partnerId, 'cus_test123');
+
+      expect((await getOrCreateAccount(partnerId)).stripeCustomerId).toBe('cus_test123');
     });
   });
 });

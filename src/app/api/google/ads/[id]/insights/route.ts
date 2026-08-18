@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { google, getAdInsights, GoogleAdsApiError } from '#google';
-import prisma from '#prisma';
+import { getAdById } from '@/models/ad';
 
 interface AdInsightsResponse {
   impressions: number;
@@ -44,20 +44,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const ad = await prisma.ad.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        googleAdId: true,
-        campaign: {
-          select: {
-            startDate: true,
-            endDate: true,
-            googleEntityStatus: true,
-          },
-        },
-      },
-    });
+    const ad = await getAdById(id);
 
     if (!ad) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });

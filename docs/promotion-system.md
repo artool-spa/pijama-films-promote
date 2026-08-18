@@ -746,4 +746,4 @@ Partner (1)
                     └── status (PENDING → READY / INVALID)
 ```
 
-See `prisma/schema.prisma` for the complete database schema.
+See `docs/firestore-migration.md` for the complete Firestore layout.

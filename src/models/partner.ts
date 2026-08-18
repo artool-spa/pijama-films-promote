@@ -1,5 +1,7 @@
-import prisma from '#prisma';
 import { z } from 'zod';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, IdSchema as DocIdSchema, docData, sanitize } from '@/lib/firestore';
+import { withAds, createdAtMillis } from './hydrate';
 
 // ============================================================================
 // SHARED SCHEMAS
@@ -34,7 +36,7 @@ export type PartnerUpdateInput = z.infer<typeof PartnerUpdateSchema>;
 // ============================================================================
 
 export const PartnerSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   partnerId: z.string(),
   name: z.string(),
   createdAt: z.coerce.date(),
@@ -48,7 +50,7 @@ export const PartnerWithCountSchema = PartnerSchema.extend({
 });
 
 const ImageSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   filmMuviUuid: z.string(),
   name: z.string(),
   originalUrl: z.string(),
@@ -62,7 +64,7 @@ const ImageSchema = z.object({
 });
 
 const VideoSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   filmMuviUuid: z.string(),
   name: z.string(),
   originalUrl: z.string(),
@@ -79,7 +81,7 @@ const VideoSchema = z.object({
 const AdSetTypeSchema = z.enum(['IMAGE', 'VIDEO']);
 
 const AdSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   metaAdId: z.string().nullable(),
   name: z.string(),
   status: MetaEntityStatusSchema,
@@ -91,14 +93,14 @@ const AdSchema = z.object({
   linkUrl: z.string(),
   images: z.array(ImageSchema),
   videos: z.array(VideoSchema),
-  campaignId: z.string().cuid(),
+  campaignId: DocIdSchema,
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
 });
 
 const CampaignSchema = z.object({
-  id: z.string().cuid(),
+  id: DocIdSchema,
   // CBO Meta IDs
   metaCampaignId: z.string().nullable(),
   imageAdSetId: z.string().nullable(),
@@ -124,7 +126,7 @@ const CampaignSchema = z.object({
   billingEvent: z.string(),
   bidStrategy: z.string(),
   filmMuviUuid: z.string(),
-  partnerId: z.string().cuid(),
+  partnerId: DocIdSchema,
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   syncedAt: z.coerce.date().nullable(),
@@ -140,8 +142,47 @@ export type PartnerWithCount = z.infer<typeof PartnerWithCountSchema>;
 export type PartnerWithCampaigns = z.infer<typeof PartnerWithCampaignsSchema>;
 
 // Input validation helpers
-const IdSchema = z.string().cuid();
+const IdSchema = DocIdSchema;
 const PartnerIdSchema = z.string().min(1);
+
+// ============================================================================
+// FIRESTORE HELPERS
+// ============================================================================
+
+type Doc = Record<string, unknown>;
+
+function partners() {
+  return adminDb().collection(COLLECTIONS.partners);
+}
+
+/** Campaigns of a partner, ads and media attached, newest first. */
+async function campaignsOfPartner(partnerDocId: string): Promise<Doc[]> {
+  const snap = await adminDb()
+    .collection(COLLECTIONS.campaigns)
+    .where('partnerId', '==', partnerDocId)
+    .get();
+
+  const docs = snap.docs
+    .map(docData)
+    .filter((doc): doc is Doc => doc !== null)
+    .sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
+
+  return withAds(docs);
+}
+
+/**
+ * How many campaigns a partner owns. An aggregation query, so it reads index
+ * entries instead of pulling every campaign document back.
+ */
+async function countCampaigns(partnerDocId: string): Promise<number> {
+  const snap = await adminDb()
+    .collection(COLLECTIONS.campaigns)
+    .where('partnerId', '==', partnerDocId)
+    .count()
+    .get();
+
+  return snap.data().count;
+}
 
 // ============================================================================
 // QUERY FUNCTIONS
@@ -153,25 +194,15 @@ const PartnerIdSchema = z.string().min(1);
 export async function getPartnerById(id: string) {
   const validId = IdSchema.parse(id);
 
-  const result = await prisma.partner.findUnique({
-    where: { id: validId },
-    include: {
-      campaigns: {
-        include: {
-          ads: {
-            include: {
-              images: true,
-              videos: true,
-            },
-          },
-        },
-      },
-    },
+  const snap = await partners().doc(validId).get();
+  const partner = docData(snap);
+
+  if (!partner) return null;
+
+  return PartnerWithCampaignsSchema.parse({
+    ...partner,
+    campaigns: await campaignsOfPartner(validId),
   });
-
-  if (!result) return null;
-
-  return PartnerWithCampaignsSchema.parse(result);
 }
 
 /**
@@ -180,41 +211,59 @@ export async function getPartnerById(id: string) {
 export async function getPartnerByPartnerId(partnerId: string) {
   const validPartnerId = PartnerIdSchema.parse(partnerId);
 
-  const result = await prisma.partner.findUnique({
-    where: { partnerId: validPartnerId },
-    include: {
-      campaigns: {
-        include: {
-          ads: {
-            include: {
-              images: true,
-              videos: true,
-            },
-          },
-        },
-      },
-    },
+  const snap = await partners().where('partnerId', '==', validPartnerId).limit(1).get();
+
+  if (snap.empty) return null;
+
+  const partner = docData(snap.docs[0]) as Doc;
+
+  return PartnerWithCampaignsSchema.parse({
+    ...partner,
+    campaigns: await campaignsOfPartner(partner.id as string),
   });
+}
 
-  if (!result) return null;
+/**
+ * Get a partner record on its own, without loading the campaign graph.
+ *
+ * Postgres returned the bare row for any `findUnique`; here the campaigns are
+ * separate documents, so the callers that only need identity (auth, headers)
+ * use this instead of paying for the fan-out.
+ */
+export async function getPartnerRecordById(id: string): Promise<Partner | null> {
+  const validId = IdSchema.parse(id);
 
-  return PartnerWithCampaignsSchema.parse(result);
+  const snap = await partners().doc(validId).get();
+  const partner = docData(snap);
+
+  return partner ? PartnerSchema.parse(partner) : null;
+}
+
+/** Same, keyed by the external Pijama partner id. */
+export async function getPartnerRecordByPartnerId(partnerId: string): Promise<Partner | null> {
+  const validPartnerId = PartnerIdSchema.parse(partnerId);
+
+  const snap = await partners().where('partnerId', '==', validPartnerId).limit(1).get();
+
+  return snap.empty ? null : PartnerSchema.parse(docData(snap.docs[0]));
 }
 
 /**
  * Get all partners
  */
 export async function getAllPartners() {
-  const results = await prisma.partner.findMany({
-    include: {
-      _count: {
-        select: { campaigns: true },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const snap = await partners().get();
 
-  return z.array(PartnerWithCountSchema).parse(results);
+  const docs = snap.docs
+    .map(docData)
+    .filter((doc): doc is Doc => doc !== null)
+    .sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
+
+  const counts = await Promise.all(docs.map((partner) => countCampaigns(partner.id as string)));
+
+  return z
+    .array(PartnerWithCountSchema)
+    .parse(docs.map((partner, index) => ({ ...partner, _count: { campaigns: counts[index] } })));
 }
 
 // ============================================================================
@@ -227,11 +276,13 @@ export async function getAllPartners() {
 export async function createPartner(data: PartnerCreateInput) {
   const validated = PartnerCreateSchema.parse(data);
 
-  const result = await prisma.partner.create({
-    data: validated,
-  });
+  const ref = partners().doc();
+  const now = new Date();
+  const document = { ...sanitize(validated), createdAt: now, updatedAt: now };
 
-  return PartnerSchema.parse(result);
+  await ref.set(document);
+
+  return PartnerSchema.parse({ id: ref.id, ...document });
 }
 
 /**
@@ -241,12 +292,12 @@ export async function updatePartner(id: string, data: PartnerUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = PartnerUpdateSchema.parse(data);
 
-  const result = await prisma.partner.update({
-    where: { id: validId },
-    data: validated,
-  });
+  const ref = partners().doc(validId);
+  await ref.update(sanitize({ ...validated, updatedAt: new Date() }));
 
-  return PartnerSchema.parse(result);
+  const snap = await ref.get();
+
+  return PartnerSchema.parse(docData(snap));
 }
 
 /**
@@ -256,13 +307,11 @@ export async function getOrCreatePartner(partnerId: string, name: string) {
   const validPartnerId = PartnerIdSchema.parse(partnerId);
   const validName = z.string().min(1).max(255).parse(name);
 
-  const existing = await prisma.partner.findUnique({
-    where: { partnerId: validPartnerId },
-  });
+  const snap = await partners().where('partnerId', '==', validPartnerId).limit(1).get();
 
-  if (existing) return PartnerSchema.parse(existing);
+  if (!snap.empty) return PartnerSchema.parse(docData(snap.docs[0]));
 
-  return await createPartner({ partnerId: validPartnerId, name: validName });
+  return createPartner({ partnerId: validPartnerId, name: validName });
 }
 
 /**
@@ -271,28 +320,18 @@ export async function getOrCreatePartner(partnerId: string, name: string) {
 export async function deletePartner(id: string) {
   const validId = IdSchema.parse(id);
 
-  const partner = await prisma.partner.findUnique({
-    where: { id: validId },
-    include: {
-      _count: {
-        select: { campaigns: true },
-      },
-    },
-  });
+  const snap = await partners().doc(validId).get();
+  const partner = docData(snap);
 
   if (!partner) {
     throw new Error('Partner no encontrado');
   }
 
-  const validated = PartnerWithCountSchema.parse(partner);
-
-  if (validated._count.campaigns > 0) {
+  if ((await countCampaigns(validId)) > 0) {
     throw new Error('No se puede eliminar un partner con campañas activas');
   }
 
-  const result = await prisma.partner.delete({
-    where: { id: validId },
-  });
+  await partners().doc(validId).delete();
 
-  return PartnerSchema.parse(result);
+  return PartnerSchema.parse(partner);
 }

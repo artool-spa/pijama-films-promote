@@ -13,7 +13,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-GCP_PROJECT="${GCP_PROJECT:-pijama-films}"
+# Firestore and the security rules live in the Firebase project, which may
+# differ from the project running Cloud Run.
+GCP_PROJECT="${FIREBASE_PROJECT_ID:-${GCP_PROJECT:-pijama-films}}"
 GCP_REGION="${GCP_REGION:-us-west1}"
 
 echo "==> Project: ${GCP_PROJECT} (${GCP_REGION})"
