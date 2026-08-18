@@ -24,6 +24,7 @@ const GCP_PROJECT = process.env.GCP_PROJECT || "pijama-films";
 // Variables to push to Secret Manager (same list as coolify-push-env.ts)
 const ENV_KEYS = [
   // Auth
+  "SESSION_SECRET",
   "JWT_SECRET_KEY",
   "JWT_EXPIRATION_TIME",
   // Muvi
@@ -49,9 +50,6 @@ const ENV_KEYS = [
   "GOOGLE_ADS_REFRESH_TOKEN",
   "GOOGLE_ADS_CUSTOMER_ID",
   "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
-  // Mercure
-  "MERCURE_URL",
-  "MERCURE_JWT_SECRET",
   // Stripe
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",

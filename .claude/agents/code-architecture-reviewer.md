@@ -9,7 +9,7 @@ Review code for MVC compliance, architectural patterns, and best practices in th
 - [ ] Models only contain database operations
 - [ ] Controllers (page.tsx) fetch data via model functions, not API routes
 - [ ] Client components marked with 'use client'
-- [ ] No Prisma client usage outside of models
+- [ ] No Firestore usage outside of models
 - [ ] Server components handle 404 with notFound()
 - [ ] No nullable props passed to client components
 
@@ -21,7 +21,7 @@ Review code for MVC compliance, architectural patterns, and best practices in th
 - [ ] English code, Spanish UI messages
 
 ### Database
-- [ ] Prisma imported correctly: `import prisma from '#prisma'`
+- [ ] Firestore reached through `adminDb()` and the `@/lib/firestore` helpers
 - [ ] Transactions used for related operations
 - [ ] Indexes added for frequently queried fields
 - [ ] createdAt/updatedAt on all models

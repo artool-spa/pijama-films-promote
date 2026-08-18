@@ -60,7 +60,8 @@ import type { ImageWithUsage } from '@/models/image';
 import type { VideoWithUsage } from '@/models/video';
 import { AD_FORMATS, CROP_ASPECT_RATIOS, hasVerticalAsset, hasAssetForRatio, hasImageForRatio, hasVideoForRatio, getAspectRatioLabel } from '@/lib/assets/formats';
 import { ASSET_STATUS_LABELS, ASSET_STATUS_COLORS } from '@/lib/assets/labels';
-import type { AssetStatus } from '@prisma/client';
+import type { AssetStatus } from '@/lib/assets/status';
+import { useFilmEvents } from '@/hooks/useFilmEvents';
 import CropDialog from './CropDialog';
 
 // Custom styles for status chips (default color doesn't have fill)
@@ -390,16 +391,8 @@ export default function AssetsClient({ film, images: initialImages, videos: init
     setImageAssets((prev) => [newImage, ...prev]);
   }, []);
 
-  // SSE listener for real-time validation updates
-  useEffect(() => {
-    const mercureUrl = new URL(process.env.NEXT_PUBLIC_MERCURE_URL!);
-    mercureUrl.searchParams.set('topic', `https://promote.pijamafilms.com/films/${film.id}/events`);
-    const eventSource = new EventSource(mercureUrl.toString());
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
+  // Realtime listener for validation updates
+  useFilmEvents(film.id, (data) => {
         // Handle new images from MUVI sync
         if (data.type === 'image_ready') {
           setImageAssets((prev) => {
@@ -535,13 +528,7 @@ export default function AssetsClient({ film, images: initialImages, videos: init
             )
           );
         }
-      } catch (err) {
-        console.error('[SSE] Error parsing event:', err);
-      }
-    };
-
-    return () => eventSource.close();
-  }, [film.id]);
+  });
 
   // Back button handler
   const handleBack = () => {

@@ -1,8 +1,10 @@
 /**
- * Session Management for Temporal Auth
+ * Session Management
  *
- * Uses signed cookies for session management.
- * This is a TEMPORARY solution.
+ * Identity is provided by Firebase Auth. Once a Firebase ID token has been
+ * verified server-side (see `@/lib/firebase/admin`), we mint our own signed
+ * cookie so that server components and the Edge middleware can authorize
+ * requests without loading the Admin SDK.
  */
 
 import { cookies } from 'next/headers';
@@ -11,12 +13,24 @@ import { SignJWT, jwtVerify } from 'jose';
 const SESSION_COOKIE_NAME = 'pijama-session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
-// Secret key for signing sessions (in production, use environment variable)
-const SECRET_KEY = new TextEncoder().encode(
-  process.env.SESSION_SECRET || 'pijama-films-temporal-secret-key-2026'
-);
+/**
+ * Signing key for session cookies. There is deliberately no fallback: a
+ * predictable secret would let anyone forge a session for any partner.
+ */
+function getSecretKey(): Uint8Array {
+  const secret = process.env.SESSION_SECRET;
+
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      'SESSION_SECRET is not configured (minimum 32 characters required)'
+    );
+  }
+
+  return new TextEncoder().encode(secret);
+}
 
 export interface SessionPayload {
+  uid: string;
   email: string;
   name: string;
   partnerId: string;
@@ -33,7 +47,7 @@ export async function createSessionToken(payload: Omit<SessionPayload, 'expiresA
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(expiresAt / 1000)
-    .sign(SECRET_KEY);
+    .sign(getSecretKey());
 }
 
 /**
@@ -41,7 +55,7 @@ export async function createSessionToken(payload: Omit<SessionPayload, 'expiresA
  */
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET_KEY);
+    const { payload } = await jwtVerify(token, getSecretKey());
     return payload as unknown as SessionPayload;
   } catch {
     return null;

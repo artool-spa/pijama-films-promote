@@ -1,14 +1,23 @@
 /**
- * GeneratedCopy Model - Database operations for AI-generated marketing copies
+ * GeneratedCopy Model - Firestore operations for AI-generated marketing copies
  *
  * This model handles:
- * - Caching generated copies in the database
+ * - Caching generated copies in Firestore
  * - Retrieving cached copies
  * - Invalidating cache when needed
+ *
+ * The `(filmId, language, variant)` uniqueness that Postgres enforced with a
+ * composite constraint is expressed here as the document id, so re-generating a
+ * variant overwrites it instead of duplicating it.
+ *
+ * A film has at most `languages x variants` copies (a few dozen), so the
+ * queries filter on `filmId` only and sort in memory. That keeps the collection
+ * free of composite indexes without any practical cost.
  */
 
-import prisma from '#prisma';
 import { z } from 'zod';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, compositeId, docData, sanitize } from '@/lib/firestore';
 
 // ============================================================================
 // SCHEMAS
@@ -44,6 +53,59 @@ export const GeneratedCopyDataSchema = z.object({
 
 export type GeneratedCopyData = z.infer<typeof GeneratedCopyDataSchema>;
 
+// Shape stored in Firestore, before the id is merged back in.
+const StoredCopySchema = z.object({
+  id: z.string(),
+  filmId: z.string(),
+  language: z.string(),
+  headline: z.string(),
+  primaryText: z.string(),
+  description: z.string(),
+  callToAction: z.string(),
+  variant: z.string(),
+  createdAt: z.coerce.date(),
+});
+
+type StoredCopy = z.infer<typeof StoredCopySchema>;
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function copies() {
+  return adminDb().collection(COLLECTIONS.generatedCopies);
+}
+
+function copyId(filmId: string, language: string, variant: string): string {
+  return compositeId(filmId, language, variant);
+}
+
+function toCopyData(stored: StoredCopy): GeneratedCopyData {
+  return {
+    filmId: stored.filmId,
+    language: stored.language as SupportedLanguage,
+    headline: stored.headline,
+    primaryText: stored.primaryText,
+    description: stored.description,
+    callToAction: stored.callToAction,
+    variant: stored.variant as Variant,
+  };
+}
+
+// Reproduces the `orderBy: [{ language: 'asc' }, { variant: 'asc' }]` the
+// Postgres queries used.
+function byLanguageThenVariant(a: StoredCopy, b: StoredCopy): number {
+  return a.language.localeCompare(b.language) || a.variant.localeCompare(b.variant);
+}
+
+async function copiesForFilm(filmId: string): Promise<StoredCopy[]> {
+  const snap = await copies().where('filmId', '==', filmId).get();
+
+  return snap.docs
+    .map((doc) => StoredCopySchema.parse(docData(doc)))
+    .sort(byLanguageThenVariant);
+}
+
 // ============================================================================
 // DATABASE OPERATIONS
 // ============================================================================
@@ -56,31 +118,18 @@ export async function getCachedCopies(
   filmId: string,
   languages: SupportedLanguage[]
 ): Promise<Record<SupportedLanguage, GeneratedCopyData[]>> {
-  const copies = await prisma.generatedCopy.findMany({
-    where: {
-      filmId,
-      language: { in: languages },
-    },
-    orderBy: [{ language: 'asc' }, { variant: 'asc' }],
-  });
+  const wanted = new Set<string>(languages);
+  const stored = (await copiesForFilm(filmId)).filter((copy) => wanted.has(copy.language));
 
   // Group by language
   const result: Partial<Record<SupportedLanguage, GeneratedCopyData[]>> = {};
 
-  for (const copy of copies) {
+  for (const copy of stored) {
     const lang = copy.language as SupportedLanguage;
     if (!result[lang]) {
       result[lang] = [];
     }
-    result[lang]!.push({
-      filmId: copy.filmId,
-      language: lang,
-      headline: copy.headline,
-      primaryText: copy.primaryText,
-      description: copy.description,
-      callToAction: copy.callToAction,
-      variant: copy.variant as Variant,
-    });
+    result[lang]!.push(toCopyData(copy));
   }
 
   return result as Record<SupportedLanguage, GeneratedCopyData[]>;
@@ -89,53 +138,51 @@ export async function getCachedCopies(
 /**
  * Check which languages have cached copies for a film
  */
-export async function getCachedLanguages(
-  filmId: string
-): Promise<SupportedLanguage[]> {
-  const copies = await prisma.generatedCopy.findMany({
-    where: { filmId },
-    select: { language: true },
-    distinct: ['language'],
-  });
+export async function getCachedLanguages(filmId: string): Promise<SupportedLanguage[]> {
+  const stored = await copiesForFilm(filmId);
 
-  return copies.map((c) => c.language as SupportedLanguage);
+  return [...new Set(stored.map((copy) => copy.language))] as SupportedLanguage[];
 }
 
 /**
- * Save generated copies to the database
- * Uses upsert to handle re-generation
+ * Save generated copies to Firestore
+ * Overwrites the matching variant to handle re-generation
  */
-export async function saveCopies(copies: GeneratedCopyData[]): Promise<void> {
-  // Use transaction for atomicity
-  await prisma.$transaction(
-    copies.map((copy) =>
-      prisma.generatedCopy.upsert({
-        where: {
-          filmId_language_variant: {
-            filmId: copy.filmId,
-            language: copy.language,
-            variant: copy.variant,
-          },
-        },
-        update: {
-          headline: copy.headline,
-          primaryText: copy.primaryText,
-          // Columns are NOT NULL; default the optional fields when absent.
-          description: copy.description ?? '',
-          callToAction: copy.callToAction ?? '',
-        },
-        create: {
-          filmId: copy.filmId,
-          language: copy.language,
-          headline: copy.headline,
-          primaryText: copy.primaryText,
-          description: copy.description ?? '',
-          callToAction: copy.callToAction ?? '',
-          variant: copy.variant,
-        },
-      })
-    )
+export async function saveCopies(copiesToSave: GeneratedCopyData[]): Promise<void> {
+  if (copiesToSave.length === 0) return;
+
+  const refs = copiesToSave.map((copy) =>
+    copies().doc(copyId(copy.filmId, copy.language, copy.variant))
   );
+
+  // Read first so an overwrite keeps the original creation time.
+  const existing = await adminDb().getAll(...refs);
+
+  // A single batch keeps the write atomic, as the Postgres transaction did.
+  const batch = adminDb().batch();
+  const now = new Date();
+
+  copiesToSave.forEach((copy, index) => {
+    const previous = docData(existing[index]);
+
+    batch.set(
+      refs[index],
+      sanitize({
+        filmId: copy.filmId,
+        language: copy.language,
+        headline: copy.headline,
+        primaryText: copy.primaryText,
+        // Stored as empty strings when absent, matching the NOT NULL columns
+        // the rest of the app was written against.
+        description: copy.description ?? '',
+        callToAction: copy.callToAction ?? '',
+        variant: copy.variant,
+        createdAt: (previous?.createdAt as Date | undefined) ?? now,
+      })
+    );
+  });
+
+  await batch.commit();
 }
 
 /**
@@ -146,14 +193,19 @@ export async function invalidateCopies(
   filmId: string,
   languages?: SupportedLanguage[]
 ): Promise<number> {
-  const result = await prisma.generatedCopy.deleteMany({
-    where: {
-      filmId,
-      ...(languages && { language: { in: languages } }),
-    },
-  });
+  const stored = await copiesForFilm(filmId);
+  const wanted = languages ? new Set<string>(languages) : null;
+  const doomed = wanted ? stored.filter((copy) => wanted.has(copy.language)) : stored;
 
-  return result.count;
+  if (doomed.length === 0) return 0;
+
+  const batch = adminDb().batch();
+  for (const copy of doomed) {
+    batch.delete(copies().doc(copy.id));
+  }
+  await batch.commit();
+
+  return doomed.length;
 }
 
 /**
@@ -164,47 +216,19 @@ export async function getCopyVariant(
   language: SupportedLanguage,
   variant: Variant
 ): Promise<GeneratedCopyData | null> {
-  const copy = await prisma.generatedCopy.findUnique({
-    where: {
-      filmId_language_variant: {
-        filmId,
-        language,
-        variant,
-      },
-    },
-  });
+  const snap = await copies().doc(copyId(filmId, language, variant)).get();
+  const data = docData(snap);
 
-  if (!copy) return null;
+  if (!data) return null;
 
-  return {
-    filmId: copy.filmId,
-    language: copy.language as SupportedLanguage,
-    headline: copy.headline,
-    primaryText: copy.primaryText,
-    description: copy.description,
-    callToAction: copy.callToAction,
-    variant: copy.variant as Variant,
-  };
+  return toCopyData(StoredCopySchema.parse(data));
 }
 
 /**
  * Get all copies for a film across all languages
  */
-export async function getAllCopiesForFilm(
-  filmId: string
-): Promise<GeneratedCopyData[]> {
-  const copies = await prisma.generatedCopy.findMany({
-    where: { filmId },
-    orderBy: [{ language: 'asc' }, { variant: 'asc' }],
-  });
+export async function getAllCopiesForFilm(filmId: string): Promise<GeneratedCopyData[]> {
+  const stored = await copiesForFilm(filmId);
 
-  return copies.map((copy) => ({
-    filmId: copy.filmId,
-    language: copy.language as SupportedLanguage,
-    headline: copy.headline,
-    primaryText: copy.primaryText,
-    description: copy.description,
-    callToAction: copy.callToAction,
-    variant: copy.variant as Variant,
-  }));
+  return stored.map(toCopyData);
 }

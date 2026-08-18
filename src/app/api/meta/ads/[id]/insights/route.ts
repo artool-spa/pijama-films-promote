@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { meta, getInsights, MetaApiError } from '@/lib/meta';
 import type { MetaInsightData } from '@/lib/meta/types';
-import prisma from '#prisma';
+import { getAdById } from '@/models/ad';
 
 interface AdInsightsResponse {
   impressions: number;
@@ -45,20 +45,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const ad = await prisma.ad.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        metaAdId: true,
-        campaign: {
-          select: {
-            startDate: true,
-            endDate: true,
-            status: true,
-          },
-        },
-      },
-    });
+    const ad = await getAdById(id);
 
     if (!ad) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });

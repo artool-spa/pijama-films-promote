@@ -14,11 +14,10 @@ function createStorageConfig() {
   const serviceAccountKeyJson = process.env.GCS_SERVICE_ACCOUNT_KEY_JSON;
   const publicUrlBase = process.env.GCS_PUBLIC_URL_BASE;
 
+  // Credentials are optional: Application Default Credentials cover the
+  // deployed runtime, so only the bucket has to be configured.
   const missingVars: string[] = [];
   if (!bucketName) missingVars.push('GCS_BUCKET_NAME');
-  if (!serviceAccountKeyPath && !serviceAccountKeyJson) {
-    missingVars.push('GCS_SERVICE_ACCOUNT_KEY_PATH or GCS_SERVICE_ACCOUNT_KEY_JSON');
-  }
 
   if (missingVars.length > 0) {
     throw new StorageConfigError(

@@ -75,6 +75,7 @@ import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 import { validateCampaignBudget, META_MIN_DAILY_PER_ADSET, META_ASSET_TYPES, GOOGLE_MIN_DAILY } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
+import { useFilmEvents } from '@/hooks/useFilmEvents';
 
 // Asset status type
 type AssetStatus = 'PENDING' | 'VALIDATING' | 'READY' | 'INVALID' | 'ERROR';
@@ -590,16 +591,8 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
     }
   }, [rightTab, selectedAdStyle, previewableAssets, previewAssetIndex, copies, previewVariant, film.trailerUrl, selectedPlatforms]);
 
-  // SSE listener for background asset sync notifications
-  useEffect(() => {
-    const mercureUrl = new URL(process.env.NEXT_PUBLIC_MERCURE_URL!);
-    mercureUrl.searchParams.set('topic', `https://promote.pijamafilms.com/films/${film.id}/events`);
-    const eventSource = new EventSource(mercureUrl.toString());
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
+  // Realtime listener for background asset sync notifications
+  useFilmEvents(film.id, (data) => {
         if (data.type === 'image_ready') {
           // Add new image to uploaded assets if not already present
           setUploadedAssets((prev) => {
@@ -754,26 +747,13 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         // Handle campaign error events
         if (data.type === 'campaign_error') {
-          console.error(`[SSE] Campaign error: ${data.error}`);
+          console.error(`[events] Campaign error: ${data.error}`);
           setCampaignProgress((prev) => ({
             ...prev,
             error: data.error,
           }));
         }
-      } catch (error) {
-        console.error('[SSE] Error parsing event:', error);
-      }
-    };
-
-    eventSource.onerror = () => {
-      // SSE will auto-reconnect, just log
-      console.log('[SSE] Connection error, will retry...');
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [film.id]);
+  });
 
   // Auto-fetch preview when relevant data changes
   useEffect(() => {

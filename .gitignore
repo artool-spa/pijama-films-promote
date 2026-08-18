@@ -50,3 +50,9 @@ scripts/output/
 
 # claude
 .claude/settings.json
+
+# Firebase emulator artifacts
+firestore-debug.log
+ui-debug.log
+firebase-debug.log
+.firebase/

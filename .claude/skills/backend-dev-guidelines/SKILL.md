@@ -17,7 +17,8 @@ This skill provides guidelines for backend development in the Pijama Films platf
 **✅ CORRECT Model Pattern:**
 ```typescript
 // src/models/film.ts
-import prisma from '#prisma';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, docData, sanitize } from '@/lib/firestore';
 import { z } from 'zod';
 
 export const FilmSchema = z.object({
@@ -31,32 +32,39 @@ export const FilmSchema = z.object({
 
 export type FilmInput = z.infer<typeof FilmSchema>;
 
+function films() {
+  return adminDb().collection(COLLECTIONS.films);
+}
+
 export async function getFilmById(id: string) {
-  return await prisma.film.findUnique({
-    where: { id },
-    include: { producer: true, campaigns: true },
-  });
+  const snap = await films().doc(id).get();
+  const film = docData(snap);
+
+  if (!film) return null;
+
+  // Firestore has no joins: related documents are loaded explicitly.
+  return { ...film, campaigns: await campaignsOfFilm(id) };
 }
 
 export async function createFilm(producerId: string, data: FilmInput) {
   const validated = FilmSchema.parse(data);
-  return await prisma.film.create({
-    data: {
-      ...validated,
-      producerId,
-    },
-  });
+
+  const ref = films().doc();
+  const document = { ...sanitize(validated), producerId, createdAt: new Date() };
+
+  await ref.set(document);
+
+  return { id: ref.id, ...document };
 }
 ```
 
-**❌ WRONG - Prisma client in API route:**
+**❌ WRONG - Firestore access in API route:**
 ```typescript
 // DON'T DO THIS
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import { getFirestore } from 'firebase-admin/firestore';
 
 export async function GET() {
-  const films = await prisma.film.findMany(); // ❌ Wrong!
+  const films = await getFirestore().collection('films').get(); // ❌ Wrong!
   return Response.json(films);
 }
 ```
@@ -116,7 +124,7 @@ export default async function FilmDetailPage() {
 // src/app/films/[id]/client.tsx
 'use client';
 
-import { Film } from '@prisma/client';
+import type { Film } from '@/models/film';
 import { Box, Typography, Button } from '@mui/material';
 
 type Props = {
@@ -145,7 +153,7 @@ export default function FilmDetailClient({ film }: Props) {
 - **Responsibilities**:
   - Request validation with Zod
   - Authentication verification
-  - Call model functions (NOT Prisma directly)
+  - Call model functions (NOT Firestore directly)
   - Response formatting
 
 **✅ CORRECT API Route:**
@@ -233,13 +241,14 @@ try {
 
 **✅ CORRECT:**
 ```typescript
-import prisma from '#prisma'; // ✅ Use path alias
+import { adminDb } from '@/lib/firebase/admin';           // ✅ Shared singleton
+import { COLLECTIONS, docData, sanitize } from '@/lib/firestore';
 ```
 
 **❌ WRONG:**
 ```typescript
-import { prisma } from '#prisma'; // ❌ No destructuring
-import { PrismaClient } from '@prisma/client'; // ❌ Don't create new instances
+import { getFirestore, initializeApp } from 'firebase-admin/firestore'; // ❌ Don't
+const db = getFirestore(initializeApp());                 // ❌ initialise your own app
 ```
 
 ## Language Conventions
@@ -248,9 +257,9 @@ import { PrismaClient } from '@prisma/client'; // ❌ Don't create new instances
 - **Error Messages**: English (logs), Spanish (user-facing)
 
 ## Key Rules
-1. Never use Prisma client directly in API routes - always use model functions
+1. Never touch Firestore directly in API routes - always use model functions
 2. Server components call model functions directly, not API routes
 3. Handle 404 errors at server level with `notFound()`
 4. Never pass nullable data to client components
 5. All user input must be validated with Zod
-6. Import prisma as default: `import prisma from '#prisma'`
+6. Reach Firestore through `adminDb()` and the `@/lib/firestore` helpers

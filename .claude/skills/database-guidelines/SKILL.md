@@ -1,274 +1,183 @@
 # Database Guidelines
 
 ## Overview
-Guidelines for working with Prisma ORM and PostgreSQL in the Pijama Films platform.
 
-## Prisma Client Access
+The database is **Cloud Firestore**, reached through the Firebase Admin SDK. All
+access lives in the model layer (`src/models/*.ts`); controllers and views never
+touch it. There is no ORM, no migrations and no `DATABASE_URL`.
 
-### Singleton Pattern
-**✅ CORRECT:**
+`docs/firestore-migration.md` records the collection layout and why each shape
+was chosen.
+
+## Access
+
 ```typescript
-import prisma from '#prisma';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, IdSchema, docData, sanitize, compositeId } from '@/lib/firestore';
 
-export async function getFilmById(id: string) {
-  return await prisma.film.findUnique({ where: { id } });
+function partners() {
+  return adminDb().collection(COLLECTIONS.partners);
 }
 ```
 
-**❌ WRONG:**
-```typescript
-import { prisma } from '#prisma'; // ❌ No destructuring
-import { PrismaClient } from '@prisma/client'; // ❌ Don't create instances
-const prisma = new PrismaClient(); // ❌ Multiple instances
-```
+`adminDb()` is a singleton over Application Default Credentials: the App Hosting
+runtime service account in production, `gcloud auth application-default login`
+locally. Never inline a service-account key.
 
-## Schema Design
+The helpers in `@/lib/firestore` exist because three mismatches show up in every
+model, and each one is a bug if handled ad hoc:
 
-### Best Practices
-1. Use `@id @default(cuid())` for IDs
-2. Include `createdAt` and `updatedAt` timestamps
-3. Use appropriate field types (`@db.Text` for long strings)
-4. Define proper relationships with `@relation`
-5. Use enums for fixed value sets
+| Helper              | Why it exists                                                              |
+| ------------------- | -------------------------------------------------------------------------- |
+| `docData(snap)`     | Converts `Timestamp` → `Date` (recursively) and merges the id into the data |
+| `sanitize(data)`    | Drops `undefined`, which Firestore rejects outright on write                |
+| `compositeId(...)`  | Builds a deterministic id from a natural key, escaping the separator        |
+| `IdSchema`          | Validates an id as a non-empty string, not a cuid                           |
 
-### Example Schema
-```prisma
-model Producer {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  saltHash  String
-  films     Film[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+## Document ids
 
-model Film {
-  id          String   @id @default(cuid())
-  title       String
-  producerId  String
-  producer    Producer @relation(fields: [producerId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-```
-
-## Migrations
-
-### Creating Migrations
-```bash
-# Generate Prisma client after schema changes
-npx prisma generate
-
-# Create and apply migration
-npx prisma migrate dev --name add_campaign_model
-
-# Apply migrations in production
-npx prisma migrate deploy
-```
-
-### Migration Workflow
-1. Modify `schema.prisma`
-2. Run `prisma generate`
-3. Run `prisma migrate dev --name descriptive_name`
-4. Test the migration locally
-5. Commit schema.prisma and migration files
-
-## Query Patterns
-
-### Basic Queries
-```typescript
-// Find unique
-const film = await prisma.film.findUnique({
-  where: { id: filmId },
-});
-
-// Find many with filters
-const films = await prisma.film.findMany({
-  where: {
-    isPublished: true,
-    year: { gte: 2020 },
-  },
-  orderBy: { createdAt: 'desc' },
-  take: 10,
-});
-
-// Count
-const count = await prisma.film.count({
-  where: { isPublished: true },
-});
-```
-
-### Relations
-```typescript
-// Include related data
-const film = await prisma.film.findUnique({
-  where: { id: filmId },
-  include: {
-    producer: true,
-    campaigns: {
-      where: { isActive: true },
-      include: { metrics: true },
-    },
-  },
-});
-
-// Select specific fields
-const films = await prisma.film.findMany({
-  select: {
-    id: true,
-    title: true,
-    producer: {
-      select: {
-        firstName: true,
-        lastName: true,
-      },
-    },
-  },
-});
-```
-
-### Create/Update/Delete
-```typescript
-// Create
-const film = await prisma.film.create({
-  data: {
-    title: 'Mi Película',
-    description: 'Una gran película',
-    duration: 120,
-    year: 2024,
-    genre: ['Drama'],
-    director: 'Director',
-    producerId: producerId,
-  },
-});
-
-// Update
-const updated = await prisma.film.update({
-  where: { id: filmId },
-  data: { isPublished: true },
-});
-
-// Delete
-await prisma.film.delete({
-  where: { id: filmId },
-});
-```
-
-## Transactions
-
-### When to Use
-- Multiple related operations
-- Operations that must succeed/fail together
-- Data consistency requirements
+Firestore has **no unique constraints**. A uniqueness requirement is expressed
+as the document id:
 
 ```typescript
-const result = await prisma.$transaction(async (tx) => {
-  const campaign = await tx.campaign.create({
-    data: {
-      name: campaignName,
-      budget: budget,
-      filmId: filmId,
-    },
-  });
+// email was UNIQUE -> it is the id
+adminDb().collection(COLLECTIONS.userPreferences).doc(email);
 
-  await tx.campaignMetric.create({
-    data: {
-      campaignId: campaign.id,
-      impressions: 0,
-      clicks: 0,
-      conversions: 0,
-      spend: 0,
-    },
-  });
-
-  return campaign;
-});
+// (filmId, language, variant) was a composite UNIQUE -> composite id
+copies().doc(compositeId(filmId, language, variant));
 ```
+
+Writing the same key twice overwrites instead of duplicating, which is the
+behaviour the constraint used to guarantee. For a value that cannot be a key
+(a platform-assigned id such as `metaAdId`), uniqueness is upheld by the single
+code path that writes it.
+
+## Defaults
+
+Postgres filled in column defaults; Firestore stores exactly what it is given.
+Every create must write the full document, or the output schema will reject it
+on the next read:
+
+```typescript
+const document = {
+  ...createDefaults(),   // archived: false, status: 'PENDING', width: null, ...
+  ...sanitize(validated), // sanitized first: an absent optional field must fall
+  createdAt: new Date(),  // back to its default, not overwrite it with undefined
+};
+```
+
+That ordering matters. `{...defaults, ...validated}` with `validated.width ===
+undefined` overwrites the default with `undefined`, `sanitize` then drops the
+key, and the document comes back missing a required field.
+
+## Relations
+
+There are no joins. `src/models/hydrate.ts` assembles the campaign graph with a
+bounded fan-out — one query per batch of parents, then one `getAll` for the
+distinct children:
+
+```typescript
+const campaigns = await campaignDocs(query);
+const hydrated = await withAds(campaigns);      // campaign -> ads -> images/videos
+const withOwner = await withPartner(campaigns); // campaign -> partner
+```
+
+Use these rather than reading children per parent: a loop of `await` inside
+`map` is one round trip per ad, which is what makes a naive port slow.
+
+Many-to-many is an array of ids on the owning document (`imageIds`,
+`videoIds`), and the reverse lookup is `array-contains`.
+
+## Queries
+
+```typescript
+// equality, array membership, ordering
+collection.where('filmMuviUuid', '==', uuid).where('archived', '==', false)
+collection.where('platforms', 'array-contains', 'GOOGLE')
+collection.where('campaignId', 'in', batch)   // max 30 values — chunk beyond that
+```
+
+Prefer filtering a **small** result set in memory over adding an inequality to
+the query. `where('status', '!=', 'DRAFT')` forces the first `orderBy` onto
+`status` and demands a composite index; a film has a handful of campaigns, so
+`docs.filter(...)` is both cheaper and clearer. Say so in a comment when you do
+it, and reach for the index when the collection is genuinely large.
 
 ## Aggregations
 
+Server-side, reading index entries rather than documents:
+
 ```typescript
-// Count, sum, avg, min, max
-const stats = await prisma.campaign.aggregate({
-  where: { isActive: true },
-  _count: true,
-  _sum: { budget: true, spend: true },
-  _avg: { budget: true },
-});
+const { count } = (await query.count().get()).data();
 
-// Group by
-const campaignsByFilm = await prisma.campaign.groupBy({
-  by: ['filmId'],
-  _count: true,
-  _sum: { budget: true },
-});
+const totals = (
+  await campaigns
+    .where('status', '!=', 'DRAFT')
+    .aggregate({ budget: AggregateField.sum('budget'), count: AggregateField.count() })
+    .get()
+).data();
 ```
 
-## Performance Optimization
+Never sum by fetching every document and reducing in JavaScript.
 
-### Use Select When Possible
+## Transactions
+
+Use one whenever a write depends on a value that was just read — balances,
+idempotency checks, "create if absent". Firestore retries a transaction whose
+reads were invalidated by a concurrent write, which is what makes the balance
+arithmetic safe.
+
+**All reads must precede all writes:**
+
 ```typescript
-// ✅ Better - only fetch needed fields
-const films = await prisma.film.findMany({
-  select: { id: true, title: true, posterUrl: true },
-});
+await adminDb().runTransaction(async (tx) => {
+  // ---- reads ----
+  const account = await tx.get(accountRef);
+  const existing = await tx.get(bySessionQuery(sessionId));
 
-// ❌ Fetches all fields
-const films = await prisma.film.findMany();
+  if (existing.docs[0]?.data().status === 'COMPLETED') return existing.docs[0];
+
+  // ---- writes ----
+  tx.update(accountRef, { balance: newBalance });
+  tx.set(ledgerRef, entry);
+});
 ```
 
-### Pagination
+For several independent writes that must land together, use a batch
+(`adminDb().batch()`, max 500 writes).
+
+## Indexes and rules
+
+Composite indexes live in `firestore.indexes.json`, security rules in
+`firestore.rules`. Deploy both with:
+
+```bash
+npm run deploy:firestore
+```
+
+Add an index when a query needs one — never widen a rule to make a query work.
+Collection-group queries (for example finding a ledger entry by Stripe session
+across all accounts) need an explicit `COLLECTION_GROUP` entry; the automatic
+single-field indexes do not cover them.
+
+## Testing
+
+`src/test/firestore-fake.ts` is an in-memory Firestore covering the slice of the
+API the models use. Mock the SDK at the module boundary:
+
 ```typescript
-// Cursor-based pagination
-const films = await prisma.film.findMany({
-  take: 20,
-  skip: 1,
-  cursor: { id: lastFilmId },
-  orderBy: { createdAt: 'desc' },
-});
+const db = new FakeFirestore();
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => db }));
 
-// Offset pagination
-const films = await prisma.film.findMany({
-  skip: page * pageSize,
-  take: pageSize,
-});
+beforeEach(() => db.reset());
 ```
 
-### Indexes
-Add indexes in schema for frequently queried fields:
-```prisma
-model Film {
-  id          String   @id @default(cuid())
-  producerId  String
-  isPublished Boolean
-
-  @@index([producerId])
-  @@index([isPublished, createdAt])
-}
-```
+Tests then exercise the real model logic — balances, idempotency, ordering,
+hydration — instead of asserting that a mock was called. Never point a test at
+the production database.
 
 ## Error Handling
 
-```typescript
-import { Prisma } from '@prisma/client';
-
-try {
-  const film = await prisma.film.create({ data });
-} catch (error) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2002') {
-      // Unique constraint violation
-      throw new Error('A film with this title already exists');
-    }
-  }
-  throw error;
-}
-```
-
-## Key Rules
-1. Always import: `import prisma from '#prisma'`
-2. Never create new PrismaClient instances
-3. Use transactions for related operations
-4. Include createdAt/updatedAt on all models
-5. Add indexes for frequently queried fields
-6. Use select to limit fields when possible
+Let Zod parse errors and Firestore errors propagate to the route or server
+component, which decides the response. Do not leak internal details to users:
+log the cause, return a plain message.

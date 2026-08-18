@@ -9,7 +9,7 @@
 - **React 19**
 - **TypeScript 5.7** (strict mode)
 - **MUI 7.3** Material Design components
-- **Prisma 6.19** ORM with PostgreSQL 16
+- **Cloud Firestore** via the Firebase Admin SDK
 - **Vitest** testing framework
 - **Docker** for deployment
 
@@ -29,28 +29,27 @@ yarn test                 # Run tests
 yarn test:watch          # Watch mode
 yarn test:coverage       # With coverage
 
-# Database
-npx prisma generate      # Generate client
-npx prisma migrate dev   # Create migration
-npx prisma studio        # Open Prisma Studio
+# Database (Cloud Firestore)
+npm run deploy:firestore                # Rules + indexes + TTL policy (idempotent)
+npm run db:seed                         # Seed the special "pijamafilms" partner
+npm run firestore:import-partners       # Import partner records from a JSON export
 
-# Deployment (Google Cloud Run)
-npm run deploy:cloudrun          # Deploy app to production (Cloud Run)
-npm run deploy:cloudrun:secrets  # Push secrets to Secret Manager
-npm run deploy:cloudrun:mercure  # Deploy Mercure SSE hub (GCE)
-npm run deploy:gcp-setup         # One-time GCP infrastructure setup
+# Users (provisional auth: Firebase email + password)
+npm run users:seed                                     # the 5 in-house users, reset links
+npm run user:provision -- <email> <name> <partnerId>   # prints a one-time reset link
+npm run user:provision -- <email> <name> <partnerId> --password-stdin  # password via stdin
 
-# Deploying requires gcloud CLI authenticated, the GCP infrastructure created
-# by deploy:gcp-setup, and secrets present via deploy:cloudrun:secrets.
-# The deploy builds the image locally, pushes to Artifact Registry, and
-# releases to Cloud Run. It does NOT commit or push git — do that yourself.
-#
-# The deploy:coolify / deploy:env / deploy:mercure scripts target the legacy
-# Coolify host and are no longer production. Do not use them.
+# Scripts using the Admin SDK need Application Default Credentials, which are
+# separate from `gcloud auth login`:
+#   gcloud auth application-default login
 
-# Docker
-docker compose up        # Start PostgreSQL
-docker compose down      # Stop database
+# Deployment (Firebase App Hosting)
+# Project pijama-promote-firebase, backend "pijama-promote" (us-central1).
+# App Hosting builds and releases from the connected GitHub branch: push, do not
+# deploy by hand. Configuration lives in apphosting.yaml; secret values live in
+# Secret Manager and are referenced there by name.
+npx firebase-tools apphosting:secrets:set NAME --project=pijama-promote-firebase --data-file=- --force
+
 ```
 
 ## Architecture: MVC Pattern
@@ -60,7 +59,7 @@ This project **strictly follows the MVC pattern**:
 ```
 ┌─────────────┐
 │   Model     │  src/models/*.ts
-│  (Database) │  - All Prisma operations
+│  (Database) │  - All Firestore operations
 └──────┬──────┘  - Zod validation
        │         - Business logic
        ↓
@@ -79,12 +78,51 @@ This project **strictly follows the MVC pattern**:
 
 ### Key Rules
 
-1. ✅ **Models** = Database operations only (use Prisma via `#prisma`)
+1. ✅ **Models** = Database operations only (Firestore via `@/lib/firestore`)
 2. ✅ **Controllers** = Server components call models directly (NOT API routes)
 3. ✅ **Views** = Client components receive non-nullable data
 4. ✅ **404 handling** = At server level with `notFound()`
 5. ✅ **Validation** = All inputs with Zod
 6. ✅ **Language** = English code and English UI
+7. ✅ **Security** = Always choose the most secure option (see [Security First](#security-first))
+
+## Security First
+
+**Always prefer the most secure solution available, even when a less secure one is faster or simpler.**
+When there is a trade-off between convenience and security, propose the secure option first, explain
+the cost, and let the user decide. Never silently pick the insecure shortcut.
+
+### Non-negotiable rules
+
+1. ❌ **Never expose production credentials.** Do not print, echo, copy, paste into a command, write
+   into a file, commit, or pass as a CLI argument any production connection string, password, API key,
+   token, or service-account key.
+2. ❌ **Never point local tooling at production data.** Do not run scripts, seeds or test suites
+   against the production Firestore database. Local work runs against the Firestore emulator or the
+   in-memory fake in `src/test/firestore-fake.ts`.
+3. ✅ **Rules and indexes are deployed, not edited by hand.** Change `firestore.rules` /
+   `firestore.indexes.json` and run `npm run deploy:firestore`; never widen a rule to make a query
+   work.
+4. ✅ **Secrets live in Secret Manager.** Production secrets are managed through
+   `npm run deploy:cloudrun:secrets` and read from GCP Secret Manager at runtime. `.env` files are
+   local-only and must stay out of git.
+5. ✅ **Least privilege.** Use the narrowest role, scope, and network exposure that makes the task
+   work. Prefer short-lived, IAM-based credentials over long-lived static passwords.
+6. ✅ **Redact in logs and errors.** Never log credentials, tokens, full connection strings, or
+   personal data. Error messages returned to users must not leak internal details.
+7. ✅ **Validate and authorize everything.** All input goes through Zod; every server action, API
+   route, and model query must verify the session and confirm the resource belongs to the
+   authenticated producer (no IDOR).
+8. ✅ **Flag risks explicitly.** If a requested change introduces a security risk, say so plainly
+   before implementing, and offer the secure alternative.
+
+### Example of what NOT to suggest
+
+> "The security rules are blocking that read — set `allow read: if true` for now and tighten it
+> later."
+
+That publishes every partner's data to anyone with the project id. The secure path is to add the
+missing claim or index so the existing rule can serve the query.
 
 ## Detailed Guidelines
 
@@ -95,11 +133,12 @@ For comprehensive development guidelines, refer to the Claude Code skills in `.c
 
 Covers:
 - MVC pattern implementation
-- Model layer (Prisma operations, Zod validation)
+- Model layer (Firestore operations, Zod validation)
 - Controller layer (server components, data fetching)
 - View layer (client components)
 - API routes (auth, validation, error handling)
-- Database import pattern: `import prisma from '#prisma'`
+- Database access pattern: `import { adminDb } from '@/lib/firebase/admin'` plus the helpers in
+  `@/lib/firestore`
 
 ### 🎨 Frontend Development
 **Skill**: `.claude/skills/frontend-dev-guidelines/SKILL.md`
@@ -127,12 +166,11 @@ Covers:
 **Skill**: `.claude/skills/database-guidelines/SKILL.md`
 
 Covers:
-- Prisma client singleton pattern
-- Schema design best practices
-- Migrations workflow
-- Query patterns (CRUD, relations, aggregations)
-- Transactions
-- Performance optimization
+- Firestore collection layout and document ids
+- Relation loading (`src/models/hydrate.ts`) in place of joins
+- Query patterns (CRUD, aggregations, collection groups)
+- Transactions and batched writes
+- Indexes and security rules
 
 ### 🧪 Testing
 **Skill**: `.claude/skills/testing-guidelines/SKILL.md`
@@ -177,17 +215,15 @@ pijama-films/
 │   │       └── client.tsx    # View (client)
 │   ├── models/           # Models (database)
 │   ├── components/       # Shared UI components
-│   ├── lib/              # Utilities (auth, etc.)
-│   └── test/             # Test utilities
-├── prisma/
-│   ├── schema.prisma     # Database schema
-│   └── db.ts             # Prisma singleton
+│   ├── lib/              # Utilities (auth, firestore, etc.)
+│   └── test/             # Test utilities (incl. the Firestore fake)
 ├── .claude/              # Claude Code infrastructure
 │   ├── skills/           # Development guidelines
 │   ├── agents/           # Code review agents
 │   ├── hooks/            # Automation hooks
 │   └── commands/         # Slash commands
-└── docker-compose.yml    # PostgreSQL service
+├── firestore.rules       # Security rules
+└── firestore.indexes.json # Composite indexes
 ```
 
 ## Claude Code Features
@@ -196,7 +232,7 @@ pijama-films/
 - `/backend-dev-guidelines`: MVC patterns, models, API routes
 - `/frontend-dev-guidelines`: MUI components, TypeScript
 - `/film-platform-guidelines`: Domain knowledge
-- `/database-guidelines`: Prisma best practices
+- `/database-guidelines`: Firestore best practices
 - `/testing-guidelines`: Vitest patterns
 
 ### Agents
@@ -213,25 +249,26 @@ pijama-films/
 
 ## Database Schema
 
-### Core Models
-```prisma
-Producer  → Films → Campaigns → CampaignMetrics
+### Collections
+```
+partners → campaigns → ads → images/videos
+accounts/{partnerId}/transactions
+userPreferences, generatedCopies
 ```
 
-- **Producer**: Platform users (film producers)
-- **Film**: Film catalog with metadata
-- **Campaign**: Advertising campaigns
-- **CampaignMetric**: Daily performance data
+- **Partner**: Platform users (film producers)
+- **Campaign**: Advertising campaigns, referencing a film by MUVI uuid
+- **Ad**: Creatives, holding `imageIds` / `videoIds`
+- **Account**: Debit account and its ledger
 
-See `prisma/schema.prisma` for complete schema.
+See `docs/firestore-migration.md` for the layout and the reasoning behind it.
 
 ## Getting Started
 
 1. **Install dependencies**: `yarn install`
-2. **Start database**: `docker compose up -d`
-3. **Run migrations**: `npx prisma migrate dev`
-4. **Start dev server**: `yarn dev`
-5. **Open browser**: http://localhost:3000
+2. **Authenticate**: `gcloud auth application-default login` (the Admin SDK uses ADC)
+3. **Start dev server**: `yarn dev`
+4. **Open browser**: http://localhost:3000
 
 ## Additional Resources
 
@@ -239,8 +276,8 @@ See `prisma/schema.prisma` for complete schema.
 - **README**: Setup and usage in `README.md`
 - **Next.js Docs**: https://nextjs.org/docs
 - **MUI Docs**: https://mui.com
-- **Prisma Docs**: https://www.prisma.io/docs
+- **Firestore Docs**: https://firebase.google.com/docs/firestore
 
 ---
 
-**Remember**: Follow MVC strictly, validate all inputs, keep UX simple for non-technical film producers. Detailed implementation guidelines are in the Claude Code skills.
+**Remember**: Follow MVC strictly, validate all inputs, always take the most secure option (never handle production credentials locally), and keep UX simple for non-technical film producers. Detailed implementation guidelines are in the Claude Code skills.

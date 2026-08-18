@@ -34,7 +34,7 @@ Enforce code style, naming conventions, and formatting standards.
 
 ### Imports
 - [ ] Organized (React, third-party, local)
-- [ ] Use path aliases (@/*, #prisma)
+- [ ] Use path aliases (@/*, #muvi, #meta, #google)
 - [ ] No unused imports
 
 ## Usage

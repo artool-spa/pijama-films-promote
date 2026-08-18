@@ -392,26 +392,36 @@ If assets aren't ready at campaign creation time, the campaign is marked `PENDIN
 
 ---
 
-## Real-Time Events (Mercure SSE)
+## Real-Time Events (Firestore)
 
 ### Overview
 
-The system uses **Mercure** (Server-Sent Events hub) to push real-time updates to the UI during campaign creation, asset validation, and sync operations.
+The system uses **Firestore realtime listeners** to push updates to the UI during campaign creation, asset validation, and sync operations. This replaced a self-hosted Mercure SSE hub, removing a dedicated GCE VM and its JWT secret.
 
 | Detail | Value |
 |--------|-------|
-| Service | Mercure hub (Docker: `dunglas/mercure`) |
-| Port | 9090 (dev), configurable via `MERCURE_URL` |
-| Auth | JWT with HS256 (1-hour expiry) |
+| Service | Cloud Firestore (same GCP project) |
+| Server | `publish()` in `src/lib/events/firestore.ts` (Admin SDK) |
+| Client | `useFilmEvents()` in `src/hooks/useFilmEvents.ts` (`onSnapshot`) |
+| Auth | Firebase Auth ID token + security rules in `firestore.rules` |
+| Retention | TTL policy on `expiresAt`, 1 hour |
 | Semantics | Fire-and-forget (never throws, logs warnings) |
 
-### Topic Structure
+### Document Structure
 
 ```
-https://promote.pijamafilms.com/films/{filmMuviUuid}/events
+filmEvents/{filmMuviUuid}                 <- { allowedPartnerIds: [...] }
+filmEvents/{filmMuviUuid}/events/{autoId} <- the event payload
 ```
 
-All events for a film's assets and campaigns are published to the same topic.
+All events for a film's assets and campaigns land in the same subcollection. The
+parent document carries the subscription ACL: film ownership lives in the
+external Pijama API, which security rules cannot reach, so
+`grantFilmEventAccess()` records the authorized partner from the server
+components that already ran the access check.
+
+Listeners only receive events created after they mount (`where('createdAt', '>', mountedAt)`),
+so a page load never replays the backlog still inside the TTL window.
 
 ### Event Types
 
@@ -736,4 +746,4 @@ Partner (1)
                     └── status (PENDING → READY / INVALID)
 ```
 
-See `prisma/schema.prisma` for the complete database schema.
+See `docs/firestore-migration.md` for the complete Firestore layout.

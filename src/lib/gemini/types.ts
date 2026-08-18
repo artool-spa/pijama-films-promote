@@ -72,7 +72,10 @@ export interface FilmDataForPrompt {
 
 // Configuration schema
 export const GeminiConfigSchema = z.object({
-  serviceAccountKeyJson: z.string().min(1, 'GCS_SERVICE_ACCOUNT_KEY_JSON is required'),
+  // Optional: without it the client authenticates with Application Default
+  // Credentials and takes the project from the environment.
+  serviceAccountKeyJson: z.string().min(1).optional(),
+  projectId: z.string().min(1).optional(),
 });
 
 export type GeminiConfig = z.infer<typeof GeminiConfigSchema>;

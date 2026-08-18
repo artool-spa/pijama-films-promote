@@ -177,9 +177,12 @@ export class StorageClient {
     try {
       const gcsFile = this.bucket.file(storageKey);
 
+      // No per-object ACL: the bucket uses uniform bucket-level access and
+      // grants allUsers read at the bucket level, which is what makes the
+      // creatives fetchable by Meta and Google. Passing `public: true` here
+      // would try to write an object ACL and be rejected.
       await gcsFile.save(file.buffer, {
         contentType: file.mimeType,
-        public: true,
         metadata: {
           cacheControl: 'public, max-age=31536000',
         },

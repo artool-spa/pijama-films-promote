@@ -3,9 +3,23 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const SESSION_COOKIE_NAME = 'pijama-session';
-const SECRET_KEY = new TextEncoder().encode(
-  process.env.SESSION_SECRET || 'pijama-films-temporal-secret-key-2026'
-);
+
+/**
+ * Signing key for session cookies. No fallback on purpose - see
+ * `@/lib/auth/session`. Kept inline because the Edge runtime cannot import
+ * the Node-only modules that file pulls in.
+ */
+function getSecretKey(): Uint8Array {
+  const secret = process.env.SESSION_SECRET;
+
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      'SESSION_SECRET is not configured (minimum 32 characters required)'
+    );
+  }
+
+  return new TextEncoder().encode(secret);
+}
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/api/auth/login', '/api/cron/', '/privacy-policy', '/terms-of-service', '/auth'];
@@ -53,14 +67,22 @@ export async function middleware(request: NextRequest) {
 
   // Verify session token
   try {
-    const { payload } = await jwtVerify(sessionCookie.value, SECRET_KEY);
+    const { payload } = await jwtVerify(sessionCookie.value, getSecretKey());
 
-    // Add partner info and request path to headers
-    const response = NextResponse.next();
-    response.headers.set('x-pijama-partner-id', payload.partnerId as string);
-    response.headers.set('x-user-name', payload.name as string);
-    response.headers.set('x-request-path', pathname);
-    response.headers.set('x-request-method', request.method);
+    // Pass partner info to route handlers as *request* headers. Setting them
+    // on the response would also work (Next copies those onto the request) but
+    // would additionally ship the partner id and user name to the browser.
+    //
+    // The incoming headers must be cloned: Next deletes every request header
+    // absent from the override set, so building a fresh Headers() here would
+    // strip the cookie, user-agent and everything else.
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-pijama-partner-id', payload.partnerId as string);
+    requestHeaders.set('x-user-name', payload.name as string);
+    requestHeaders.set('x-request-path', pathname);
+    requestHeaders.set('x-request-method', request.method);
+
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
 
     return withRequestLog(request, response, start);
   } catch {

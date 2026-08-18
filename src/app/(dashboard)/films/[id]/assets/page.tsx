@@ -4,6 +4,7 @@ import { getImagesWithUsageByFilmMuviUuid } from '@/models/image';
 import { getVideosWithUsageByFilmMuviUuid } from '@/models/video';
 import { syncMuviAssets } from '@/lib/assets';
 import { getSession } from '@/lib/auth/session';
+import { grantFilmEventAccess } from '@/lib/events';
 import AssetsClient from './client';
 
 export default async function AssetsPage({
@@ -26,6 +27,9 @@ export default async function AssetsPage({
   if (!session) {
     redirect('/login');
   }
+
+  // Authorize this partner to subscribe to the film's realtime event stream
+  await grantFilmEventAccess(id, session.partnerId);
 
   // Sync MUVI media assets to local DB (creates records synchronously, validation in background)
   if (film.mediaAssets && film.mediaAssets.length > 0) {

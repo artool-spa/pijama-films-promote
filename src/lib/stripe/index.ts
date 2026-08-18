@@ -29,14 +29,20 @@ function getStripeClient(): Stripe {
 }
 
 // Export a proxy that lazily initializes Stripe on first property access
+// One instance per process, memoised here rather than by the factory: it only
+// caches outside production, so without this every property access would build
+// a fresh client. That is what broke the Muvi token — `getAccessToken()` stored
+// it on one instance and `productKey` read from another.
+let stripeInstance: Stripe | undefined;
+
 const stripe = new Proxy({} as Stripe, {
-  get(_target, prop, receiver) {
-    const client = getStripeClient();
-    const value = Reflect.get(client, prop, receiver);
-    if (typeof value === 'function') {
-      return value.bind(client);
-    }
-    return value;
+  // `receiver` is deliberately omitted: forwarding it would run the client's
+  // getters with `this` bound to the proxy, so a getter reading internal state
+  // would recurse back through this handler and see nothing.
+  get(_target, prop) {
+    stripeInstance ??= getStripeClient();
+    const value = Reflect.get(stripeInstance, prop);
+    return typeof value === 'function' ? value.bind(stripeInstance) : value;
   },
 });
 

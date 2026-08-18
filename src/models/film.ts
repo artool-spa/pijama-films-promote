@@ -18,7 +18,10 @@ import type {
   MuviCustomField,
   GetMoviesOptions,
 } from '#muvi';
-import prisma from '#prisma';
+import { AggregateField } from 'firebase-admin/firestore';
+import { adminDb } from '@/lib/firebase/admin';
+import { COLLECTIONS, docData } from '@/lib/firestore';
+import { withAds } from './hydrate';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
 
 const log = createLogger('film');
@@ -568,24 +571,21 @@ export async function getFilmById(
  */
 export async function getAggregateStats() {
   try {
-    const result = await prisma.campaign.aggregate({
-      where: { status: { not: 'DRAFT' } },
-      _sum: {
-        budget: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
+    const campaigns = adminDb().collection(COLLECTIONS.campaigns);
 
-    const activeCampaigns = await prisma.campaign.count({
-      where: { status: 'ACTIVE' },
-    });
+    // Server-side aggregations: these read index entries, not documents.
+    const [published, active] = await Promise.all([
+      campaigns
+        .where('status', '!=', 'DRAFT')
+        .aggregate({ budget: AggregateField.sum('budget'), count: AggregateField.count() })
+        .get(),
+      campaigns.where('status', '==', 'ACTIVE').count().get(),
+    ]);
 
     return {
-      totalBudget: result._sum.budget || 0,
-      totalCampaigns: result._count.id,
-      activeCampaigns,
+      totalBudget: published.data().budget || 0,
+      totalCampaigns: published.data().count,
+      activeCampaigns: active.data().count,
       // These will be populated from Meta Insights API when available
       totalSpend: 0,
       totalConversions: 0,
@@ -611,18 +611,18 @@ export async function getAggregateStats() {
  */
 export async function getAllCampaigns(): Promise<CampaignWithAds[]> {
   try {
-    const campaigns = await prisma.campaign.findMany({
-      include: {
-        ads: {
-          include: {
-            images: true,
-            videos: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    return campaigns as CampaignWithAds[];
+    const snap = await adminDb().collection(COLLECTIONS.campaigns).get();
+
+    const docs = snap.docs
+      .map(docData)
+      .filter((doc): doc is Record<string, unknown> => doc !== null)
+      .sort((a, b) => {
+        const left = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+        const right = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
+        return right - left;
+      });
+
+    return (await withAds(docs)) as unknown as CampaignWithAds[];
   } catch (error) {
     log.error({ err: error }, 'Failed to get all campaigns');
     return [];

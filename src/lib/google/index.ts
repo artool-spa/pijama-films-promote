@@ -64,7 +64,30 @@ function getGoogleAdsClient(): GoogleAdsClient {
 }
 
 // Export the singleton instance
-export const google = getGoogleAdsClient();
+/**
+ * Lazily initialised singleton, mirroring the Stripe client.
+ *
+ * Constructing it at import time threw whenever the credentials were absent,
+ * taking down every route whose import graph reaches this module — which is
+ * every build, since secrets are declared RUNTIME-only and Next evaluates each
+ * route module while collecting page data.
+ */
+// One instance per process, memoised here rather than by the factory: it only
+// caches outside production, so without this every property access would build
+// a fresh client. That is what broke the Muvi token — `getAccessToken()` stored
+// it on one instance and `productKey` read from another.
+let googleInstance: GoogleAdsClient | undefined;
+
+export const google = new Proxy({} as GoogleAdsClient, {
+  // `receiver` is deliberately omitted: forwarding it would run the client's
+  // getters with `this` bound to the proxy, so a getter reading internal state
+  // would recurse back through this handler and see nothing.
+  get(_target, prop) {
+    googleInstance ??= getGoogleAdsClient();
+    const value = Reflect.get(googleInstance, prop);
+    return typeof value === 'function' ? value.bind(googleInstance) : value;
+  },
+});
 
 // Re-export API functions
 export {

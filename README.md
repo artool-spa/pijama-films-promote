@@ -14,8 +14,8 @@ Pijama Films is a web platform designed for independent film producers with limi
 ## Tech Stack
 
 - **Frontend**: Next.js 16, React 19, MUI 7.3
-- **Backend**: Next.js API Routes, Prisma ORM
-- **Database**: PostgreSQL 16
+- **Backend**: Next.js API Routes, Cloud Firestore (Firebase Admin SDK)
+- **Database**: Cloud Firestore
 - **Testing**: Vitest
 - **Package Manager**: Yarn
 - **Deployment**: Docker
@@ -25,7 +25,7 @@ Pijama Films is a web platform designed for independent film producers with limi
 - Node.js 22+
 - Yarn 1.22+
 - Docker and Docker Compose
-- PostgreSQL 16 (via Docker)
+- A Google Cloud project with Firestore enabled
 
 ## Getting Started
 
@@ -48,25 +48,19 @@ cp .env.example .env
 Update `.env` with your configuration:
 
 ```env
-DATABASE_URL="postgresql://pijama:pijama@localhost:5432/pijama_films?schema=public"
-JWT_SECRET_KEY="your_secret_key_here"
-JWT_EXPIRATION_TIME="7d"
+FIREBASE_PROJECT_ID="pijama-promote-firebase"
+SESSION_SECRET="generate with: openssl rand -base64 48"
 ```
 
-### 3. Start Database
+### 3. Authenticate
+
+The Firebase Admin SDK uses Application Default Credentials:
 
 ```bash
-docker compose up -d
+gcloud auth application-default login
 ```
 
-### 4. Run Migrations
-
-```bash
-npx prisma generate
-npx prisma migrate dev
-```
-
-### 5. Start Development Server
+### 4. Start Development Server
 
 ```bash
 yarn dev
@@ -91,9 +85,8 @@ yarn test:watch       # Run tests in watch mode
 yarn test:coverage    # Run tests with coverage
 
 # Database
-npx prisma studio     # Open Prisma Studio
-npx prisma generate   # Generate Prisma client
-npx prisma migrate dev --name [name]  # Create migration
+npm run deploy:firestore              # Deploy rules, indexes and the TTL policy
+npm run firestore:import-partners     # Import partner records from a JSON export
 ```
 
 ### Project Structure
@@ -108,9 +101,8 @@ src/
 ├── lib/              # Utilities
 └── test/             # Test utilities
 
-prisma/
-├── schema.prisma     # Database schema
-└── db.ts             # Prisma client
+firestore.rules       # Security rules
+firestore.indexes.json # Composite indexes
 
 .claude/              # Claude Code infrastructure
 ├── agents/           # Specialized agents
@@ -123,7 +115,7 @@ prisma/
 
 This project follows the **MVC pattern**:
 
-- **Models** (`src/models/`): Database operations with Prisma
+- **Models** (`src/models/`): Database operations with Firestore
 - **Controllers** (`src/app/**/page.tsx`): Server components that fetch data
 - **Views** (`src/app/**/client.tsx`): Client components for UI
 
@@ -172,21 +164,20 @@ Tests are located in `__tests__` directories next to the code they test.
 docker build -t pijama-films .
 ```
 
-### Run with Docker Compose
+### Run with Docker
 
 ```bash
-docker compose up
+docker build -t pijama-films . && docker run -p 3000:3000 pijama-films
 ```
 
-This starts:
-- PostgreSQL database on port 5432
-- Next.js application on port 3000
+The database is managed Firestore, so nothing else needs to run locally; the
+container authenticates with Application Default Credentials.
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://pijama:pijama@localhost:5432/pijama_films` |
+| `FIREBASE_PROJECT_ID` | Project holding Firestore and Auth | Required |
 | `JWT_SECRET_KEY` | Secret key for JWT tokens | Required |
 | `JWT_EXPIRATION_TIME` | JWT token expiration | `7d` |
 
@@ -199,7 +190,7 @@ This starts:
 - **Campaign**: Advertising campaigns
 - **CampaignMetric**: Daily performance metrics
 
-See `prisma/schema.prisma` for complete schema.
+See `docs/firestore-migration.md` for the complete Firestore layout.
 
 ## Contributing
 
@@ -221,18 +212,11 @@ See `prisma/schema.prisma` for complete schema.
 
 ### Database Connection Error
 
-Ensure PostgreSQL is running:
+Check that Application Default Credentials are present and point at the right
+project:
 
 ```bash
-docker compose up -d
-```
-
-### Prisma Client Not Found
-
-Generate the Prisma client:
-
-```bash
-npx prisma generate
+gcloud auth application-default login
 ```
 
 ### Port 3000 Already in Use

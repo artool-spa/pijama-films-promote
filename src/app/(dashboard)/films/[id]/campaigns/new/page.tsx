@@ -5,6 +5,7 @@ import { getImagesByFilmMuviUuid } from '@/models/image';
 import { getVideosByFilmMuviUuid } from '@/models/video';
 import { syncMuviAssets } from '@/lib/assets';
 import { getSession } from '@/lib/auth/session';
+import { grantFilmEventAccess } from '@/lib/events';
 import { getPartnerByPartnerId } from '@/models/partner';
 import { getAccountBalance } from '@/models/account';
 import { getCampaignById } from '@/models/campaign';
@@ -41,6 +42,9 @@ export default async function CreateCampaignPage({
     if (preference) {
       howItWorksDismissed = preference.howItWorksDismissed;
     }
+
+    // Authorize this partner to subscribe to the film's realtime event stream
+    await grantFilmEventAccess(id, session.partnerId);
   }
 
   // Sync MUVI media assets to local DB (creates records synchronously, validation in background)

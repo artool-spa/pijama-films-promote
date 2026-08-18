@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AssetStatus } from '@prisma/client';
+import type { AssetStatus } from '@/lib/assets/status';
 import logger from '@/lib/logger';
 import { getImagesByFilmMuviUuid, getImagesByFilmMuviUuidWithStatus } from '@/models/image';
 import { getPartnerFromRequest } from '@/lib/auth';
