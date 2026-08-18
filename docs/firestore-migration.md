@@ -94,12 +94,31 @@ Decisions behind that table:
 
 Still open, and outside the migration itself:
 
-- **Firebase Auth users** have to be provisioned — the feature is new in this
-  branch, so no account exists in any project. Run
-  `scripts/firebase-provision-user.ts <email> <name> <partnerId>` per user; it
-  prints a one-time password-reset link and never handles a password.
+- **Users have to be provisioned.** The app has two authentication paths:
+
+  1. *Provisional* — Firebase Auth with email and password. The browser signs
+     in against Firebase, posts the ID token to `/api/auth/login`, and the
+     server exchanges it for a session cookie. No account exists in any project
+     yet, because Firebase Auth is new in this branch.
+  2. *Final* — the Pijama Films integration, which needs `PIJAMA_CLIENT_ID` and
+     `PIJAMA_CLIENT_SECRET` (see below).
+
+  Both authorize off the `partnerId` custom claim, and both need the matching
+  `partners/{id}` document: a user whose claim points at no partner signs in
+  and then sees nothing. `npm run user:provision` writes the account, the claim
+  and the partner document together so they cannot drift apart. It prints a
+  one-time reset link by default; `--password-stdin` sets a password directly,
+  read from stdin rather than from an argument.
+
+- **Seed data.** `npm run db:seed` creates the `pijamafilms` partner — the one
+  `isSpecialPartner()` and `firestore.rules` grant access to every film. It
+  replaces the old `prisma/seed.ts`. Not yet run against the new project: the
+  Admin SDK needs `gcloud auth application-default login`, which is separate
+  from `gcloud auth login`.
 - **Stripe webhook**: the copied `STRIPE_WEBHOOK_SECRET` belongs to another
   endpoint. Create the endpoint for this backend and push the new `whsec_`.
 - **`PIJAMA_CLIENT_ID` / `PIJAMA_CLIENT_SECRET`** (`src/lib/pijama/index.ts`)
-  are configured nowhere — not in Secret Manager, not in any `.env`. That
-  predates this migration, but the Pijama API calls will throw until they exist.
+  are configured nowhere — not in Secret Manager, not in any `.env`. They gate
+  the final authentication path, so until they exist only the provisional
+  email-and-password flow works. Once you have them, push them as secrets and
+  add the two entries to `apphosting.yaml`.

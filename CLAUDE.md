@@ -31,7 +31,16 @@ yarn test:coverage       # With coverage
 
 # Database (Cloud Firestore)
 npm run deploy:firestore                # Rules + indexes + TTL policy (idempotent)
+npm run db:seed                         # Seed the special "pijamafilms" partner
 npm run firestore:import-partners       # Import partner records from a JSON export
+
+# Users (provisional auth: Firebase email + password)
+npm run user:provision -- <email> <name> <partnerId>   # prints a one-time reset link
+npm run user:provision -- <email> <name> <partnerId> --password-stdin  # password via stdin
+
+# Scripts using the Admin SDK need Application Default Credentials, which are
+# separate from `gcloud auth login`:
+#   gcloud auth application-default login
 
 # Deployment (Firebase App Hosting)
 # Project pijama-promote-firebase, backend "pijama-promote" (us-central1).
