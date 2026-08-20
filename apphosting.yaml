@@ -97,8 +97,35 @@ env:
     availability:
       - RUNTIME
 
+  # Legacy shared secret for the cron endpoints. Kept only until the functions
+  # in functions/ are deployed and the logs confirm they authenticate with
+  # OIDC; then drop it here and destroy the Secret Manager version. Removing it
+  # before that would leave the endpoints unreachable.
   - variable: CRON_SECRET
     secret: CRON_SECRET
+    availability:
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # Internal triggers (Cloud Scheduler / Cloud Tasks, dispatched from functions/)
+  #
+  # This backend is public — it serves the site — so the internal routes cannot
+  # be closed off with an IAM invoker binding. They verify a Google-signed OIDC
+  # token instead: minted for the audience below, carrying one of the service
+  # accounts below. Neither value is a secret; both are safe to commit.
+  #
+  # Set the audience to this backend's own URL. It must match the BACKEND_URL
+  # parameter the functions dispatch to, or every token is rejected.
+  # ---------------------------------------------------------------------------
+  - variable: INTERNAL_TRIGGER_AUDIENCE
+    value: https://pijama-promote--pijama-promote-firebase.us-central1.hosted.app
+    availability:
+      - RUNTIME
+
+  # Comma-separated. The default compute SA is what Cloud Functions v2 runs as
+  # unless a dedicated one is assigned.
+  - variable: CRON_INVOKER_SERVICE_ACCOUNTS
+    value: 603164121416-compute@developer.gserviceaccount.com
     availability:
       - RUNTIME
 

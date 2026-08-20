@@ -28,38 +28,12 @@ export class GeminiClient {
       );
     }
 
-    const scopes = ['https://www.googleapis.com/auth/cloud-platform'];
-
-    if (!result.data.serviceAccountKeyJson) {
-      // Application Default Credentials: the runtime service account on App
-      // Hosting, `gcloud auth application-default login` locally.
-      this.projectId = result.data.projectId as string;
-      this.auth = new GoogleAuth({ scopes });
-      return;
-    }
-
-    // Parse service account credentials
-    let credentials: { client_email: string; private_key: string; project_id: string };
-    try {
-      credentials = JSON.parse(result.data.serviceAccountKeyJson);
-    } catch {
-      throw new GeminiConfigError(
-        'Invalid GCS_SERVICE_ACCOUNT_KEY_JSON: must be valid JSON'
-      );
-    }
-
-    if (!credentials.project_id) {
-      throw new GeminiConfigError(
-        'Service account JSON must contain project_id'
-      );
-    }
-
-    this.projectId = credentials.project_id;
-
-    // Initialize Google Auth with service account credentials for Vertex AI
+    // Application Default Credentials only: the runtime service account on App
+    // Hosting, `gcloud auth application-default login` locally. No static key
+    // is accepted, so there is none to leak or rotate.
+    this.projectId = result.data.projectId;
     this.auth = new GoogleAuth({
-      credentials,
-      scopes,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     });
   }
 

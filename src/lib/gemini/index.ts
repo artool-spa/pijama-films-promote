@@ -5,25 +5,24 @@ import { GeminiConfigError } from './errors';
 const globalForGemini = global as unknown as { gemini: GeminiClient | undefined };
 
 /**
- * Create and validate Gemini configuration from environment variables
- * Uses GCS_SERVICE_ACCOUNT_KEY_JSON for authentication
+ * Create and validate Gemini configuration from environment variables.
+ * Authenticates with Application Default Credentials.
  */
 function createGeminiConfig() {
-  const serviceAccountKeyJson = process.env.GCS_SERVICE_ACCOUNT_KEY_JSON;
-  // Vertex AI needs a project. A service-account key carries its own; with ADC
-  // it has to come from the environment.
+  // Vertex AI needs to know which project to bill; with ADC that has to come
+  // from the environment.
   const projectId =
     process.env.GOOGLE_CLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
 
-  if (!serviceAccountKeyJson && !projectId) {
+  if (!projectId) {
     throw new GeminiConfigError(
-      'Missing project configuration: set FIREBASE_PROJECT_ID (or provide ' +
-        'GCS_SERVICE_ACCOUNT_KEY_JSON) so Vertex AI knows which project to bill.',
+      'Missing project configuration: set FIREBASE_PROJECT_ID so Vertex AI ' +
+        'knows which project to bill.',
       ['FIREBASE_PROJECT_ID']
     );
   }
 
-  return { serviceAccountKeyJson, projectId };
+  return { projectId };
 }
 
 /**

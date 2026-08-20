@@ -354,27 +354,52 @@ If assets aren't ready at campaign creation time, the campaign is marked `PENDIN
 
 ---
 
-## Cron Jobs
+## Triggers
 
-### Sync Pending Campaigns
+Every trigger lives in the `functions/` codebase (Firebase Cloud Functions v2)
+and dispatches to the App Hosting backend over HTTP, authorized by an OIDC token
+minted for the function's service account. See `functions/src/index.ts`.
+
+### Sync Campaign (queue — the main path)
+
+| Detail | Value |
+|--------|-------|
+| Endpoint | `POST /api/internal/sync-campaign` |
+| Auth | OIDC token, audience `INTERNAL_TRIGGER_AUDIENCE` |
+| Trigger | `syncCampaign` task queue (`onTaskDispatched`) |
+| Enqueued by | `onAdAssetsReady`, a Firestore trigger on `ads/{adId}` |
+| Retries | 5 attempts, 30s minimum backoff |
+| Source | `src/app/api/internal/sync-campaign/route.ts` |
+
+**Purpose**: complete the platform sync for a single campaign the moment its
+assets land. The readiness condition is written by our own asset pipeline, so
+there is nothing to poll for — the Firestore write *is* the signal. Only the
+empty → non-empty transition on `imageIds` enqueues, so editing an already
+populated ad does not re-dispatch.
+
+### Sweep Pending Campaigns (safety net)
 
 | Detail | Value |
 |--------|-------|
 | Endpoint | `GET /api/cron/sync-pending-campaigns` |
-| Auth | `Authorization: Bearer {CRON_SECRET}` |
-| Trigger | External cron service (not configured within the app) |
+| Auth | OIDC token, audience `INTERNAL_TRIGGER_AUDIENCE` |
+| Trigger | `sweepPendingCampaigns` (`onSchedule`, hourly) |
 | Source | `src/app/api/cron/sync-pending-campaigns/route.ts` |
 
-**Purpose**: Process campaigns stuck in `PENDING_ASSETS` status — when video assets finish uploading asynchronously, this cron job detects readiness and completes the platform sync.
+**Purpose**: catch campaigns whose enqueue never happened or exhausted its
+retries. Both paths run the same `syncPendingCampaign` from
+`src/lib/campaigns/pending.ts`, so they cannot drift apart. Under normal
+operation this sweep finds nothing to do.
 
 **Flow**:
 1. Fetch all campaigns with `PENDING_ASSETS` status
 2. For each campaign, check which platforms are selected (META, GOOGLE)
 3. Check asset readiness:
-   - **Meta**: All videos must have `metaVideoId` set
-   - **Google**: At least one image must exist per ad
-4. If ready → call `syncCampaignToMeta()` and/or `syncCampaignToGoogle()`
-5. If not ready → skip, will retry on next cron execution
+   - **Meta**: never gated — `syncCampaignToMeta()` uploads the videos itself
+   - **Google**: at least one image must exist on an ad
+4. If ready → call `syncCampaignToMeta()` and/or `syncCampaignToGoogle()`,
+   skipping any platform that already carries a campaign id
+5. If not ready → count as still pending and move on
 
 **Response**:
 ```json
@@ -388,7 +413,23 @@ If assets aren't ready at campaign creation time, the campaign is marked `PENDIN
 }
 ```
 
-**Recommended frequency**: Every 5-15 minutes
+### Sync Ad Approvals
+
+| Detail | Value |
+|--------|-------|
+| Endpoint | `GET /api/cron/sync-ad-approvals` |
+| Auth | OIDC token, audience `INTERNAL_TRIGGER_AUDIENCE` |
+| Trigger | `syncAdApprovals` (`onSchedule`, every 15 minutes) |
+| Source | `src/app/api/cron/sync-ad-approvals/route.ts` |
+
+**Purpose**: poll Meta and Google for approval transitions and recompute
+`Campaign.approvalSummary`. Unlike the campaign sync above this genuinely has to
+poll — neither platform exposes a webhook for approval changes in third-party ad
+accounts (see `docs/limitations.md`).
+
+`REFRESH_INTERVAL_MINUTES` in the route is the staleness threshold for picking
+ads and must match the schedule, or each ad refreshes at roughly half the
+advertised rate.
 
 ---
 
@@ -694,11 +735,15 @@ Source: `src/lib/campaigns/budget-validation.ts`
 |--------|------|---------|
 | POST | `/api/copies/generate` | Generate ad copy via Gemini |
 
-### Cron
+### Internal triggers
+
+Dispatched from `functions/`, authorized by OIDC. Not reachable from the UI.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/cron/sync-pending-campaigns` | Process pending asset campaigns |
+| POST | `/api/internal/sync-campaign` | Sync one campaign whose assets are ready |
+| GET | `/api/cron/sync-pending-campaigns` | Hourly sweep of pending campaigns |
+| GET | `/api/cron/sync-ad-approvals` | Poll Meta/Google for approval changes |
 
 ### Auth
 

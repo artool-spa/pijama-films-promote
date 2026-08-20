@@ -50,6 +50,11 @@ npm run user:provision -- <email> <name> <partnerId> --password-stdin  # passwor
 # Secret Manager and are referenced there by name.
 npx firebase-tools apphosting:secrets:set NAME --project=pijama-promote-firebase --data-file=- --force
 
+# Triggers (Cloud Functions) — the ONE exception to "do not deploy by hand".
+# functions/ is a second deployable: App Hosting does not build it, so it has to
+# be released with the CLI after any change under functions/.
+npm run deploy:functions
+
 ```
 
 ## Architecture: MVC Pattern
@@ -103,9 +108,11 @@ the cost, and let the user decide. Never silently pick the insecure shortcut.
 3. ✅ **Rules and indexes are deployed, not edited by hand.** Change `firestore.rules` /
    `firestore.indexes.json` and run `npm run deploy:firestore`; never widen a rule to make a query
    work.
-4. ✅ **Secrets live in Secret Manager.** Production secrets are managed through
-   `npm run deploy:cloudrun:secrets` and read from GCP Secret Manager at runtime. `.env` files are
-   local-only and must stay out of git.
+4. ✅ **Secrets live in Secret Manager.** Production secrets are managed with
+   `firebase-tools apphosting:secrets:set`, referenced by name from `apphosting.yaml`, and read
+   from Secret Manager at runtime. `.env` files are local-only and must stay out of git. Prefer
+   an OIDC token over a shared secret whenever the caller is a Google service (see
+   `src/lib/auth/oidc-caller.ts`): nothing is stored, and the token cannot be replayed elsewhere.
 5. ✅ **Least privilege.** Use the narrowest role, scope, and network exposure that makes the task
    work. Prefer short-lived, IAM-based credentials over long-lived static passwords.
 6. ✅ **Redact in logs and errors.** Never log credentials, tokens, full connection strings, or
@@ -217,6 +224,8 @@ pijama-films/
 │   ├── components/       # Shared UI components
 │   ├── lib/              # Utilities (auth, firestore, etc.)
 │   └── test/             # Test utilities (incl. the Firestore fake)
+├── functions/            # Cloud Functions: schedules, task queue, Firestore
+│                         # triggers. Thin — they dispatch to the routes above.
 ├── .claude/              # Claude Code infrastructure
 │   ├── skills/           # Development guidelines
 │   ├── agents/           # Code review agents

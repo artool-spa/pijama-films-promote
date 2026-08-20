@@ -42,7 +42,9 @@ review the ad again."
 - Neither Meta nor Google Ads exposes webhooks that fire when an individual
   ad transitions between approval states in third-party ad accounts.
 - Our only option is **polling**. `src/app/api/cron/sync-ad-approvals/route.ts`
-  polls both platforms on a 15-minute cadence via Cloud Scheduler.
+  polls both platforms on a 15-minute cadence, driven by the `syncAdApprovals`
+  scheduled function in `functions/src/index.ts`. The route's
+  `REFRESH_INTERVAL_MINUTES` has to match that schedule.
 - This means the UI can be up to ~15 minutes stale on approval changes. The
   `RejectionDetailsDialog` exposes a "Refresh from platform" button that
   forces an on-demand fetch when a producer wants to see the current state

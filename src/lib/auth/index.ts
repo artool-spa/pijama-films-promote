@@ -29,3 +29,8 @@ export {
 } from './session';
 
 export type { SessionPayload } from './session';
+
+// Internal trigger authorization (Cloud Scheduler / Cloud Tasks)
+export { verifyOidcCaller, authorizeInternalRequest } from './oidc-caller';
+
+export type { OidcCaller } from './oidc-caller';

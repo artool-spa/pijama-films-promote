@@ -191,6 +191,31 @@ knowing before the next one:
    module that builds a client at import time takes the build down with it.
    Keep API clients lazy.
 
+### Triggers
+
+`functions/` is a second deployable and App Hosting does not build it. After any
+change under `functions/`, release it with `npm run deploy:functions` — this is
+the one place where deploying by hand is correct.
+
+Two APIs have to be enabled in `pijama-promote-firebase` before the first
+deploy: `cloudscheduler.googleapis.com` and `cloudtasks.googleapis.com`.
+
+Configuration lives in two places that must agree:
+
+- `BACKEND_URL` (functions parameter) — where the triggers dispatch to.
+- `INTERNAL_TRIGGER_AUDIENCE` (`apphosting.yaml`) — the audience the routes
+  require on the OIDC token.
+
+They are the same URL. If they diverge, every token is rejected and the routes
+answer 401 with nothing useful in the logs. `CRON_INVOKER_SERVICE_ACCOUNTS` must
+list whatever service account the functions run as.
+
+`CRON_SECRET` is still accepted during the cutover. Once the functions are
+deployed and the logs show them authenticating, drop the legacy branch from
+`src/lib/auth/oidc-caller.ts`, remove the variable from `apphosting.yaml`, and
+destroy the Secret Manager version. Doing it in the other order takes the
+endpoints offline.
+
 ## Custom domain
 
 Target: `promote.pijamafilms.com`, which **today serves the legacy Coolify host**

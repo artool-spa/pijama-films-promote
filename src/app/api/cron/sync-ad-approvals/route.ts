@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeInternalRequest } from '@/lib/auth';
 import logger from '@/lib/logger';
 import { getAdsNeedingApprovalRefresh, updateAdApproval } from '@/models/ad';
 import { recomputeApprovalSummary, getCampaignById } from '@/models/campaign';
@@ -8,7 +9,10 @@ import { describeMetaPolicyIssue, describeGooglePolicyTopic } from '@/lib/campai
 import { publish } from '@/lib/events';
 import type { AdApprovalStatusValue } from '@/models/ad';
 
-const REFRESH_INTERVAL_MINUTES = 30;
+// The scheduler fires every 15 minutes and this is the staleness threshold for
+// picking ads, so the two have to match: leaving it at 30 would refresh each ad
+// every ~30-45 minutes, not the 15 the UI promises the producer.
+const REFRESH_INTERVAL_MINUTES = 15;
 const META_BATCH_SIZE = 50;
 const GOOGLE_BATCH_SIZE = 50;
 
@@ -88,13 +92,7 @@ function summarizeGoogleIssues(raw: GoogleAdApprovalRaw): {
  * Protected by CRON_SECRET header check.
  */
 export async function GET(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    logger.error('CRON_SECRET not configured');
-    return NextResponse.json({ error: 'Cron not configured' }, { status: 500 });
-  }
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!(await authorizeInternalRequest(req.headers.get('authorization')))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
