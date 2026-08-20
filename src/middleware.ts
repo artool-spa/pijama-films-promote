@@ -21,8 +21,22 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-// Routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/api/auth/login', '/api/cron/', '/privacy-policy', '/terms-of-service', '/auth'];
+// Routes this middleware does not gate on a session cookie.
+//
+// `/api/cron/` and `/api/internal/` are not public: they are called by Cloud
+// Scheduler and Cloud Tasks, which present an OIDC token rather than a session,
+// and each route authorizes that token itself via authorizeInternalRequest.
+// Leaving either one out here means the middleware answers 401 before the route
+// ever runs.
+const PUBLIC_ROUTES = [
+  '/login',
+  '/api/auth/login',
+  '/api/cron/',
+  '/api/internal/',
+  '/privacy-policy',
+  '/terms-of-service',
+  '/auth',
+];
 
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
