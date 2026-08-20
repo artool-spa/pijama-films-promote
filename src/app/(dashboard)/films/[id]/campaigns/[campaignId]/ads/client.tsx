@@ -139,6 +139,10 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
     });
   }, [campaign.ads, fetchMetaPreview, metaPreviews]);
 
+  // Ad content is edited on the campaign edit page, not here.
+  const adEditHref = (adId: string) =>
+    `/films/${film.id}/campaigns/${campaign.id}/edit?section=ad&adId=${adId}`;
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {/* Header */}
@@ -413,11 +417,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                         variant="contained"
                         color={ad.approvalStatus === 'DISAPPROVED' ? 'error' : 'primary'}
                         startIcon={<EditIcon />}
-                        onClick={() =>
-                          router.push(
-                            `/films/${film.id}/campaigns/${campaign.id}/ads/${ad.id}/edit`
-                          )
-                        }
+                        onClick={() => router.push(adEditHref(ad.id))}
                       >
                         {ad.approvalStatus === 'DISAPPROVED' ? 'Fix and resubmit' : 'Edit ad'}
                       </Button>
@@ -447,7 +447,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
             rejectionDetails={ad.rejectionDetails ?? null}
             onEdit={() => {
               setDetailsAdId(null);
-              router.push(`/films/${film.id}/campaigns/${campaign.id}/ads/${ad.id}/edit`);
+              router.push(adEditHref(ad.id));
             }}
             onRefresh={async () => {
               const url = platform === 'META'
