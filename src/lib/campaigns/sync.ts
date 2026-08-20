@@ -811,6 +811,11 @@ export async function resyncAdCreativeToGoogle(
     }
   }
 
+  // Demand Gen multi-asset ads require at least one logo asset. Same source as
+  // the initial sync; `uploadImageAsset` is idempotent by content hash.
+  const logoUrl = `http://localhost:${process.env.PORT || 3000}/logo_pijama_square.png`;
+  const logoAsset = await uploadImageAsset(google, logoUrl, 'Pijama Films Logo');
+
   const created = await createDemandGenImageAd(google, {
     name: `${ad.name} (edit ${new Date().toISOString().slice(0, 10)})`,
     adGroupResourceName: campaign.googleAdGroupId,
@@ -825,7 +830,7 @@ export async function resyncAdCreativeToGoogle(
     landscapeImageAssetResourceNames: marketingResourceNames,
     squareImageAssetResourceNames: squareResourceNames,
     portraitImageAssetResourceNames: portraitResourceNames,
-    logoImageAssetResourceNames: [],
+    logoImageAssetResourceNames: [logoAsset.resourceName],
     businessName: campaign.partner.name,
   });
 

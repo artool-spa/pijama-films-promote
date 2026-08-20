@@ -11,6 +11,16 @@ const nextConfig = {
     },
     proxyClientMaxBodySize: '500mb',
   },
+  async redirects() {
+    return [
+      // Ad content moved into the campaign edit page; keep old links working.
+      {
+        source: '/films/:id/campaigns/:campaignId/ads/:adId/edit',
+        destination: '/films/:id/campaigns/:campaignId/edit?section=ad&adId=:adId',
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {

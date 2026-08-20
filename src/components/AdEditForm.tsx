@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   IconButton,
-  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -12,20 +11,13 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { useState } from 'react';
 
-const CALL_TO_ACTION_OPTIONS = [
-  { value: 'WATCH_MORE', label: 'Watch more' },
-  { value: 'LEARN_MORE', label: 'Learn more' },
-  { value: 'SHOP_NOW', label: 'Shop now' },
-  { value: 'SIGN_UP', label: 'Sign up' },
-  { value: 'SUBSCRIBE', label: 'Subscribe' },
-  { value: 'BUY_NOW', label: 'Buy now' },
-];
+/** Meta caps headlines at 255 chars; Google Demand Gen caps them at 40. */
+const META_HEADLINE_MAX_LENGTH = 255;
 
 export type AdEditFormValues = {
   headlines: string[];
   bodies: string[];
   descriptions: string[];
-  callToAction: string;
   linkUrl: string;
 };
 
@@ -34,6 +26,11 @@ export type AdEditFormProps = {
   onSubmit: (values: AdEditFormValues) => Promise<void>;
   onCancel?: () => void;
   submitting?: boolean;
+  submitLabel?: string;
+  /** Tighter headline limit for Google-synced ads. Defaults to Meta's 255. */
+  headlineMaxLength?: number;
+  /** Google Demand Gen requires at least one description. */
+  requireDescription?: boolean;
 };
 
 function TextFieldArrayEditor({
@@ -44,6 +41,7 @@ function TextFieldArrayEditor({
   helperText,
   multiline,
   maxLength,
+  error,
 }: {
   label: string;
   values: string[];
@@ -52,6 +50,7 @@ function TextFieldArrayEditor({
   helperText?: string;
   multiline?: boolean;
   maxLength?: number;
+  error?: string;
 }) {
   return (
     <Box>
@@ -68,6 +67,7 @@ function TextFieldArrayEditor({
               multiline={multiline}
               minRows={multiline ? 2 : 1}
               inputProps={{ maxLength }}
+              error={!!error}
               onChange={(e) => {
                 const next = [...values];
                 next[i] = e.target.value;
@@ -95,33 +95,69 @@ function TextFieldArrayEditor({
           </Button>
         )}
       </Stack>
-      {helperText && (
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-          {helperText}
+      {(error || helperText) && (
+        <Typography
+          variant="caption"
+          color={error ? 'error' : 'text.secondary'}
+          display="block"
+          sx={{ mt: 0.5 }}
+        >
+          {error || helperText}
         </Typography>
       )}
     </Box>
   );
 }
 
-export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: AdEditFormProps) {
+export default function AdEditForm({
+  initial,
+  onSubmit,
+  onCancel,
+  submitting,
+  submitLabel = 'Save changes',
+  headlineMaxLength = META_HEADLINE_MAX_LENGTH,
+  requireDescription = false,
+}: AdEditFormProps) {
   const [headlines, setHeadlines] = useState<string[]>(initial.headlines);
   const [bodies, setBodies] = useState<string[]>(initial.bodies);
   const [descriptions, setDescriptions] = useState<string[]>(
     initial.descriptions.length > 0 ? initial.descriptions : ['']
   );
-  const [callToAction, setCallToAction] = useState<string>(initial.callToAction);
   const [linkUrl, setLinkUrl] = useState<string>(initial.linkUrl);
+  const [errors, setErrors] = useState<{
+    headlines?: string;
+    bodies?: string;
+    descriptions?: string;
+  }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSubmit({
+
+    const values: AdEditFormValues = {
       headlines: headlines.filter((h) => h.trim().length > 0),
       bodies: bodies.filter((b) => b.trim().length > 0),
       descriptions: descriptions.filter((d) => d.trim().length > 0),
-      callToAction,
       linkUrl: linkUrl.trim(),
-    });
+    };
+
+    // The server rejects empty headlines/bodies with an opaque 400, so catch it here.
+    const nextErrors: typeof errors = {};
+    if (values.headlines.length === 0) {
+      nextErrors.headlines = 'Add at least one headline.';
+    }
+    if (values.bodies.length === 0) {
+      nextErrors.bodies = 'Add at least one primary text.';
+    }
+    if (requireDescription && values.descriptions.length === 0) {
+      nextErrors.descriptions = 'Google Ads requires at least one description.';
+    }
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    await onSubmit(values);
   };
 
   return (
@@ -132,8 +168,13 @@ export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: 
           values={headlines}
           onChange={setHeadlines}
           max={5}
-          maxLength={255}
-          helperText="Short attention-grabbing lines. Meta will test multiple headlines automatically."
+          maxLength={headlineMaxLength}
+          error={errors.headlines}
+          helperText={
+            headlineMaxLength < META_HEADLINE_MAX_LENGTH
+              ? `Short attention-grabbing lines. Google Ads limits headlines to ${headlineMaxLength} characters.`
+              : 'Short attention-grabbing lines. Meta will test multiple headlines automatically.'
+          }
         />
 
         <TextFieldArrayEditor
@@ -143,6 +184,7 @@ export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: 
           max={5}
           multiline
           maxLength={2200}
+          error={errors.bodies}
           helperText="Main body of the ad."
         />
 
@@ -152,7 +194,12 @@ export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: 
           onChange={setDescriptions}
           max={5}
           maxLength={30}
-          helperText="Short link descriptions (max 30 chars each)."
+          error={errors.descriptions}
+          helperText={
+            requireDescription
+              ? 'Short link descriptions (max 30 chars each). Google Ads requires at least one.'
+              : 'Short link descriptions (max 30 chars each).'
+          }
         />
 
         <TextField
@@ -164,21 +211,6 @@ export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: 
           required
         />
 
-        <TextField
-          select
-          label="Call to action"
-          fullWidth
-          size="small"
-          value={callToAction}
-          onChange={(e) => setCallToAction(e.target.value)}
-        >
-          {CALL_TO_ACTION_OPTIONS.map((opt) => (
-            <MenuItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </MenuItem>
-          ))}
-        </TextField>
-
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
           {onCancel && (
             <Button onClick={onCancel} disabled={submitting}>
@@ -186,7 +218,7 @@ export default function AdEditForm({ initial, onSubmit, onCancel, submitting }: 
             </Button>
           )}
           <Button type="submit" variant="contained" color="primary" disabled={submitting}>
-            {submitting ? 'Saving...' : 'Save changes'}
+            {submitting ? 'Saving...' : submitLabel}
           </Button>
         </Box>
       </Stack>
