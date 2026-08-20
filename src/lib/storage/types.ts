@@ -45,13 +45,11 @@ export const MIME_TO_EXTENSION: Record<string, string> = {
 // Configuration schema
 export const StorageConfigSchema = z.object({
   bucketName: z.string().min(1, 'GCS_BUCKET_NAME is required'),
-  serviceAccountKeyPath: z.string().optional(),
-  serviceAccountKeyJson: z.string().optional(),
   publicUrlBase: z.string().url().optional(),
 });
-// No credential field is required: with neither set, the client falls back to
-// Application Default Credentials, which is how it authenticates on App
-// Hosting (the runtime service account). An explicit key is only for local use.
+// No credential field: the client authenticates with Application Default
+// Credentials, which is the runtime service account on App Hosting and
+// `gcloud auth application-default login` locally.
 
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 

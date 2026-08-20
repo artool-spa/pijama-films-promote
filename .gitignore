@@ -56,3 +56,7 @@ firestore-debug.log
 ui-debug.log
 firebase-debug.log
 .firebase/
+
+# Cloud Functions build output
+functions/node_modules
+functions/lib

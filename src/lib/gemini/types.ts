@@ -72,10 +72,9 @@ export interface FilmDataForPrompt {
 
 // Configuration schema
 export const GeminiConfigSchema = z.object({
-  // Optional: without it the client authenticates with Application Default
-  // Credentials and takes the project from the environment.
-  serviceAccountKeyJson: z.string().min(1).optional(),
-  projectId: z.string().min(1).optional(),
+  // The client authenticates with Application Default Credentials, so all it
+  // needs is the project Vertex AI should bill.
+  projectId: z.string().min(1, 'FIREBASE_PROJECT_ID is required'),
 });
 
 export type GeminiConfig = z.infer<typeof GeminiConfigSchema>;

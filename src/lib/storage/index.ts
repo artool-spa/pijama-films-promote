@@ -10,29 +10,19 @@ const globalForStorage = global as unknown as { storage: StorageClient | undefin
  */
 function createStorageConfig() {
   const bucketName = process.env.GCS_BUCKET_NAME;
-  const serviceAccountKeyPath = process.env.GCS_SERVICE_ACCOUNT_KEY_PATH;
-  const serviceAccountKeyJson = process.env.GCS_SERVICE_ACCOUNT_KEY_JSON;
   const publicUrlBase = process.env.GCS_PUBLIC_URL_BASE;
 
-  // Credentials are optional: Application Default Credentials cover the
-  // deployed runtime, so only the bucket has to be configured.
-  const missingVars: string[] = [];
-  if (!bucketName) missingVars.push('GCS_BUCKET_NAME');
-
-  if (missingVars.length > 0) {
+  // Credentials come from Application Default Credentials, so only the bucket
+  // has to be configured.
+  if (!bucketName) {
     throw new StorageConfigError(
-      `Missing required GCS environment variables: ${missingVars.join(', ')}. ` +
-        'Please configure them in your .env file.',
-      missingVars
+      'Missing required GCS environment variable: GCS_BUCKET_NAME. ' +
+        'Please configure it in your .env file.',
+      ['GCS_BUCKET_NAME']
     );
   }
 
-  return {
-    bucketName: bucketName!,
-    serviceAccountKeyPath,
-    serviceAccountKeyJson,
-    publicUrlBase,
-  };
+  return { bucketName, publicUrlBase };
 }
 
 /**

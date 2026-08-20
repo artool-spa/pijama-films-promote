@@ -43,22 +43,10 @@ export class StorageClient {
     }
     this.config = result.data;
 
-    // Initialize GCS client
-    const storageOptions: ConstructorParameters<typeof Storage>[0] = {};
-
-    if (this.config.serviceAccountKeyJson) {
-      try {
-        storageOptions.credentials = JSON.parse(this.config.serviceAccountKeyJson);
-      } catch {
-        throw new StorageConfigError(
-          'Invalid GCS_SERVICE_ACCOUNT_KEY_JSON: must be valid JSON'
-        );
-      }
-    } else if (this.config.serviceAccountKeyPath) {
-      storageOptions.keyFilename = this.config.serviceAccountKeyPath;
-    }
-
-    this.storage = new Storage(storageOptions);
+    // Application Default Credentials: the runtime service account on App
+    // Hosting, `gcloud auth application-default login` locally. No static key
+    // is accepted, so there is none to leak or rotate.
+    this.storage = new Storage();
     this.bucket = this.storage.bucket(this.config.bucketName);
   }
 
