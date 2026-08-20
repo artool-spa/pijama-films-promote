@@ -4,7 +4,7 @@ import { getFunctions } from 'firebase-admin/functions';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
-import { logger } from 'firebase-functions/v2';
+import { logger, setGlobalOptions } from 'firebase-functions/v2';
 
 import { callBackend } from './backend.js';
 import { becameAssetReady } from './should-enqueue.js';
@@ -13,6 +13,18 @@ initializeApp();
 
 const REGION = 'us-central1';
 const SYNC_CAMPAIGN_QUEUE = 'syncCampaign';
+
+/**
+ * Identity every trigger runs as, and therefore the identity the backend sees
+ * on the OIDC token. Pinned rather than left to the platform default: it has to
+ * match CRON_INVOKER_SERVICE_ACCOUNTS in apphosting.yaml, and that value is
+ * baked into an App Hosting build, so discovering a mismatch after the fact
+ * costs a full rebuild to correct.
+ */
+setGlobalOptions({
+  region: REGION,
+  serviceAccount: '603164121416-compute@developer.gserviceaccount.com',
+});
 
 /**
  * Poll Meta and Google for ad approval transitions.
