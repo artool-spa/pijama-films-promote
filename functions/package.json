@@ -10,9 +10,9 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "serve": "npm run build && firebase emulators:start --only functions,firestore",
-    "deploy": "npm run build && firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "serve": "npm run build && npx firebase-tools emulators:start --only functions,firestore",
+    "deploy": "npm run build && npx firebase-tools deploy --only functions --project=pijama-promote-firebase",
+    "logs": "npx firebase-tools functions:log --project=pijama-promote-firebase"
   },
   "dependencies": {
     "firebase-admin": "^14.2.0",
