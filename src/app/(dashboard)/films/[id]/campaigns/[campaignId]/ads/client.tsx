@@ -25,6 +25,7 @@ import {
 import { useRouter } from 'next/navigation';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
+import MetaAdPreviewFrame from '@/components/MetaAdPreviewFrame';
 import AdStatusBadge from '@/components/AdStatusBadge';
 import RejectionDetailsDialog from '@/components/RejectionDetailsDialog';
 import ApprovalWarningBanner from '@/components/ApprovalWarningBanner';
@@ -152,13 +153,13 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
           onClick={() => router.push(`/films/${film.id}/campaigns/${campaign.id}`)}
           sx={{ mb: 2 }}
         >
-          Volver a campaña
+          Back to campaign
         </Button>
         <Typography variant="h4" component="h1" gutterBottom>
-          Anuncios - {campaign.name}
+          Ads - {campaign.name}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          {film.title} - {campaign.ads.length} anuncios
+          {film.title} - {campaign.ads.length} ads
         </Typography>
       </Box>
 
@@ -176,7 +177,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
           onChange={(_, value) => value && setFilter(value)}
           size="small"
         >
-          <ToggleButton value="ALL">Todos</ToggleButton>
+          <ToggleButton value="ALL">All</ToggleButton>
           {hasMeta && (
             <ToggleButton value="META">
               <FacebookIcon sx={{ mr: 0.5, fontSize: 18 }} /> Meta
@@ -197,7 +198,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
         <Card>
           <CardContent>
             <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-              No hay anuncios para mostrar
+              No ads to show
             </Typography>
           </CardContent>
         </Card>
@@ -283,22 +284,16 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                                 borderColor: 'divider',
                               }}
                             >
-                              <iframe
-                                srcDoc={metaPreviewHtml}
+                              <MetaAdPreviewFrame
+                                html={metaPreviewHtml}
                                 title={`Preview - ${ad.name}`}
-                                style={{
-                                  width: '100%',
-                                  height: 400,
-                                  border: 'none',
-                                }}
-                                sandbox="allow-scripts allow-same-origin"
                               />
                             </Box>
                           )}
                           {!isLoadingPreview && !metaPreviewHtml && (
                             <Box sx={{ py: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 1 }}>
                               <Typography variant="body2" color="text.secondary">
-                                Vista previa no disponible
+                                Preview not available
                               </Typography>
                             </Box>
                           )}
@@ -354,12 +349,12 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                       <>
                         <Divider sx={{ mb: 1.5 }} />
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                          Métricas
+                          Metrics
                         </Typography>
                         <Grid container spacing={1}>
                           <Grid size={4}>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              Impresiones
+                              Impressions
                             </Typography>
                             <Typography variant="body2" fontWeight="medium">
                               {insights.impressions.toLocaleString()}
@@ -383,7 +378,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                           </Grid>
                           <Grid size={4}>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              Gasto
+                              Spend
                             </Typography>
                             <Typography variant="body2" fontWeight="medium">
                               ${insights.spend.toFixed(2)}
@@ -391,7 +386,7 @@ export default function AdsDetailClient({ film, campaign }: AdsDetailClientProps
                           </Grid>
                           <Grid size={4}>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              Conversiones
+                              Conversions
                             </Typography>
                             <Typography variant="body2" fontWeight="medium" color="success.main">
                               {insights.conversions.toLocaleString()}
