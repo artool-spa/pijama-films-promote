@@ -23,6 +23,21 @@ export const STORY_REELS_CUSTOMIZATION_SPEC = {
   instagram_positions: ['story', 'reels'],
 } as const;
 
+/**
+ * customization_spec for the default rule.
+ *
+ * Meta requires *every* asset_customization_rule to carry a spec, including the
+ * `is_default` one — `createMultiLanguageAd` gives each of its rules a
+ * `{ locales }` spec for the same reason. Omitting it here made Meta reject the
+ * whole creative with a bare `(#100) Invalid parameter`.
+ *
+ * No position filter, so this catches Feed and every placement the Story/Reels
+ * rule above did not match.
+ */
+export const DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC = {
+  publisher_platforms: ['facebook', 'instagram'],
+} as const;
+
 export interface PlacementTargeting {
   publisher_platforms: string[];
   facebook_positions: string[];
@@ -151,6 +166,7 @@ export function buildPlacementCustomizationRules(
     },
     {
       // Default rule: catches every placement not matched above (Feed, and any others).
+      customization_spec: DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC,
       [labelKey]: { name: FEED_LABEL },
       is_default: true,
     },
