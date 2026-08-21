@@ -31,10 +31,8 @@ import {
 import { calculateAspectRatio, getEligibleYouTubeFormats, isValidGoogleMarketingImage } from '@/lib/assets/validation';
 import {
   classifyPlacementBucket,
-  FEED_ONLY_PLACEMENTS,
-  STORY_ONLY_PLACEMENTS,
+  computePlacementOverride,
   type AssetDimensions,
-  type PlacementTargeting,
 } from '@/lib/meta/placements';
 import { toFriendlyCampaignError } from '@/lib/campaigns/error-messages';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
@@ -110,22 +108,6 @@ export function areGoogleImageAssetsReady(ads: Ad[]): boolean {
  * Sync a campaign to Meta Ads (create CBO campaign, ad sets, and ads).
  * Assumes ads are already created locally.
  */
-/**
- * Decide manual placement targeting for an ad set based on its assets' aspect ratios.
- * - both feed + story assets → undefined (keep automatic placements; the ad's
- *   asset_customization_rules route each asset to the right placement)
- * - feed only (no vertical asset uploaded) → exclude Story/Reels so horizontals never render there
- * - story only → restrict to Story/Reels
- */
-function computePlacementOverride(assets: AssetDimensions[]): PlacementTargeting | undefined {
-  const hasFeed = assets.some((a) => classifyPlacementBucket(a) === 'feed');
-  const hasStory = assets.some((a) => classifyPlacementBucket(a) === 'story');
-  if (hasFeed && hasStory) return undefined;
-  if (hasStory) return STORY_ONLY_PLACEMENTS;
-  if (hasFeed) return FEED_ONLY_PLACEMENTS;
-  return undefined;
-}
-
 export async function syncCampaignToMeta(
   campaign: CampaignWithPartnerAndAds,
   partnerName: string,

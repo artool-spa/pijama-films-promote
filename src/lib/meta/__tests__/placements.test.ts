@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyPlacementBucket,
-  buildPlacementCustomizationRules,
-  STORY_REELS_CUSTOMIZATION_SPEC,
-  DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC,
-  FEED_LABEL,
-  STORY_LABEL,
+  computePlacementOverride,
+  FEED_ONLY_PLACEMENTS,
+  STORY_ONLY_PLACEMENTS,
 } from '../placements';
 
 describe('classifyPlacementBucket', () => {
@@ -38,70 +36,25 @@ describe('classifyPlacementBucket', () => {
   });
 });
 
-describe('buildPlacementCustomizationRules', () => {
-  it('returns null when there is no story asset (feed-only)', () => {
-    expect(buildPlacementCustomizationRules('image', ['a.jpg', 'b.jpg'], [])).toBeNull();
+describe('computePlacementOverride', () => {
+  it('keeps horizontals out of Story/Reels', () => {
+    expect(computePlacementOverride([{ aspectRatio: '1.91:1' }])).toEqual(FEED_ONLY_PLACEMENTS);
   });
 
-  it('returns null when there is no feed asset (story-only)', () => {
-    expect(buildPlacementCustomizationRules('image', [], ['v.jpg'])).toBeNull();
+  it('restricts an all-vertical ad set to Story/Reels', () => {
+    expect(computePlacementOverride([{ aspectRatio: '9:16' }])).toEqual(STORY_ONLY_PLACEMENTS);
   });
 
-  it('builds image rules routing story asset to Story/Reels and feed asset as default', () => {
-    const result = buildPlacementCustomizationRules('image', ['feed.jpg'], ['story.jpg']);
-    expect(result).not.toBeNull();
-
-    // Labeled image entries
-    expect(result!.images).toEqual([
-      { url: 'feed.jpg', adlabels: [{ name: FEED_LABEL }] },
-      { url: 'story.jpg', adlabels: [{ name: STORY_LABEL }] },
-    ]);
-    expect(result!.videos).toBeUndefined();
-
-    // Exactly one default rule, and the story rule carries the Story/Reels spec
-    const rules = result!.asset_customization_rules;
-    expect(rules).toHaveLength(2);
-    const defaults = rules.filter((r) => r.is_default === true);
-    expect(defaults).toHaveLength(1);
-    expect(defaults[0].image_label).toEqual({ name: FEED_LABEL });
-    expect(defaults[0].customization_spec).toEqual(DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC);
-
-    const storyRule = rules.find((r) => r.is_default !== true)!;
-    expect(storyRule.customization_spec).toEqual(STORY_REELS_CUSTOMIZATION_SPEC);
-    expect(storyRule.image_label).toEqual({ name: STORY_LABEL });
+  it('serves a mixed ad set in Feed', () => {
+    // Meta rejects per-asset rules covering several assets, so the ad set picks
+    // one placement group: a vertical fitted into Feed beats a horizontal
+    // stretched into Stories.
+    expect(computePlacementOverride([{ aspectRatio: '1.91:1' }, { aspectRatio: '9:16' }])).toEqual(
+      FEED_ONLY_PLACEMENTS
+    );
   });
 
-  it('gives every rule a customization_spec', () => {
-    // Meta rejects the whole creative with a bare "(#100) Invalid parameter"
-    // when any rule, including the default one, is missing its spec.
-    for (const media of ['image', 'video'] as const) {
-      const rules = buildPlacementCustomizationRules(media, ['a'], ['b'])!
-        .asset_customization_rules;
-      expect(rules).toHaveLength(2);
-      for (const rule of rules) {
-        expect(rule.customization_spec).toBeTruthy();
-      }
-    }
-  });
-
-  it('builds video rules using video_id and video_label', () => {
-    const result = buildPlacementCustomizationRules('video', ['100'], ['200']);
-    expect(result).not.toBeNull();
-
-    expect(result!.videos).toEqual([
-      { video_id: '100', adlabels: [{ name: FEED_LABEL }] },
-      { video_id: '200', adlabels: [{ name: STORY_LABEL }] },
-    ]);
-    expect(result!.images).toBeUndefined();
-
-    const rules = result!.asset_customization_rules;
-    expect(rules.filter((r) => r.is_default === true)).toHaveLength(1);
-    const storyRule = rules.find((r) => r.is_default !== true)!;
-    expect(storyRule.video_label).toEqual({ name: STORY_LABEL });
-  });
-
-  it('keeps multiple assets per bucket', () => {
-    const result = buildPlacementCustomizationRules('image', ['f1.jpg', 'f2.jpg'], ['s1.jpg', 's2.jpg']);
-    expect(result!.images).toHaveLength(4);
+  it('leaves placements automatic when there are no assets', () => {
+    expect(computePlacementOverride([])).toBeUndefined();
   });
 });
