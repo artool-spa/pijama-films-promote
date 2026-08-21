@@ -540,6 +540,25 @@ export async function markCampaignSynced(
 }
 
 /**
+ * Drop the Meta ids after a sync was rolled back.
+ *
+ * Used when the campaign and its ad sets were deleted on Meta because no ad
+ * could be created: keeping the ids would point the app at objects that no
+ * longer exist, and a later edit would try to update them.
+ */
+export async function clearMetaSync(id: string) {
+  const validId = IdSchema.parse(id);
+
+  return updateAndFetch(validId, {
+    metaCampaignId: null,
+    imageAdSetId: null,
+    videoAdSetId: null,
+    syncedAt: null,
+    updatedAt: new Date(),
+  });
+}
+
+/**
  * Mark campaign as having a sync error. When `error` is provided, persist
  * details for the UI to display.
  */

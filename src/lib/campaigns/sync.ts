@@ -1,4 +1,4 @@
-import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
+import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError, clearMetaSync } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
 import { setMetaVideoId } from '@/models/video';
 import { publish } from '@/lib/events';
@@ -13,6 +13,7 @@ import {
   buildTargeting,
   MetaApiError,
   updateAd as metaUpdateAd,
+  deleteCampaign as metaDeleteCampaign,
 } from '#meta';
 import {
   google,
@@ -365,9 +366,36 @@ export async function syncCampaignToMeta(
   }
 
   const hasCreatedAds = imageAdId || videoAdId;
+  let rolledBack = false;
 
   if (!hasCreatedAds) {
     const errorMessage = imageAdError || videoAdError || 'Failed to create any ads in Meta';
+
+    // Nothing was published, so the campaign and its ad sets sit on Meta with no
+    // ad in them. Delete them (removing a campaign takes its ad sets with it):
+    // left behind they are unreachable from the app, and every retry leaks
+    // another set.
+    try {
+      await metaDeleteCampaign(meta, metaCampaignId);
+      await clearMetaSync(campaign.id);
+      rolledBack = true;
+      log.info({ metaCampaignId }, 'Rolled back empty Meta campaign after ad creation failed');
+    } catch (error) {
+      log.error(
+        { err: error, metaCampaignId, imageAdSetId, videoAdSetId },
+        'Could not roll back Meta campaign; it is now orphaned and must be removed by hand'
+      );
+    }
+
+    // The campaign was marked PENDING as soon as the Meta campaign object
+    // existed, long before any ad was attempted. Leaving it there tells the
+    // producer their ads are under review when nothing was ever submitted, and
+    // the SSE event below is gone the moment they reload. The Google path
+    // already does this (markGoogleCampaignError).
+    await markCampaignError(campaign.id, { message: errorMessage }).catch((error) => {
+      log.error({ err: error, campaignId: campaign.id }, 'Could not mark campaign as errored');
+    });
+
     await publish(filmId, {
       type: 'campaign_error',
       campaignId: campaign.id,
@@ -434,9 +462,10 @@ export async function syncCampaignToMeta(
 
   return {
     synced: syncedAds.length > 0,
-    metaCampaignId,
-    imageAdSetId,
-    videoAdSetId,
+    // Undefined after a rollback: the objects no longer exist on Meta.
+    metaCampaignId: rolledBack ? undefined : metaCampaignId,
+    imageAdSetId: rolledBack ? undefined : imageAdSetId,
+    videoAdSetId: rolledBack ? undefined : videoAdSetId,
     syncedAds,
     adErrors,
     videoUploadErrors,
@@ -726,6 +755,11 @@ export async function resyncAdCreativeToMeta(
     .filter((v) => v.metaVideoId)
     .map((v) => ({
       video_id: v.metaVideoId!,
+      // Same dimensions the images carry: without them every video buckets as
+      // 'feed' and a vertical one renders stretched in Story/Reels.
+      width: v.width ?? undefined,
+      height: v.height ?? undefined,
+      aspectRatio: v.aspectRatio ?? undefined,
     }));
 
   const created = await createDynamicCreativeAd(meta, {

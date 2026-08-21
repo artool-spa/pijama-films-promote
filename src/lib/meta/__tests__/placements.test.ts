@@ -3,6 +3,7 @@ import {
   classifyPlacementBucket,
   buildPlacementCustomizationRules,
   STORY_REELS_CUSTOMIZATION_SPEC,
+  DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC,
   FEED_LABEL,
   STORY_LABEL,
 } from '../placements';
@@ -63,10 +64,24 @@ describe('buildPlacementCustomizationRules', () => {
     const defaults = rules.filter((r) => r.is_default === true);
     expect(defaults).toHaveLength(1);
     expect(defaults[0].image_label).toEqual({ name: FEED_LABEL });
+    expect(defaults[0].customization_spec).toEqual(DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC);
 
     const storyRule = rules.find((r) => r.is_default !== true)!;
     expect(storyRule.customization_spec).toEqual(STORY_REELS_CUSTOMIZATION_SPEC);
     expect(storyRule.image_label).toEqual({ name: STORY_LABEL });
+  });
+
+  it('gives every rule a customization_spec', () => {
+    // Meta rejects the whole creative with a bare "(#100) Invalid parameter"
+    // when any rule, including the default one, is missing its spec.
+    for (const media of ['image', 'video'] as const) {
+      const rules = buildPlacementCustomizationRules(media, ['a'], ['b'])!
+        .asset_customization_rules;
+      expect(rules).toHaveLength(2);
+      for (const rule of rules) {
+        expect(rule.customization_spec).toBeTruthy();
+      }
+    }
   });
 
   it('builds video rules using video_id and video_label', () => {
