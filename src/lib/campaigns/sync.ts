@@ -746,6 +746,11 @@ export async function resyncAdCreativeToMeta(
     .filter((v) => v.metaVideoId)
     .map((v) => ({
       video_id: v.metaVideoId!,
+      // Same dimensions the images carry: without them every video buckets as
+      // 'feed' and a vertical one renders stretched in Story/Reels.
+      width: v.width ?? undefined,
+      height: v.height ?? undefined,
+      aspectRatio: v.aspectRatio ?? undefined,
     }));
 
   const created = await createDynamicCreativeAd(meta, {

@@ -111,6 +111,12 @@ export const VideoSchema = z.object({
   mimeType: z.string(),
   size: z.number().int(),
   duration: z.number().int().nullable(),
+  // Dimensions travel with the hydrated ad because the Meta sync buckets each
+  // asset by aspect ratio. Zod strips unknown keys, so leaving them out here
+  // made every video look like a feed asset no matter its shape.
+  width: z.number().int().nullable().default(null),
+  height: z.number().int().nullable().default(null),
+  aspectRatio: z.string().nullable().default(null),
   thumbnailUrl: z.string().nullable(),
   metaVideoId: z.string().nullable(),
   youtubeVideoId: z.string().nullable(),
