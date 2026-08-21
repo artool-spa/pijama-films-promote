@@ -90,6 +90,7 @@ export const meta = new Proxy({} as MetaClient, {
 export {
   createCampaign,
   updateCampaign,
+  deleteCampaign,
   getCampaign,
   createAdSet,
   updateAdSet,

@@ -1,4 +1,4 @@
-import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
+import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError, clearMetaSync } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
 import { setMetaVideoId } from '@/models/video';
 import { publish } from '@/lib/events';
@@ -13,6 +13,7 @@ import {
   buildTargeting,
   MetaApiError,
   updateAd as metaUpdateAd,
+  deleteCampaign as metaDeleteCampaign,
 } from '#meta';
 import {
   google,
@@ -365,9 +366,27 @@ export async function syncCampaignToMeta(
   }
 
   const hasCreatedAds = imageAdId || videoAdId;
+  let rolledBack = false;
 
   if (!hasCreatedAds) {
     const errorMessage = imageAdError || videoAdError || 'Failed to create any ads in Meta';
+
+    // Nothing was published, so the campaign and its ad sets sit on Meta with no
+    // ad in them. Delete them (removing a campaign takes its ad sets with it):
+    // left behind they are unreachable from the app, and every retry leaks
+    // another set.
+    try {
+      await metaDeleteCampaign(meta, metaCampaignId);
+      await clearMetaSync(campaign.id);
+      rolledBack = true;
+      log.info({ metaCampaignId }, 'Rolled back empty Meta campaign after ad creation failed');
+    } catch (error) {
+      log.error(
+        { err: error, metaCampaignId, imageAdSetId, videoAdSetId },
+        'Could not roll back Meta campaign; it is now orphaned and must be removed by hand'
+      );
+    }
+
     await publish(filmId, {
       type: 'campaign_error',
       campaignId: campaign.id,
@@ -434,9 +453,10 @@ export async function syncCampaignToMeta(
 
   return {
     synced: syncedAds.length > 0,
-    metaCampaignId,
-    imageAdSetId,
-    videoAdSetId,
+    // Undefined after a rollback: the objects no longer exist on Meta.
+    metaCampaignId: rolledBack ? undefined : metaCampaignId,
+    imageAdSetId: rolledBack ? undefined : imageAdSetId,
+    videoAdSetId: rolledBack ? undefined : videoAdSetId,
     syncedAds,
     adErrors,
     videoUploadErrors,
