@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IdSchema } from '@/lib/firestore';
 import sharp from 'sharp';
 import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
@@ -9,7 +10,7 @@ import { validateImageInBackground } from '@/lib/assets';
 import { META_IMAGE_REQUIREMENTS } from '@/lib/assets/validation';
 
 const CropRequestSchema = z.object({
-  imageId: z.string().cuid(),
+  imageId: IdSchema,
   filmMuviUuid: z.string().min(1),
   crop: z.object({
     x: z.number().int().nonnegative(),

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { saveDraftCampaign, updateCampaign } from '@/models/campaign';
 
 const DraftSaveSchema = z.object({
-  draftId: z.string().cuid().optional(),
+  draftId: IdSchema.optional(),
   campaignData: z.object({
     name: z.string().min(1).max(255),
     budget: z.number().nonnegative(),

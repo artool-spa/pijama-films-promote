@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
 import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
 import { createAdsForCampaign, getAdsByCampaignId } from '@/models/ad';
@@ -30,8 +31,8 @@ const AdInputSchema = z.object({
   descriptions: z.array(z.string().max(90)).max(5).default([]),
   callToAction: z.string().default('WATCH_MORE'),
   linkUrl: z.string().url(),
-  imageIds: z.array(z.string().cuid()).max(10).default([]),
-  videoIds: z.array(z.string().cuid()).max(10).default([]),
+  imageIds: z.array(IdSchema).max(10).default([]),
+  videoIds: z.array(IdSchema).max(10).default([]),
 }).refine(
   data => data.imageIds.length > 0 || data.videoIds.length > 0,
   { message: 'At least one image or video is required' }
@@ -59,12 +60,12 @@ const GoogleCampaignWithAdsCreateSchema = z.object({
   googleBidStrategy: z.string().default('MAXIMIZE_CLICKS'),
   targetCpvMicros: z.number().int().positive().optional(), // In micros
   // Reuse existing campaign (for multi-platform sync)
-  campaignId: z.string().cuid().optional(),
+  campaignId: IdSchema.optional(),
   // Ads
   ads: z.array(AdInputSchema).min(1),
   autoSync: z.boolean().default(true),
   // Optional draft ID to update existing draft instead of creating new
-  draftId: z.string().cuid().optional(),
+  draftId: IdSchema.optional(),
 });
 
 /**
@@ -85,6 +86,9 @@ export async function POST(req: NextRequest) {
     const result = GoogleCampaignWithAdsCreateSchema.safeParse(body);
 
     if (!result.success) {
+      // Logged because this 400 is our own validation, not the platform's: it
+      // reaches the producer as a generic message with no server-side trace.
+      logger.warn({ details: result.error.flatten() }, 'Google campaign payload rejected by validation');
       return NextResponse.json(
         { error: 'Invalid campaign data', details: result.error.flatten() },
         { status: 400 }

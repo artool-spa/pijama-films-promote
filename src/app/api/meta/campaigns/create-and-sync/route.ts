@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
 import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
 import { createAdsForCampaign } from '@/models/ad';
@@ -31,8 +32,8 @@ const AdInputSchema = z.object({
   descriptions: z.array(z.string().max(30)).max(5).default([]),
   callToAction: z.string().default('WATCH_MORE'),
   linkUrl: z.string().url(),
-  imageIds: z.array(z.string().cuid()).max(10).default([]),
-  videoIds: z.array(z.string().cuid()).max(10).default([]),
+  imageIds: z.array(IdSchema).max(10).default([]),
+  videoIds: z.array(IdSchema).max(10).default([]),
 });
 
 // Combined schema for campaign + ads + auto-sync
@@ -63,7 +64,7 @@ const CampaignWithAdsCreateSchema = z.object({
   // Auto-sync flag
   autoSync: z.boolean().default(true),
   // Optional draft ID to update existing draft instead of creating new
-  draftId: z.string().cuid().optional(),
+  draftId: IdSchema.optional(),
 });
 
 /**
@@ -89,6 +90,9 @@ export async function POST(req: NextRequest) {
     const result = CampaignWithAdsCreateSchema.safeParse(body);
 
     if (!result.success) {
+      // Logged because this 400 is our own validation, not the platform's: it
+      // reaches the producer as a generic message with no server-side trace.
+      logger.warn({ details: result.error.flatten() }, 'Meta campaign payload rejected by validation');
       return NextResponse.json(
         { error: 'Invalid campaign data', details: result.error.flatten() },
         { status: 400 }
