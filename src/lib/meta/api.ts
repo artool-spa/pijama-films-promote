@@ -27,8 +27,6 @@ import {
 } from './types';
 import { getLocaleIdsForLanguage } from './locales';
 import {
-  classifyPlacementBucket,
-  buildPlacementCustomizationRules,
   type AssetDimensions,
 } from './placements';
 import {
@@ -872,41 +870,13 @@ export async function createDynamicCreativeAd(
       log.warn('Both images and videos provided - using videos only (Meta does not support mixing)');
     }
 
-    // Route vertical videos to Story/Reels and horizontal/square videos to Feed when both exist.
-    const feedIds = videos.filter((v) => classifyPlacementBucket(v) === 'feed').map((v) => v.video_id);
-    const storyIds = videos.filter((v) => classifyPlacementBucket(v) === 'story').map((v) => v.video_id);
-    const customization = buildPlacementCustomizationRules('video', feedIds, storyIds);
-
-    if (customization) {
-      assetFeedSpec.videos = customization.videos;
-      assetFeedSpec.asset_customization_rules = customization.asset_customization_rules;
-      log.info({ feed: feedIds.length, story: storyIds.length }, 'Applying per-placement video customization');
-    } else {
-      assetFeedSpec.videos = videos.map(({ video_id }) => ({ video_id }));
-    }
+    // A plain list: Meta rotates it across the ad set's placements. Placement
+    // fit is handled at the ad set instead (see computePlacementOverride).
+    assetFeedSpec.videos = videos.map(({ video_id }) => ({ video_id }));
   } else if (hasImages) {
     assetFeedSpec.ad_formats = ['SINGLE_IMAGE'];
 
-    // Placement asset customization only supports URL-based images here; fall back to a plain
-    // feed if any image lacks a URL (e.g. legacy hash-only inputs).
-    const allHaveUrls = images.every((img) => Boolean(img.url));
-
-    if (allHaveUrls) {
-      const feedUrls = images.filter((img) => classifyPlacementBucket(img) === 'feed').map((img) => img.url!);
-      const storyUrls = images.filter((img) => classifyPlacementBucket(img) === 'story').map((img) => img.url!);
-      const customization = buildPlacementCustomizationRules('image', feedUrls, storyUrls);
-
-      if (customization) {
-        assetFeedSpec.images = customization.images;
-        assetFeedSpec.asset_customization_rules = customization.asset_customization_rules;
-        log.info({ feed: feedUrls.length, story: storyUrls.length }, 'Applying per-placement image customization');
-      } else {
-        assetFeedSpec.images = images.map((img) => ({ url: img.url! }));
-      }
-    } else {
-      // Mixed/hash-only images: no placement customization
-      assetFeedSpec.images = images.map((img) => (img.url ? { url: img.url } : { hash: img.hash! }));
-    }
+    assetFeedSpec.images = images.map((img) => (img.url ? { url: img.url } : { hash: img.hash! }));
   }
 
   const objectStorySpec = {

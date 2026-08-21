@@ -1,42 +1,21 @@
 /**
- * Meta placement asset customization.
+ * Meta placement bucketing.
  *
  * Meta dynamic-creative ads use automatic (Advantage+) placements by default, so a horizontal
- * (1.91:1 / 16:9) asset gets stretched into the 9:16 Stories/Reels slot. To fix that we route
- * each asset to the placements its aspect ratio suits, via `asset_feed_spec.asset_customization_rules`
- * (the same label + `is_default` mechanism used by `createMultiLanguageAd`, keyed on placement
- * instead of locale).
+ * (1.91:1 / 16:9) asset gets stretched into the 9:16 Stories/Reels slot. We avoid that by
+ * choosing the ad set's placements from the aspect ratios of its assets.
  *
- * When a Stories-suitable (vertical/portrait) asset exists, it is served in Story/Reels and the
- * horizontal asset in Feed. When no vertical asset exists, the caller instead excludes Story/Reels
- * at the ad-set level using `FEED_ONLY_PLACEMENTS` (we do not auto-crop horizontals into 9:16).
+ * This used to be done per asset inside the creative, with
+ * `asset_feed_spec.asset_customization_rules`. Meta rejects those rules whenever one rule covers
+ * more than one asset (error_subcode 1885878, "Número de activos no válido en Target Rule"), which
+ * is precisely the case they were built for, so no ad using them was ever created. Serving one
+ * placement group per ad set is the coarser answer that works today; one ad set per bucket is the
+ * finer one, and is tracked separately.
  */
 
 // ============================================================================
 // PLACEMENT SPECS
 // ============================================================================
-
-/** customization_spec that matches only Story and Reels placements. */
-export const STORY_REELS_CUSTOMIZATION_SPEC = {
-  publisher_platforms: ['facebook', 'instagram'],
-  facebook_positions: ['story', 'facebook_reels'],
-  instagram_positions: ['story', 'reels'],
-} as const;
-
-/**
- * customization_spec for the default rule.
- *
- * Meta requires *every* asset_customization_rule to carry a spec, including the
- * `is_default` one — `createMultiLanguageAd` gives each of its rules a
- * `{ locales }` spec for the same reason. Omitting it here made Meta reject the
- * whole creative with a bare `(#100) Invalid parameter`.
- *
- * No position filter, so this catches Feed and every placement the Story/Reels
- * rule above did not match.
- */
-export const DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC = {
-  publisher_platforms: ['facebook', 'instagram'],
-} as const;
 
 export interface PlacementTargeting {
   publisher_platforms: string[];
@@ -63,10 +42,6 @@ export const STORY_ONLY_PLACEMENTS: PlacementTargeting = {
   facebook_positions: ['story', 'facebook_reels'],
   instagram_positions: ['story', 'reels'],
 };
-
-// Adlabel names used to tie assets to their placement rule.
-export const FEED_LABEL = 'placement_feed';
-export const STORY_LABEL = 'placement_story';
 
 // ============================================================================
 // BUCKETING
@@ -113,66 +88,23 @@ export function classifyPlacementBucket(asset: AssetDimensions): PlacementBucket
   return 'feed';
 }
 
-// ============================================================================
-// ASSET CUSTOMIZATION RULES
-// ============================================================================
-
-type LabeledEntry = Record<string, unknown> & { adlabels: Array<{ name: string }> };
-
-export interface PlacementCustomizationResult {
-  /** Labeled `images` entries (present when media is 'image'). */
-  images?: LabeledEntry[];
-  /** Labeled `videos` entries (present when media is 'video'). */
-  videos?: LabeledEntry[];
-  asset_customization_rules: Array<Record<string, unknown>>;
-}
-
 /**
- * Build the `asset_feed_spec` fragment that routes vertical assets to Story/Reels and horizontal
- * assets to Feed. Returns `null` when either bucket is empty (nothing to customize — the caller
- * should emit a plain asset feed and, for the feed-only case, exclude Story/Reels at the ad-set
- * level).
+ * Decide manual placement targeting for an ad set based on its assets' aspect ratios.
+ * - feed only (no vertical asset uploaded) → exclude Story/Reels so horizontals never render there
+ * - story only → restrict to Story/Reels
+ * - both → Feed placements, and Meta rotates every asset within them
  *
- * @param media       'image' (values are URLs) or 'video' (values are Meta video IDs)
- * @param feedValues  URLs/video IDs of horizontal/square assets → Feed (default rule)
- * @param storyValues URLs/video IDs of vertical/portrait assets → Story/Reels rule
+ * The mixed case used to keep automatic placements and let the ad's
+ * `asset_customization_rules` route each asset. Meta rejects those rules when a
+ * rule covers more than one asset (error_subcode 1885878), which is the whole
+ * point of having several, so the rules are gone. Until each bucket gets its own
+ * ad set, Feed is the safe side of the trade: a vertical asset shown in Feed is
+ * fitted, while a horizontal one in Stories is stretched to 9:16.
  */
-export function buildPlacementCustomizationRules(
-  media: PlacementMedia,
-  feedValues: string[],
-  storyValues: string[],
-): PlacementCustomizationResult | null {
-  if (feedValues.length === 0 || storyValues.length === 0) {
-    return null;
-  }
-
-  const valueKey = media === 'image' ? 'url' : 'video_id';
-  const labelKey = media === 'image' ? 'image_label' : 'video_label';
-
-  const buildEntry = (value: string, label: string): LabeledEntry => ({
-    [valueKey]: value,
-    adlabels: [{ name: label }],
-  });
-
-  const entries: LabeledEntry[] = [
-    ...feedValues.map((v) => buildEntry(v, FEED_LABEL)),
-    ...storyValues.map((v) => buildEntry(v, STORY_LABEL)),
-  ];
-
-  const asset_customization_rules: Array<Record<string, unknown>> = [
-    {
-      customization_spec: STORY_REELS_CUSTOMIZATION_SPEC,
-      [labelKey]: { name: STORY_LABEL },
-    },
-    {
-      // Default rule: catches every placement not matched above (Feed, and any others).
-      customization_spec: DEFAULT_PLACEMENT_CUSTOMIZATION_SPEC,
-      [labelKey]: { name: FEED_LABEL },
-      is_default: true,
-    },
-  ];
-
-  return media === 'image'
-    ? { images: entries, asset_customization_rules }
-    : { videos: entries, asset_customization_rules };
+export function computePlacementOverride(assets: AssetDimensions[]): PlacementTargeting | undefined {
+  const hasFeed = assets.some((a) => classifyPlacementBucket(a) === 'feed');
+  const hasStory = assets.some((a) => classifyPlacementBucket(a) === 'story');
+  if (hasFeed) return FEED_ONLY_PLACEMENTS;
+  if (hasStory) return STORY_ONLY_PLACEMENTS;
+  return undefined;
 }
