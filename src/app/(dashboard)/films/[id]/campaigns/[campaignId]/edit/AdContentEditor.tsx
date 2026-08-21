@@ -13,6 +13,7 @@ import {
 import { Image as ImageIcon } from '@mui/icons-material';
 import AdEditForm, { type AdEditFormValues } from '@/components/AdEditForm';
 import AdMediaPicker, { type PickerAsset } from '@/components/AdMediaPicker';
+import MetaAdPreviewFrame from '@/components/MetaAdPreviewFrame';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import { MAX_AD_ASSETS } from '@/lib/assets/limits';
@@ -48,30 +49,6 @@ type PreviewMedia = {
 
 function isHttpUrl(value: string | null | undefined): boolean {
   return !!value && /^https?:\/\//i.test(value);
-}
-
-/**
- * Meta returns the preview as an HTML-escaped `<iframe src="...">` snippet.
- * Pull the URL out and render our own frame instead of injecting third-party
- * markup into the page: this keeps a real cross-origin boundary around it.
- */
-export function metaPreviewSrc(html: string): string | null {
-  const match = /<iframe[^>]*\ssrc=["']([^"']+)["']/i.exec(html);
-  if (!match) return null;
-
-  const decoded = match[1]
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'");
-
-  try {
-    const url = new URL(decoded);
-    if (url.protocol !== 'https:') return null;
-    if (!/(^|\.)facebook\.com$/.test(url.hostname)) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 export default function AdContentEditor({
@@ -318,8 +295,6 @@ export default function AdContentEditor({
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const previewSrc = previewHtml ? metaPreviewSrc(previewHtml) : null;
-
   const emptyPreview = (message: string) => (
     <Box
       sx={{
@@ -392,18 +367,10 @@ export default function AdContentEditor({
         </Alert>
       );
     }
-    if (previewSrc) {
+    if (previewHtml) {
       return (
         <Box sx={{ position: 'relative' }}>
-          <Box
-            component="iframe"
-            src={previewSrc}
-            title="Meta ad preview"
-            referrerPolicy="no-referrer"
-            // Cross-origin frame, so Facebook's own scripts keep their origin.
-            sandbox="allow-scripts"
-            sx={{ width: '100%', height: 660, border: 'none' }}
-          />
+          <MetaAdPreviewFrame html={previewHtml} title="Meta ad preview" />
           {previewLoading && (
             // Keep the old render visible: blanking on every keystroke is worse
             // than a slightly stale preview.
@@ -429,9 +396,6 @@ export default function AdContentEditor({
           <CircularProgress size={32} />
         </Box>
       );
-    }
-    if (previewHtml) {
-      return <Alert severity="warning">Could not display the preview returned by Meta.</Alert>;
     }
     return emptyPreview('The preview will appear here.');
   };

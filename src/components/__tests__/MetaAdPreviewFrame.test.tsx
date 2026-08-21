@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { metaPreviewSrc } from '../AdContentEditor';
+import { metaPreviewSrc } from '../MetaAdPreviewFrame';
 
 /**
  * The preview HTML comes from Meta. We never inject it into the page, we pull
