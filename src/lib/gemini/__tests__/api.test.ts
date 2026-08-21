@@ -17,20 +17,28 @@ const film: FilmDataForPrompt = {
   duration: 104,
 };
 
+/** Dig the variant labels out of the JSON schema handed to the model. */
+function labelsFromSchema(schema?: Record<string, unknown>): string[] {
+  const copies = (schema?.properties as Record<string, { items?: { properties?: { variant?: { enum?: string[] } } } }>)
+    ?.copies;
+  return copies?.items?.properties?.variant?.enum ?? [];
+}
+
 /**
  * Build a stub GeminiClient whose generateContent echoes back valid JSON with
- * one copy per requested variant. It captures the prompt(s) it received.
+ * one copy per requested variant. It captures the prompts and options it saw.
  */
 function makeStubClient() {
   const prompts: string[] = [];
+  const schemas: (Record<string, unknown> | undefined)[] = [];
   const client = {
-    async generateContent(prompt: string): Promise<string> {
+    async generateContent(
+      prompt: string,
+      options?: { responseSchema?: Record<string, unknown> }
+    ): Promise<string> {
       prompts.push(prompt);
-      // Derive the requested labels from the prompt's variant list.
-      const labels = ['A', 'B', 'C', 'D', 'E', 'F'].filter((l) =>
-        prompt.includes(`"variant": "${l}"`)
-      );
-      const copies = labels.map((variant) => ({
+      schemas.push(options?.responseSchema);
+      const copies = labelsFromSchema(options?.responseSchema).map((variant) => ({
         headline: `Headline ${variant}`,
         primaryText: `Watch on Pijama Films ${variant}`,
         variant,
@@ -38,7 +46,7 @@ function makeStubClient() {
       return JSON.stringify({ copies });
     },
   } as unknown as GeminiClient;
-  return { client, prompts };
+  return { client, prompts, schemas };
 }
 
 describe('pickVariantAngles', () => {
@@ -108,6 +116,24 @@ describe('generateCopiesForLanguage', () => {
     await generateCopiesForLanguage(client, film, 'en');
     expect(prompts[0]).not.toContain('callToAction');
     expect(prompts[0]).not.toMatch(/"description"/);
+  });
+
+  it('constrains the model with a JSON schema matching the variant count', async () => {
+    const { client, schemas } = makeStubClient();
+    await generateCopiesForLanguage(client, film, 'en', { variantCount: 4 });
+    const schema = schemas[0];
+    expect(labelsFromSchema(schema)).toEqual(['A', 'B', 'C', 'D']);
+    const copies = (schema?.properties as Record<string, Record<string, unknown>>).copies;
+    expect(copies.minItems).toBe(4);
+    expect(copies.maxItems).toBe(4);
+  });
+
+  it('does not ask the model to count characters one by one', async () => {
+    const { client, prompts } = makeStubClient();
+    await generateCopiesForLanguage(client, film, 'en');
+    // Character-by-character counting burned the whole output budget on
+    // reasoning tokens and truncated the JSON mid-response.
+    expect(prompts[0]).not.toMatch(/count every character/i);
   });
 });
 
