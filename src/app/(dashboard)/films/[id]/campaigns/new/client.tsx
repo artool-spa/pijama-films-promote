@@ -73,6 +73,7 @@ import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
 import MetaAdPreviewFrame from '@/components/MetaAdPreviewFrame';
+import { describeApiError } from '@/lib/campaigns/validation-details';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 import { validateCampaignBudget, META_MIN_DAILY_PER_ADSET, META_ASSET_TYPES, GOOGLE_MIN_DAILY } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
@@ -1290,7 +1291,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         if (!metaResponse.ok) {
           const error = await metaResponse.json();
-          throw new Error(error.error || error.details?.fieldErrors?.toString() || "We couldn't create your campaign. Please try again, or contact support.");
+          throw new Error(
+            describeApiError(error, "We couldn't create your campaign. Please try again, or contact support.")
+          );
         }
 
         const metaResult = await metaResponse.json();
@@ -1334,7 +1337,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
           if (!googleResponse.ok) {
             const error = await googleResponse.json();
-            hardErrors.push(`Google: ${error.error || "We couldn't create your campaign on Google Ads."}`);
+            hardErrors.push(
+              `Google: ${describeApiError(error, "We couldn't create your campaign on Google Ads.")}`
+            );
           } else {
             const googleResult = await googleResponse.json();
             if (googleResult.syncError && !googleResult.synced) {
@@ -1363,7 +1368,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
 
         if (!googleResponse.ok) {
           const error = await googleResponse.json();
-          throw new Error(error.error || error.details?.fieldErrors?.toString() || "We couldn't create your campaign. Please try again, or contact support.");
+          throw new Error(
+            describeApiError(error, "We couldn't create your campaign. Please try again, or contact support.")
+          );
         }
 
         const googleResult = await googleResponse.json();

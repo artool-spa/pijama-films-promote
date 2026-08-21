@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
 import { chargeCampaignBudget } from '@/models/account';
 
 const ChargeSchema = z.object({
-  campaignId: z.string().cuid(),
+  campaignId: IdSchema,
   amount: z.number().positive(),
   campaignName: z.string().min(1),
 });
