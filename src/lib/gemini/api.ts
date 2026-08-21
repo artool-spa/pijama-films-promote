@@ -126,16 +126,6 @@ function buildPrompt(
     .map((angle, i) => `- Variant ${labels[i]}: ${angle.guideline}`)
     .join('\n');
 
-  const exampleObjects = labels
-    .map(
-      (label) => `    {
-      "headline": "...",
-      "primaryText": "...",
-      "variant": "${label}"
-    }`
-    )
-    .join(',\n');
-
   return `You are a marketing copywriter for a film streaming platform. Generate ${variantCount} unique ad copy variants (${labels.join(', ')}) for the following film to be used in social media ads (Facebook/Instagram).
 
 FILM DETAILS:
@@ -161,14 +151,37 @@ IMPORTANT:
 - Make each variant distinct from the others, following its assigned angle
 - Avoid clichés and generic phrases
 - Make the copy specific to this film
-- Respect character limits strictly: count every character (including spaces). Text longer than the limit will be cut off, so keep each field within its maximum.
+- Keep every field within its limit by writing short and tight. Do not count characters one by one — that wastes the response budget, and anything over the limit is trimmed automatically.
 
-Respond ONLY with valid JSON in this exact format:
-{
-  "copies": [
-${exampleObjects}
-  ]
-}`;
+Return one entry per variant (${labels.join(', ')}) in the required JSON format.`;
+}
+
+/**
+ * Build the Vertex-flavoured JSON schema the model must conform to. Putting the
+ * model in JSON mode is what guarantees a parseable body: no markdown fences,
+ * no preamble, no trailing commentary.
+ */
+function buildResponseSchema(labels: readonly string[]): Record<string, unknown> {
+  return {
+    type: 'OBJECT',
+    properties: {
+      copies: {
+        type: 'ARRAY',
+        minItems: labels.length,
+        maxItems: labels.length,
+        items: {
+          type: 'OBJECT',
+          properties: {
+            headline: { type: 'STRING' },
+            primaryText: { type: 'STRING' },
+            variant: { type: 'STRING', enum: [...labels] },
+          },
+          required: ['headline', 'primaryText', 'variant'],
+        },
+      },
+    },
+    required: ['copies'],
+  };
 }
 
 /**
@@ -234,9 +247,10 @@ export async function generateCopiesForLanguage(
   const variantCount = resolveVariantCount(options?.variantCount);
   const angles = pickVariantAngles(variantCount);
   const prompt = buildPrompt(film, language, angles);
+  const responseSchema = buildResponseSchema(VARIANT_LABELS.slice(0, variantCount));
 
   try {
-    const responseText = await client.generateContent(prompt);
+    const responseText = await client.generateContent(prompt, { responseSchema });
     return parseGeminiResponse(responseText, variantCount);
   } catch (error) {
     if (error instanceof GeminiValidationError) {

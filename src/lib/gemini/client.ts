@@ -9,6 +9,33 @@ const MODEL_NAME = 'gemini-3.5-flash';
 // Vertex AI endpoint (supports service account authentication)
 const VERTEX_AI_LOCATION = 'global';
 
+// Reasoning tokens are billed against maxOutputTokens. Gemini 3 thinks before
+// answering, and at 2048 it routinely spent ~1960 tokens reasoning and got cut
+// off mid-JSON (finishReason MAX_TOKENS), so the parser received a fragment.
+// 8192 leaves ample room for the answer even on a long reasoning pass.
+const MAX_OUTPUT_TOKENS = 8192;
+
+// Copy generation is a short, well-specified task: minimal reasoning is enough,
+// and it roughly halves both latency and the risk of exhausting the budget.
+const THINKING_LEVEL = 'LOW';
+
+/** A single `part` of a Gemini candidate's content. */
+interface GeminiResponsePart {
+  text?: string;
+  /** True when the part holds the model's internal reasoning, not the answer. */
+  thought?: boolean;
+}
+
+/** Options for a single generateContent call. */
+export interface GenerateContentOptions {
+  /**
+   * Vertex-flavoured JSON schema the output must conform to. When provided the
+   * model is put in JSON mode, so the response is parseable JSON with no
+   * markdown fences or surrounding prose.
+   */
+  responseSchema?: Record<string, unknown>;
+}
+
 /**
  * GeminiClient manages the connection to Google's Generative AI API
  * using service account authentication via Vertex AI.
@@ -52,7 +79,10 @@ export class GeminiClient {
   /**
    * Generate content using the model via Vertex AI
    */
-  async generateContent(prompt: string): Promise<string> {
+  async generateContent(
+    prompt: string,
+    options?: GenerateContentOptions
+  ): Promise<string> {
     const accessToken = await this.getAccessToken();
 
     // Vertex AI endpoint format.
@@ -80,7 +110,14 @@ export class GeminiClient {
         ],
         generationConfig: {
           temperature: 0.7,
-          maxOutputTokens: 2048,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          thinkingConfig: { thinkingLevel: THINKING_LEVEL },
+          ...(options?.responseSchema
+            ? {
+                responseMimeType: 'application/json',
+                responseSchema: options.responseSchema,
+              }
+            : {}),
         },
       }),
     });
@@ -95,9 +132,30 @@ export class GeminiClient {
     }
 
     const data = await response.json();
+    const candidate = data.candidates?.[0];
 
-    // Extract text from response
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    // A truncated or filtered candidate still carries text, but it is a
+    // fragment (often mid-reasoning). Fail loudly here instead of handing an
+    // unparseable partial to the caller.
+    const finishReason: string | undefined = candidate?.finishReason;
+    if (finishReason && finishReason !== 'STOP') {
+      logger.error(
+        { finishReason, usage: data.usageMetadata },
+        'Gemini did not finish normally'
+      );
+      throw new GeminiApiError(
+        `Gemini stopped before completing the response (finishReason: ${finishReason})`,
+        { context: { finishReason, usage: data.usageMetadata } }
+      );
+    }
+
+    // Gemini 3 may return internal reasoning as extra `parts`; only the
+    // non-thought part holds the answer.
+    const parts: GeminiResponsePart[] = candidate?.content?.parts ?? [];
+    const text = parts.find(
+      (part) => !part.thought && typeof part.text === 'string' && part.text.length > 0
+    )?.text;
+
     if (!text) {
       throw new GeminiApiError(
         'No text content in Gemini response',
