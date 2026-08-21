@@ -6,7 +6,7 @@
 import type { ApprovalSummary } from './approval-status';
 
 export type CampaignStateInput = {
-  status: 'DRAFT' | 'PENDING_ASSETS' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
+  status: 'DRAFT' | 'PENDING_ASSETS' | 'SYNCING' | 'PENDING' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'ERROR';
   googleEntityStatus: 'DRAFT' | 'PENDING' | 'ENABLED' | 'PAUSED' | 'REMOVED' | 'ERROR' | null;
   approvalSummary: ApprovalSummary | null;
   disapprovedAdCount: number;
@@ -49,6 +49,16 @@ export function explainCampaignState(input: CampaignStateInput): CampaignStateEx
     return {
       title: 'Preparing media',
       description: 'We are preparing the images and videos for your campaign. This usually takes 5-15 minutes.',
+      tone: 'info',
+      actions: [],
+    };
+  }
+
+  if (input.status === 'SYNCING') {
+    return {
+      title: 'Publishing',
+      description:
+        'We are creating your ads on the platform. Nothing is under review yet — this usually takes under a minute.',
       tone: 'info',
       actions: [],
     };
