@@ -8,6 +8,12 @@ import {
   MetaAdPreviewFormat,
 } from '#meta';
 import { getPartnerFromRequest } from '@/lib/auth';
+import {
+  consumePreviewQuota,
+  getCachedPreview,
+  previewCacheKey,
+  setCachedPreview,
+} from '@/lib/meta/preview-cache';
 
 // Validation schema for preview request
 const PreviewRequestSchema = z.object({
@@ -90,11 +96,32 @@ export async function POST(req: NextRequest) {
         : { imageUrl: mediaUrl }),
     };
 
+    // The editors refetch on every pause in typing, so the same creative comes
+    // back repeatedly. Serve it from memory before spending a Graph call.
+    const cacheKey = previewCacheKey({ ...creative, format });
+    const cached = getCachedPreview(cacheKey);
+    if (cached) {
+      return NextResponse.json({ preview: cached, format, cached: true });
+    }
+
+    const quota = consumePreviewQuota(partner.id);
+    if (!quota.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Too many preview requests. Wait a moment and try again.',
+          code: 'RATE_LIMITED',
+        },
+        { status: 429, headers: { 'Retry-After': String(quota.retryAfterSeconds) } }
+      );
+    }
+
     const preview = await generateAdPreview(
       meta,
       creative,
       format as MetaAdPreviewFormat
     );
+
+    setCachedPreview(cacheKey, preview.body);
 
     return NextResponse.json({
       preview: preview.body,
