@@ -12,11 +12,11 @@ type GoogleDisplayAdPreviewProps = {
 };
 
 export default function GoogleDisplayAdPreview({
-  headline = 'Titulo del anuncio',
-  description = 'Descripcion del anuncio',
+  headline = 'Ad headline',
+  description = 'Ad description',
   imageUrl,
-  callToAction = 'Ver mas',
-  businessName = 'Tu Marca',
+  callToAction = 'Learn more',
+  businessName = 'Your brand',
 }: GoogleDisplayAdPreviewProps) {
   return (
     <Paper
@@ -24,7 +24,7 @@ export default function GoogleDisplayAdPreview({
       sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
     >
       <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, alignSelf: 'flex-start' }}>
-        Vista previa - Google Demand Gen
+        Preview - Google Demand Gen
       </Typography>
 
       <Box sx={{ width: '100%', maxWidth: 400 }}>
@@ -55,7 +55,7 @@ export default function GoogleDisplayAdPreview({
 
           {/* Ad badge */}
           <Chip
-            label="Anuncio"
+            label="Ad"
             size="small"
             sx={{
               position: 'absolute',

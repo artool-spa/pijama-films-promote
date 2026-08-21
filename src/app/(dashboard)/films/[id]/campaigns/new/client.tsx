@@ -72,6 +72,7 @@ import {
 import type { Film } from '@/models/film';
 import YouTubeAdPreview from '@/components/YouTubeAdPreview';
 import GoogleDisplayAdPreview from '@/components/GoogleDisplayAdPreview';
+import MetaAdPreviewFrame from '@/components/MetaAdPreviewFrame';
 import { calculateWorstCaseFee, calculateTotalCharge } from '@/lib/stripe/fees';
 import { validateCampaignBudget, META_MIN_DAILY_PER_ADSET, META_ASSET_TYPES, GOOGLE_MIN_DAILY } from '@/lib/campaigns/budget-validation';
 import { AD_FORMATS } from '@/lib/assets/formats';
@@ -2775,24 +2776,9 @@ export default function CreateCampaignClient({ film, localImages, localVideos, i
                       );
                     })()
                   ) : previewHtml ? (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: 'flex',
-                        justifyContent: 'center',
-                        '& iframe': {
-                          border: 'none',
-                          maxWidth: '100%',
-                        },
-                      }}
-                      dangerouslySetInnerHTML={{
-                        __html: previewHtml
-                          .replace(/&amp;/g, '&')
-                          .replace(/&lt;/g, '<')
-                          .replace(/&gt;/g, '>')
-                          .replace(/&quot;/g, '"'),
-                      }}
-                    />
+                    <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                      <MetaAdPreviewFrame html={previewHtml} title="Meta ad preview" height={620} />
+                    </Box>
                   ) : (
                     (() => {
                       const hasMedia = selectedAssets.length > 0;

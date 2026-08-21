@@ -18,11 +18,11 @@ type YouTubeAdPreviewProps = {
 
 export default function YouTubeAdPreview({
   adFormat,
-  headline = 'Titulo del anuncio',
-  description = 'Descripcion del anuncio',
+  headline = 'Ad headline',
+  description = 'Ad description',
   thumbnailUrl,
-  callToAction = 'Ver mas',
-  channelName = 'Tu Canal',
+  callToAction = 'Learn more',
+  channelName = 'Your channel',
 }: YouTubeAdPreviewProps) {
   const renderInStreamPreview = (skippable: boolean) => (
     <Box sx={{ position: 'relative', width: '100%', maxWidth: 480 }}>
@@ -53,7 +53,7 @@ export default function YouTubeAdPreview({
 
         {/* Ad badge */}
         <Chip
-          label="Anuncio"
+          label="Ad"
           size="small"
           sx={{
             position: 'absolute',
@@ -85,7 +85,7 @@ export default function YouTubeAdPreview({
             }}
           >
             <Typography variant="caption" sx={{ color: 'white' }}>
-              Saltar anuncio
+              Skip ad
             </Typography>
             <SkipNextIcon sx={{ fontSize: 16 }} />
           </Box>
@@ -150,7 +150,7 @@ export default function YouTubeAdPreview({
           <SmartDisplayIcon sx={{ fontSize: 40, color: 'white', opacity: 0.7 }} />
         )}
         <Chip
-          label="Anuncio"
+          label="Ad"
           size="small"
           sx={{
             position: 'absolute',
@@ -213,7 +213,7 @@ export default function YouTubeAdPreview({
         )}
 
         <Chip
-          label="Anuncio"
+          label="Ad"
           size="small"
           sx={{
             position: 'absolute',
@@ -294,7 +294,7 @@ export default function YouTubeAdPreview({
         }}
       >
         <Chip
-          label="Anuncio"
+          label="Ad"
           size="small"
           sx={{
             bgcolor: 'rgba(255,204,0,0.9)',
@@ -333,7 +333,7 @@ export default function YouTubeAdPreview({
       sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
     >
       <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, alignSelf: 'flex-start' }}>
-        Vista previa - {getFormatLabel(adFormat)}
+        Preview - {getFormatLabel(adFormat)}
       </Typography>
 
       {adFormat === 'IN_STREAM_SKIPPABLE' && renderInStreamPreview(true)}
@@ -348,9 +348,9 @@ export default function YouTubeAdPreview({
 function getFormatLabel(format: string): string {
   switch (format) {
     case 'IN_STREAM_SKIPPABLE':
-      return 'In-Stream (Saltable)';
+      return 'In-Stream (skippable)';
     case 'IN_STREAM_NON_SKIPPABLE':
-      return 'In-Stream (No Saltable)';
+      return 'In-Stream (non-skippable)';
     case 'IN_FEED':
       return 'In-Feed';
     case 'BUMPER':
