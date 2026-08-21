@@ -3,7 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeInternalRequest } from '@/lib/auth';
 import { syncPendingCampaign } from '@/lib/campaigns/pending';
 import logger from '@/lib/logger';
-import { getCampaignsPendingAssets } from '@/models/campaign';
+import {
+  getCampaignsPendingAssets,
+  getCampaignsStuckSyncing,
+  markCampaignError,
+} from '@/models/campaign';
+
+/** A publish runs inside one request; minutes of SYNCING means it died. */
+const STUCK_SYNCING_AFTER_MS = 15 * 60 * 1000;
 
 /**
  * GET /api/cron/sync-pending-campaigns
@@ -38,10 +45,29 @@ export async function GET(req: NextRequest) {
       errors.push(...result.errors);
     }
 
+    // Campaigns whose publish request died after creating the platform objects
+    // but before any ad. Nothing will ever move them on its own, so surface the
+    // failure instead of leaving the producer on "Publishing" forever.
+    const cutoff = new Date(Date.now() - STUCK_SYNCING_AFTER_MS);
+    const stuck = await getCampaignsStuckSyncing(cutoff);
+
+    for (const campaign of stuck) {
+      logger.warn(
+        { campaignId: campaign.id, metaCampaignId: campaign.metaCampaignId },
+        'Campaign stuck mid-publish; marking as errored'
+      );
+      await markCampaignError(campaign.id, {
+        message: 'Publishing was interrupted before your ads were created. Please try again.',
+      }).catch((error) => {
+        logger.error({ err: error, campaignId: campaign.id }, 'Could not mark stuck campaign');
+      });
+    }
+
     return NextResponse.json({
       processed: pendingCampaigns.length,
       synced: syncedCount,
       stillPending: stillPendingCount,
+      stuckSyncing: stuck.length,
       errors,
     });
   } catch (error) {

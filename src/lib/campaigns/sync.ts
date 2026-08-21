@@ -1,4 +1,4 @@
-import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError, clearMetaSync } from '@/models/campaign';
+import { updateCampaign, markCampaignSynced, markCampaignError, markGoogleCampaignSynced, markGoogleCampaignError, clearMetaSync, markCampaignSubmitted } from '@/models/campaign';
 import { markAdSynced, markAdError, markGoogleAdSynced } from '@/models/ad';
 import { setMetaVideoId } from '@/models/video';
 import { publish } from '@/lib/events';
@@ -411,6 +411,12 @@ export async function syncCampaignToMeta(
       }
     }
 
+    // At least one ad exists on Meta, so the campaign really is awaiting
+    // review. This is the only promotion out of SYNCING.
+    await markCampaignSubmitted(campaign.id).catch((error) => {
+      log.error({ err: error, campaignId: campaign.id }, 'Could not mark campaign as submitted');
+    });
+
     await emitProgress(filmId, campaign.id, 'complete', 100, 'Campaign created successfully!');
   }
 
@@ -659,6 +665,11 @@ export async function syncCampaignToGoogle(
 
   // Enable campaign and ad group after successful ad creation
   if (syncedAds.length > 0) {
+    // An ad exists on Google, so the campaign really is awaiting review.
+    await markCampaignSubmitted(campaign.id).catch((error) => {
+      log.error({ err: error, campaignId: campaign.id }, 'Could not mark campaign as submitted');
+    });
+
     try {
       await emitProgress(filmId, campaign.id, 'enabling', 90, 'Activating campaign in Google Ads...');
 

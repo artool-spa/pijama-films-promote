@@ -24,6 +24,8 @@ export function normalizeMetaStatus(status: string): NormalizedStatus {
       return { label: 'Pending', color: 'info' };
     case 'PENDING_ASSETS':
       return { label: 'Preparing media', color: 'info' };
+    case 'SYNCING':
+      return { label: 'Publishing', color: 'info' };
     case 'ERROR':
       return { label: 'Error', color: 'error' };
     case 'ARCHIVED':

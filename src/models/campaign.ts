@@ -7,7 +7,7 @@ import { withAds, withPartner, adsForCampaign, createdAtMillis } from './hydrate
 // SHARED SCHEMAS
 // ============================================================================
 
-const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING_ASSETS', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
+const MetaEntityStatusSchema = z.enum(['DRAFT', 'PENDING_ASSETS', 'SYNCING', 'PENDING', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'ERROR']);
 const CampaignObjectiveSchema = z.enum(['CONVERSIONS', 'LANDING_PAGE_VIEW']);
 const BudgetTypeSchema = z.enum(['DAILY', 'LIFETIME']);
 const AdPlatformSchema = z.enum(['META', 'GOOGLE']);
@@ -421,6 +421,27 @@ export async function getDraftCampaignsByPartnerId(partnerId: string) {
 /**
  * Get all campaigns with PENDING_ASSETS status (waiting for video uploads)
  */
+/**
+ * Campaigns stuck mid-publish: the platform objects exist but no ad was ever
+ * created, and the request that was creating them never finished.
+ *
+ * The sync is synchronous inside one request, so anything still SYNCING after a
+ * few minutes means that request died (deploy, timeout, crash). `olderThan`
+ * keeps a campaign being published right now out of the result.
+ */
+export async function getCampaignsStuckSyncing(olderThan: Date) {
+  const docs = await campaignDocs(campaigns().where('status', '==', 'SYNCING'));
+
+  const stale = docs.filter((doc) => {
+    const updatedAt = doc.updatedAt instanceof Date ? doc.updatedAt : null;
+    return updatedAt !== null && updatedAt < olderThan;
+  });
+
+  const hydrated = await withAds(await withPartner(stale));
+
+  return z.array(CampaignWithPartnerAndAdsSchema).parse(hydrated);
+}
+
 export async function getCampaignsPendingAssets() {
   const docs = await campaignDocs(campaigns().where('status', '==', 'PENDING_ASSETS'));
   // The original ordered oldest first.
@@ -533,8 +554,26 @@ export async function markCampaignSynced(
     metaCampaignId: validMetaCampaignId,
     imageAdSetId: validImageAdSetId,
     videoAdSetId: validVideoAdSetId,
-    status: 'PENDING',
+    // SYNCING, not PENDING: the campaign shell and its ad sets exist on Meta,
+    // but no ad has been created yet, so nothing is under review. Only
+    // `markCampaignSubmitted` may promote it, once an ad exists.
+    status: 'SYNCING',
     syncedAt: new Date(),
+    updatedAt: new Date(),
+  });
+}
+
+/**
+ * Promote a campaign to PENDING once at least one ad exists on the platform.
+ *
+ * This is the only place that may claim the campaign is awaiting review, and
+ * the caller must have a platform ad id in hand when it calls.
+ */
+export async function markCampaignSubmitted(id: string) {
+  const validId = IdSchema.parse(id);
+
+  return updateAndFetch(validId, {
+    status: 'PENDING',
     updatedAt: new Date(),
   });
 }
@@ -665,11 +704,14 @@ export async function markGoogleCampaignSynced(
   const validGoogleCampaignId = z.string().min(1).parse(googleCampaignId);
   const validGoogleAdGroupId = z.string().min(1).parse(googleAdGroupId);
 
-  // Preserve PENDING_ASSETS status if Meta hasn't synced yet
+  // Preserve PENDING_ASSETS status if Meta hasn't synced yet. Otherwise SYNCING,
+  // not PENDING: the Google campaign and ad group exist, but the ad does not, so
+  // there is nothing under review yet. `markCampaignSubmitted` promotes it once
+  // an ad is created.
   const snap = await campaigns().doc(validId).get();
   const current = docData(snap);
   const newStatus =
-    current?.status === 'PENDING_ASSETS' && !current?.metaCampaignId ? 'PENDING_ASSETS' : 'PENDING';
+    current?.status === 'PENDING_ASSETS' && !current?.metaCampaignId ? 'PENDING_ASSETS' : 'SYNCING';
 
   return updateAndFetch(validId, {
     googleCampaignId: validGoogleCampaignId,
