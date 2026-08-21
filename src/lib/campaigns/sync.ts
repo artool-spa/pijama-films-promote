@@ -387,6 +387,15 @@ export async function syncCampaignToMeta(
       );
     }
 
+    // The campaign was marked PENDING as soon as the Meta campaign object
+    // existed, long before any ad was attempted. Leaving it there tells the
+    // producer their ads are under review when nothing was ever submitted, and
+    // the SSE event below is gone the moment they reload. The Google path
+    // already does this (markGoogleCampaignError).
+    await markCampaignError(campaign.id, { message: errorMessage }).catch((error) => {
+      log.error({ err: error, campaignId: campaign.id }, 'Could not mark campaign as errored');
+    });
+
     await publish(filmId, {
       type: 'campaign_error',
       campaignId: campaign.id,
