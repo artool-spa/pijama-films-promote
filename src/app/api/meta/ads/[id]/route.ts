@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getAdById, updateAd, deleteAd, AdUpdateSchema } from '@/models/ad';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { getCampaignById } from '@/models/campaign';
+import { getImagesByIds } from '@/models/image';
+import { getVideosByIds } from '@/models/video';
 import { markAdSynced, markGoogleAdSynced, updateAdApproval } from '@/models/ad';
 import { resyncAdCreativeToMeta, resyncAdCreativeToGoogle } from '@/lib/campaigns/sync';
 
@@ -23,6 +25,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const ad = await getAdById(id);
 
     if (!ad) {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+    }
+
+    const campaign = await getCampaignById(ad.campaignId);
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
+      // Same 404 as a missing ad: a wrong-owner id must not be distinguishable
+      // from one that does not exist.
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
 
@@ -63,25 +72,104 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
 
+    const campaign = await getCampaignById(before.campaignId);
+    if (!campaign) {
+      return NextResponse.json({ error: 'Campaign not found for ad' }, { status: 500 });
+    }
+
+    const access = canManageCampaign(partner, campaign.partnerId);
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'You do not have permission to modify this campaign' },
+        { status: 403 }
+      );
+    }
+
+    const patch = parseResult.data;
+
+    // `AdSchema` exposes hydrated `images`/`videos`, not the raw id arrays, so
+    // the ids the ad would end up with have to be derived.
+    const nextImageIds = patch.imageIds ?? before.images.map((image) => image.id);
+    const nextVideoIds = patch.videoIds ?? before.videos.map((video) => video.id);
+
+    // Media of the wrong type is silently dropped at sync time (only `images`
+    // are sent for an IMAGE ad and only `videos` for a VIDEO one), and
+    // `adSetType` itself is immutable, so reject the combination outright.
+    if (before.adSetType === 'IMAGE' && nextVideoIds.length > 0) {
+      return NextResponse.json(
+        { error: 'This ad is an image ad; it cannot carry videos.' },
+        { status: 400 }
+      );
+    }
+    if (before.adSetType === 'VIDEO' && nextImageIds.length > 0) {
+      return NextResponse.json(
+        { error: 'This ad is a video ad; it cannot carry images.' },
+        { status: 400 }
+      );
+    }
+
+    if (nextImageIds.length + nextVideoIds.length === 0) {
+      return NextResponse.json(
+        { error: 'An ad must keep at least one image or video.' },
+        { status: 400 }
+      );
+    }
+
+    // The schema accepts any document id, so confirm the assets exist and
+    // belong to this campaign's film before attaching them.
+    const [nextImages, nextVideos] = await Promise.all([
+      getImagesByIds(nextImageIds),
+      getVideosByIds(nextVideoIds),
+    ]);
+
+    if (nextImages.length !== nextImageIds.length || nextVideos.length !== nextVideoIds.length) {
+      return NextResponse.json({ error: 'Unknown media asset.' }, { status: 400 });
+    }
+
+    const foreignMedia =
+      nextImages.some((image) => image.filmMuviUuid !== campaign.filmMuviUuid) ||
+      nextVideos.some((video) => video.filmMuviUuid !== campaign.filmMuviUuid);
+    if (foreignMedia) {
+      return NextResponse.json(
+        { error: 'Media does not belong to this film.' },
+        { status: 403 }
+      );
+    }
+
+    // A video without a `metaVideoId` is filtered out of the resync payload and
+    // Meta then rejects the creative outright. Refuse before writing so the ad
+    // is never left saved locally but unpushable.
+    if (
+      before.metaAdId &&
+      before.adSetType === 'VIDEO' &&
+      nextVideos.some((video) => !video.metaVideoId)
+    ) {
+      return NextResponse.json(
+        {
+          error: 'One of the selected videos is still uploading to Meta. Try again in a few minutes.',
+          code: 'VIDEO_NOT_READY',
+        },
+        { status: 400 }
+      );
+    }
+
     // 1) Save local changes first (idempotent).
-    const saved = await updateAd(id, parseResult.data);
+    const saved = await updateAd(id, patch);
 
     // 2) If the ad has a Meta/Google ID and creative fields changed, resync.
     const creativeChanged =
-      parseResult.data.headlines !== undefined ||
-      parseResult.data.bodies !== undefined ||
-      parseResult.data.descriptions !== undefined ||
-      parseResult.data.linkUrl !== undefined ||
-      parseResult.data.callToAction !== undefined;
+      patch.headlines !== undefined ||
+      patch.bodies !== undefined ||
+      patch.descriptions !== undefined ||
+      patch.linkUrl !== undefined ||
+      patch.callToAction !== undefined ||
+      patch.imageIds !== undefined ||
+      patch.videoIds !== undefined;
 
     const warnings: string[] = [];
     let updated = saved;
 
     if (creativeChanged && (before.metaAdId || before.googleAdId)) {
-      const campaign = await getCampaignById(before.campaignId);
-      if (!campaign) {
-        return NextResponse.json({ error: 'Campaign not found for ad' }, { status: 500 });
-      }
       const adWithMedia = await getAdById(id);
       if (!adWithMedia) {
         return NextResponse.json({ error: 'Ad not found after update' }, { status: 500 });
@@ -152,6 +240,17 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { id } = await params;
+
+    const ad = await getAdById(id);
+    if (!ad) {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+    }
+
+    const campaign = await getCampaignById(ad.campaignId);
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+    }
+
     await deleteAd(id);
 
     return NextResponse.json({ success: true });

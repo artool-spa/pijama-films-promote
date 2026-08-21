@@ -56,7 +56,15 @@ export const AdUpdateSchema = z
     videoIds: z.array(DocIdSchema).max(10).optional(),
     metaAdId: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    // Emptying both lists would leave the ad with no creative, and the platform
+    // resync then fails with an opaque error. A patch carrying only one of the
+    // two arrays is ambiguous here — the schema cannot see the other one — so
+    // the authoritative check lives in the PATCH route, against the saved ad.
+    (data) => !(data.imageIds?.length === 0 && data.videoIds?.length === 0),
+    { message: 'An ad must keep at least one image or video', path: ['imageIds'] }
+  );
 
 export const AdBulkCreateSchema = z
   .object({

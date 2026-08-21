@@ -6,7 +6,6 @@ const baseValues: AdEditFormValues = {
   headlines: ['Watch the film'],
   bodies: ['A quiet story about a long summer.'],
   descriptions: ['Rent it tonight'],
-  linkUrl: 'https://pijama.film/films/abc',
 };
 
 function renderForm(props: Partial<React.ComponentProps<typeof AdEditForm>> = {}) {
@@ -28,6 +27,37 @@ describe('AdEditForm', () => {
 
     expect(screen.queryByLabelText(/call to action/i)).toBeNull();
     expect(screen.queryByText(/watch more/i)).toBeNull();
+  });
+
+  it('does not render a destination URL field', () => {
+    renderForm();
+
+    // The URL is derived from the film's rental URL and must not be editable.
+    expect(screen.queryByLabelText(/destination url/i)).toBeNull();
+  });
+
+  it('reports live values to onChange as the producer types', async () => {
+    const onChange = vi.fn();
+    renderForm({ onChange });
+    onChange.mockClear(); // Ignore the call on mount.
+
+    fireEvent.change(inputsUnder('Headlines')[0], { target: { value: 'A new headline' } });
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ headlines: ['A new headline'] })
+      )
+    );
+  });
+
+  it('blocks submit when submitDisabled is set', async () => {
+    const { onSubmit } = renderForm({ submitDisabled: true });
+
+    const button = screen.getByRole('button', { name: 'Save changes' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    fireEvent.click(button);
+    await waitFor(() => expect(onSubmit).not.toHaveBeenCalled());
   });
 
   it('renders the custom submit label', () => {
@@ -80,9 +110,6 @@ describe('AdEditForm', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]);
     const headlineInputs = inputsUnder('Headlines');
     fireEvent.change(headlineInputs[headlineInputs.length - 1], { target: { value: '  ' } });
-    fireEvent.change(screen.getByLabelText(/destination url/i), {
-      target: { value: '  https://pijama.film/films/xyz  ' },
-    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -91,7 +118,6 @@ describe('AdEditForm', () => {
       headlines: ['Watch the film'],
       bodies: ['A quiet story about a long summer.'],
       descriptions: ['Rent it tonight'],
-      linkUrl: 'https://pijama.film/films/xyz',
     });
   });
 

@@ -9,7 +9,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /** Meta caps headlines at 255 chars; Google Demand Gen caps them at 40. */
 const META_HEADLINE_MAX_LENGTH = 255;
@@ -18,14 +18,17 @@ export type AdEditFormValues = {
   headlines: string[];
   bodies: string[];
   descriptions: string[];
-  linkUrl: string;
 };
 
 export type AdEditFormProps = {
   initial: AdEditFormValues;
   onSubmit: (values: AdEditFormValues) => Promise<void>;
+  /** Live values, for a preview. Fires on every edit. */
+  onChange?: (values: AdEditFormValues) => void;
   onCancel?: () => void;
   submitting?: boolean;
+  /** Blocks submit from outside the form, e.g. when no media is selected. */
+  submitDisabled?: boolean;
   submitLabel?: string;
   /** Tighter headline limit for Google-synced ads. Defaults to Meta's 255. */
   headlineMaxLength?: number;
@@ -112,8 +115,10 @@ function TextFieldArrayEditor({
 export default function AdEditForm({
   initial,
   onSubmit,
+  onChange,
   onCancel,
   submitting,
+  submitDisabled,
   submitLabel = 'Save changes',
   headlineMaxLength = META_HEADLINE_MAX_LENGTH,
   requireDescription = false,
@@ -123,12 +128,21 @@ export default function AdEditForm({
   const [descriptions, setDescriptions] = useState<string[]>(
     initial.descriptions.length > 0 ? initial.descriptions : ['']
   );
-  const [linkUrl, setLinkUrl] = useState<string>(initial.linkUrl);
   const [errors, setErrors] = useState<{
     headlines?: string;
     bodies?: string;
     descriptions?: string;
   }>({});
+
+  // Report live values through a ref: callers pass an inline arrow and store
+  // the result in state, so depending on `onChange` itself would loop.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+  useEffect(() => {
+    onChangeRef.current?.({ headlines, bodies, descriptions });
+  }, [headlines, bodies, descriptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +151,6 @@ export default function AdEditForm({
       headlines: headlines.filter((h) => h.trim().length > 0),
       bodies: bodies.filter((b) => b.trim().length > 0),
       descriptions: descriptions.filter((d) => d.trim().length > 0),
-      linkUrl: linkUrl.trim(),
     };
 
     // The server rejects empty headlines/bodies with an opaque 400, so catch it here.
@@ -202,14 +215,10 @@ export default function AdEditForm({
           }
         />
 
-        <TextField
-          label="Destination URL"
-          fullWidth
-          size="small"
-          value={linkUrl}
-          onChange={(e) => setLinkUrl(e.target.value)}
-          required
-        />
+        {/*
+          No destination URL field: it is derived from the film's rental URL when
+          the campaign is created, and UTM parameters are appended at sync time.
+        */}
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
           {onCancel && (
@@ -217,7 +226,12 @@ export default function AdEditForm({
               Cancel
             </Button>
           )}
-          <Button type="submit" variant="contained" color="primary" disabled={submitting}>
+          <Button
+            type="submit"
+            variant="contained"
+            color="primary"
+            disabled={submitting || submitDisabled}
+          >
             {submitting ? 'Saving...' : submitLabel}
           </Button>
         </Box>

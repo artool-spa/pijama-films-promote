@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
-  AlertTitle,
   Box,
   Breadcrumbs,
   Button,
@@ -20,18 +19,20 @@ import {
   Typography,
 } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
-import AdEditForm, { type AdEditFormValues } from '@/components/AdEditForm';
+import { type AdEditFormValues } from '@/components/AdEditForm';
+import AdContentEditor from './AdContentEditor';
 import type { Film } from '@/models/film';
 import type { CampaignWithPartnerAndAds } from '@/models/campaign';
-
-/** Google Demand Gen caps headlines at 40 chars; Meta allows 255. */
-const GOOGLE_HEADLINE_MAX_LENGTH = 40;
+import type { ImageWithUsage } from '@/models/image';
+import type { VideoWithUsage } from '@/models/video';
 
 type CampaignAd = CampaignWithPartnerAndAds['ads'][number];
 
 export type CampaignEditClientProps = {
   film: Film;
   campaign: CampaignWithPartnerAndAds;
+  images: ImageWithUsage[];
+  videos: VideoWithUsage[];
   focusSection: 'ad' | null;
   focusAdId: string | null;
 };
@@ -43,6 +44,8 @@ function sameStrings(a: string[], b: string[]): boolean {
 export default function CampaignEditClient({
   film,
   campaign,
+  images,
+  videos,
   focusSection,
   focusAdId,
 }: CampaignEditClientProps) {
@@ -67,26 +70,12 @@ export default function CampaignEditClient({
     : selectedAd?.googleAdId
       ? 'GOOGLE'
       : null;
-  const isGoogleAd = !!selectedAd?.googleAdId;
 
   // Deep link from the ads list ("Edit ad" / "Fix and resubmit").
   useEffect(() => {
     if (focusSection !== 'ad') return;
     adSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusSection]);
-
-  const adFormInitial = useMemo<AdEditFormValues | null>(
-    () =>
-      selectedAd
-        ? {
-            headlines: selectedAd.headlines,
-            bodies: selectedAd.bodies,
-            descriptions: selectedAd.descriptions,
-            linkUrl: selectedAd.linkUrl,
-          }
-        : null,
-    [selectedAd]
-  );
 
   const handleCampaignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,18 +130,30 @@ export default function CampaignEditClient({
     }
   };
 
-  const handleAdSubmit = async (ad: CampaignAd, values: AdEditFormValues) => {
+  const handleAdSubmit = async (ad: CampaignAd, values: AdEditFormValues, mediaIds: string[]) => {
+    if (mediaIds.length === 0) {
+      setSnack({ message: 'Select at least one asset.', severity: 'error' });
+      return;
+    }
+
     setSavingAd(true);
     try {
       // Only send what actually changed: the API treats any creative field as a
       // change and rebuilds the ad on the platform, which restarts review.
-      const payload: Partial<AdEditFormValues> = {};
+      const payload: Record<string, unknown> = {};
       if (!sameStrings(values.headlines, ad.headlines)) payload.headlines = values.headlines;
       if (!sameStrings(values.bodies, ad.bodies)) payload.bodies = values.bodies;
       if (!sameStrings(values.descriptions, ad.descriptions)) {
         payload.descriptions = values.descriptions;
       }
-      if (values.linkUrl !== ad.linkUrl) payload.linkUrl = values.linkUrl;
+      // linkUrl is never sent: it is derived from the film's rental URL.
+      if (ad.adSetType === 'IMAGE') {
+        const current = ad.images.map((image) => image.id);
+        if (!sameStrings(mediaIds, current)) payload.imageIds = mediaIds;
+      } else {
+        const current = ad.videos.map((video) => video.id);
+        if (!sameStrings(mediaIds, current)) payload.videoIds = mediaIds;
+      }
 
       if (Object.keys(payload).length === 0) {
         setSnack({ message: 'No changes to save', severity: 'warning' });
@@ -279,7 +280,7 @@ export default function CampaignEditClient({
               Ad content
             </Typography>
 
-            {!selectedAd || !adFormInitial ? (
+            {!selectedAd ? (
               <Alert severity="info" sx={{ mt: 2 }}>
                 This campaign has no ads yet.
               </Alert>
@@ -317,36 +318,20 @@ export default function CampaignEditClient({
                   </Typography>
                 )}
 
-                {selectedAd.approvalStatus === 'DISAPPROVED' && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    <AlertTitle>This ad was rejected</AlertTitle>
-                    {selectedAd.rejectionReason}
-                    {selectedAd.suggestedCorrection && (
-                      <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5 }}>
-                        {selectedAd.suggestedCorrection.split(' • ').map((tip, i) => (
-                          <li key={i}>{tip}</li>
-                        ))}
-                      </Box>
-                    )}
-                  </Alert>
-                )}
-
-                <Alert severity={adPlatform ? 'warning' : 'info'} sx={{ mb: 3 }}>
-                  {adPlatform
-                    ? `Saving replaces the creative on ${
-                        adPlatform === 'META' ? 'Meta' : 'Google Ads'
-                      }. The platform will publish a new ad, pause the current one, and the ad will re-enter review before it starts delivering again.`
-                    : 'This ad has not been published to any platform yet. Changes are saved locally only.'}
-                </Alert>
-
-                <AdEditForm
+                {/*
+                  Keying the whole editor resets copy, media and preview
+                  together, both when switching ads and after a save bumps
+                  `updatedAt` through router.refresh().
+                */}
+                <AdContentEditor
                   key={`${selectedAd.id}:${new Date(selectedAd.updatedAt).getTime()}`}
-                  initial={adFormInitial}
-                  onSubmit={(values) => handleAdSubmit(selectedAd, values)}
-                  submitting={savingAd}
-                  submitLabel="Save ad content"
-                  headlineMaxLength={isGoogleAd ? GOOGLE_HEADLINE_MAX_LENGTH : undefined}
-                  requireDescription={isGoogleAd}
+                  film={film}
+                  campaign={campaign}
+                  ad={selectedAd}
+                  images={images}
+                  videos={videos}
+                  saving={savingAd}
+                  onSubmit={(values, mediaIds) => handleAdSubmit(selectedAd, values, mediaIds)}
                 />
               </>
             )}
