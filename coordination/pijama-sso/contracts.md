@@ -1,0 +1,174 @@
+# Contratos — SSO Atlas Console
+
+_Mantenido por T0. Un agente que necesite cambiar un contrato **para y reporta**; no lo
+cambia por su cuenta._
+
+---
+
+## Contrato A — `POST /api/auth/atlas/session`
+
+**Productor:** T1 · **Consumidor:** T2 · **Estado:** definido por T0, pendiente de validación
+
+### Request
+
+```ts
+{ token: string, mode: 'probe' | 'login' }
+```
+
+Validado con Zod. `token` no vacío. `mode` es enum estricto.
+
+### Response 200 — `mode: 'probe'`
+
+```ts
+{
+  ok: true,
+  diagnostics: {
+    atlasUrlTried:      string,           // la URL exacta que se llamó
+    atlasStatus:        number,           // HTTP que devolvió Atlas
+    contractMatched:    boolean,          // ¿la forma calzó con el Contrato C?
+    partner:            { name: string, email: string,
+                          muviUuid: string, partnerId: string } | null,
+    movieCount:         number,
+    movieSample:        Array<{ title: string, muviUuid: string }>,  // máx 3
+    responseShapeKeys:  string[]          // keys de nivel superior de lo que llegó
+  }
+}
+```
+
+`responseShapeKeys` es lo que permite diagnosticar sin ver datos: si llega
+`['status','data']` el contrato calza; si llega `['error']` o el body no es JSON, no.
+
+### Response 200 — `mode: 'login'`
+
+```ts
+{ ok: true, redirectTo: '/films' }
+```
+
+Más `Set-Cookie: pijama-session` (httpOnly, secure en producción, sameSite lax, 7 días),
+emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.ts`.
+
+### Response de error — 4xx / 5xx
+
+```ts
+{
+  ok: false,
+  stage: 'input' | 'atlas_call' | 'contract' | 'allowlist' | 'session',
+  message: string,
+  diagnostics?: { ... }    // el mismo objeto de arriba, parcial, cuando aplique
+}
+```
+
+`stage` es **obligatorio**. Es lo que permite responder *dónde* se rompió en vez de
+"falló". Sin `stage` el endpoint no cumple el contrato.
+
+| `stage` | Significa |
+|---|---|
+| `input` | El body no pasó Zod |
+| `atlas_call` | No se pudo llegar a Atlas (red, DNS, timeout) o devolvió no-2xx |
+| `contract` | Atlas respondió 2xx pero la forma no calza con el Contrato C |
+| `allowlist` | El `partnerId` no está en la allowlist, o la allowlist está vacía/ausente |
+| `session` | Falló emitir la cookie o el upsert del partner |
+
+### Reglas duras
+
+- El token **nunca** se devuelve ni se loguea. Solo largo y prefijo.
+- El modo `probe` **nunca** emite cookie ni crea partners.
+- Fail-closed: allowlist vacía o ausente ⇒ `stage:'allowlist'`. Nunca "vacío = todos".
+- El JWT es **opaco**: no se decodifica para autorizar. La autoridad es Atlas.
+
+---
+
+## Contrato B — envelope del `postMessage`
+
+**Productor:** Crazy Cake (externo) · **Consumidor:** T2 · **Estado:** documentado, no observado
+
+```js
+{ type: 'ATLAS_AUTH', token: string, partner: { name: string, email: string } }
+```
+
+Fuente: correo de Mathias Beckhaus del 8 de enero de 2026. El campo `partner` aparece en
+el correo pero **no** en el markdown adjunto — el correo es la fuente más completa.
+
+Orígenes permitidos (vía `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS`):
+
+| Ambiente | Origen |
+|---|---|
+| Testing | `https://dashboard-lab.pijamafilms.com` |
+| Producción | `https://dashboard.pijamafilms.com` |
+
+**Trampa conocida:** el ejemplo de código de Crazy Cake valida contra el origen del lab
+en literal. Copiarlo tal cual **rompe producción**. La validación es por ambiente.
+
+Mecánica: Console abre nuestra URL con `_blank` (ventana nueva, no iframe) y postea al
+`window` resultante. Por eso `X-Frame-Options: SAMEORIGIN` en `next.config.mjs` no
+estorba, y por eso hay race de timing (ver requisito de listener pre-paint en el spec).
+
+---
+
+## Contrato C — endpoint de películas de Atlas
+
+**Productor:** Crazy Cake (externo) · **Consumidor:** T1 · **Estado:** 🔴 **NO VERIFICADO — riesgo del proyecto**
+
+### Lo documentado
+
+```
+GET {ATLAS_API_BASE_URL}/movies/by-partner
+Authorization: Bearer <jwt>
+
+200 → { status: 'ok',
+        data: { partner: { name, email, muviUuid, partnerId },
+                movies: [ { _id, title, description, genre[], duration,
+                            releaseYear, muviUuid, status, assets[], createdAt } ] } }
+401 → MISSING_TOKEN     403 → TOKEN_EXPIRED / PARTNER_DISABLED
+```
+
+### Lo medido por T0 el 2026-08-26
+
+| Sonda | Resultado | Contradice el documento |
+|---|---|---|
+| `OPTIONS` con `Origin` nuestro | `302`, sin `Access-Control-Allow-Origin` | Sí — el `fetch` de navegador que documentan es imposible |
+| `GET` sin token | `302 → /auth/auth/logout` | Sí — promete `401` JSON |
+| `GET` con token inválido | `302 → /auth/auth/logout`, idéntico | Sí — promete `403` JSON, y no distingue de "sin token" |
+| `api.pijamafilms.com` | NXDOMAIN | El default de `src/lib/pijama/index.ts:12` apunta a la nada |
+
+### Cómo se cierra este contrato
+
+No se cierra por diseño: se cierra **midiendo con un token real**. Por eso:
+
+- `ATLAS_API_BASE_URL` es env var, para reapuntar sin redeploy de código.
+- T1 reporta `responseShapeKeys` y `atlasStatus` crudos, sin asumir la forma documentada.
+- Si el resultado difiere de lo documentado, **es un hallazgo para JP**, no un fix nuestro.
+
+**Caso ambiguo previsto:** si `movies` viene vacío, la forma decide.
+`{status:'ok', data:{partner:{...}, movies:[]}}` prueba que el contrato funciona sin
+datos. Un `302`, o un body con otras keys, prueba que no. La cuenta del lab que JP tiene
+muestra 0 créditos y "0 AVAILABLE", así que el caso vacío es probable.
+
+---
+
+## Divergencias de stack declaradas
+
+Perfil base: `artool-pijama-promote-stack` (nuevo, creado en este proyecto).
+Hereda de `artool-utils` los gotchas de App Hosting, secrets y verificación de deploy.
+
+Diverge de `artool-utils` en:
+
+| Dimensión | `artool-utils` | este repo |
+|---|---|---|
+| UI | Tailwind + shadcn/ui | **MUI 7.3** |
+| Functions | Python (`functions/main.py`) | **TypeScript** |
+| Auth | Google OAuth `@artool.cl` | **Firebase email/password** + cookie propia |
+| Analítica | BigQuery | ninguna |
+| Idioma de UI | español | **inglés** |
+
+---
+
+## Decisiones de JP registradas
+
+| # | Decisión | Fecha |
+|---|---|---|
+| 1 | Crear el perfil de stack nuevo ahora y usarlo desde el arranque | 2026-08-26 |
+| 2 | Login habilitado en producción, restringido por allowlist de `partnerId` | 2026-08-26 |
+| 3 | El caso "lab sin películas" lo determina el agente y reporta la evidencia | 2026-08-26 |
+| 4 | Fuera de alcance: filtrado de películas por partner en `getFilms()` | 2026-08-26 |
+| 5 | PRs #45 y #46 quedan fuera de este proyecto | 2026-08-26 |
