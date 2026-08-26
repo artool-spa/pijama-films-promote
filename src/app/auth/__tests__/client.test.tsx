@@ -308,7 +308,12 @@ describe('AtlasAuthClient — Contract A results', () => {
     expect(
       await screen.findByText("quota_exceeded (newer than this page — showing the server's own message)")
     ).toBeTruthy();
-    expect(screen.getAllByText('Out of quota until 10:00.').length).toBeGreaterThan(0);
+    // The message has to reach the "what this means" slot, not merely appear
+    // somewhere on the page as the raw Message row.
+    expect(screen.getByText('What this means')).toBeTruthy();
+    // Three times: the banner verdict, the "what this means" row, and the raw
+    // Message row. All three are the server's own words rather than our verdict.
+    expect(screen.getAllByText('Out of quota until 10:00.').length).toBe(3);
     expect(screen.queryByText(/not a Contract A stage/)).toBeNull();
   });
 

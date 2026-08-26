@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  ATLAS_ERROR_STAGES,
+  STAGE_CONCLUSION,
   atlasAuthEnvelopeSchema,
   describeToken,
   formatTokenFingerprint,
@@ -8,6 +10,7 @@ import {
   isValidOriginLiteral,
   parseAllowedOrigins,
   parseSessionResponse,
+  stageConclusion,
 } from '../atlas-bridge';
 
 const LAB = 'https://dashboard-lab.pijamafilms.com';
@@ -135,6 +138,38 @@ describe('atlasAuthEnvelopeSchema (Contract B)', () => {
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, token: '' }).success).toBe(false);
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, partner: undefined }).success).toBe(false);
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, type: 'ATLAS_AUTH_V2' }).success).toBe(false);
+  });
+});
+
+describe('the stage taxonomy', () => {
+  it('is the eight stages the server domain defines, in its order', () => {
+    // Hand-maintained copy of `AtlasSessionStage` in src/lib/atlas/types.ts, which
+    // is not on this branch yet. Until it is, this list is the only thing standing
+    // between a new stage and a legitimate response rendering as a contract
+    // violation — it has fallen behind three times already.
+    expect([...ATLAS_ERROR_STAGES]).toEqual([
+      'input',
+      'rate_limited',
+      'atlas_call',
+      'contract',
+      'no_partner',
+      'disabled',
+      'allowlist',
+      'session',
+    ]);
+  });
+
+  it('has exactly one conclusion per stage, and no orphans either way', () => {
+    // The two structures drifting apart is the failure this guards: a stage in the
+    // list with no conclusion renders blank, and a conclusion with no stage is a
+    // rename nobody finished.
+    expect(Object.keys(STAGE_CONCLUSION).sort()).toEqual([...ATLAS_ERROR_STAGES].sort());
+  });
+
+  it('says something for every one of them', () => {
+    for (const stage of ATLAS_ERROR_STAGES) {
+      expect(stageConclusion(stage)?.length ?? 0).toBeGreaterThan(20);
+    }
   });
 });
 
