@@ -160,6 +160,28 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 
 ## Lecciones / gotchas (materia prima del cierre compound)
 
+- **Un mutante que MATA también es una pregunta, si cambió más de una cosa.** Es el caso
+  simétrico de "un mutante que sobrevive es una pregunta", y el que efectivamente mordió.
+  T2 archivó un mutante como agujero real; descompuesto resultó que **las dos mitades son
+  equivalentes por separado** —mover el `scrub` una línea antes: 0 rojos; leer el token de
+  `message.payload` en vez de la copia de Zod: 0 rojos— y solo la conjunción produce el
+  fallo. Verificado por T0 con las dos mitades aisladas: 504/504 en ambas. Le atribuyó la
+  muerte a la mitad equivocada y escribió ese modelo causal falso en un comentario.
+  **La disciplina que faltaba es barata: un mutante, un cambio.** Si el parche toca dos
+  cosas, correr las mitades por separado **antes** de escribir el porqué.
+  Agravante que vale registrar: T2 formuló la regla de los mutantes compuestos dos secciones
+  más arriba del mismo documento en que violó su caso simétrico. **Escribir la regla no
+  protege de su punto ciego.**
+  _(candidato: cuerpo de skill de domain-agent — alta prioridad)_
+- **T0 confundió a dos auditores con nombres parecidos y atribuyó mal cuatro hallazgos.**
+  Tercer error de atribución del proyecto. La auditoría del dominio de la página —los cuatro
+  mutantes vivos en los dos `page.tsx` sin cobertura, y la contradicción entre el copy del
+  simulador y el flujo documentado— fue de **T1b**, no de T2b. El propio T2b la rechazó:
+  *"acabo de pasar la sesión insistiendo en la procedencia; aceptar en silencio dos hallazgos
+  ajenos volvería falso justo el registro que estuve cuidando."* **Atribuir contra el
+  artefacto (el mensaje, el commit), no contra la memoria de quién estaba asignado a qué.**
+  _(candidato: cuerpo de skill de T0)_
+
 - **El MISMO test puede ponerse rojo por la propiedad con un mutante y por setup roto con
   otro — y la tabla mutante→test los muestra idénticos.** Hallazgo de T1b/T2b, y es el
   avance metodológico del proyecto. El test *"no queda token en el global"* aparecía rojo
