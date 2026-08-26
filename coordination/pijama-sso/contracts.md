@@ -52,7 +52,7 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 ```ts
 {
   ok: false,
-  stage: 'input' | 'atlas_call' | 'contract' | 'allowlist' | 'session',
+  stage: 'input' | 'atlas_call' | 'contract' | 'no_partner' | 'allowlist' | 'session',
   message: string,
   diagnostics?: { ... }    // el mismo objeto de arriba, parcial, cuando aplique
 }
@@ -66,8 +66,21 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 | `input` | El body no pasó Zod |
 | `atlas_call` | No se pudo llegar a Atlas (red, DNS, timeout) o devolvió no-2xx |
 | `contract` | Atlas respondió 2xx pero la forma no calza con el Contrato C |
-| `allowlist` | El `partnerId` no está en la allowlist, o la allowlist está vacía/ausente |
+| `no_partner` | Atlas respondió 2xx **con la forma correcta**, pero `data.partner` es `null` o sin `partnerId`. La cuenta autentica y no es un partner |
+| `allowlist` | El `partnerId` no está en la allowlist, la allowlist está vacía/ausente, o `ATLAS_LOGIN_ENABLED` está apagado (el mensaje distingue cuál) |
 | `session` | Falló emitir la cookie o el upsert del partner |
+
+### Interpretaciones resueltas por T0 (2026-08-26)
+
+- **`probe` con shape mismatch ⇒ 200**, con `contractMatched: false` y `responseShapeKeys`
+  reales. Una sonda **reporta, no juzga**; un mismatch es su resultado más valioso, no un
+  error.
+- **`ATLAS_LOGIN_ENABLED=false` ⇒ `stage:'allowlist'`**, con mensaje que distinga "login
+  deshabilitado" de "partner fuera de la lista". Dos causas del mismo rechazo; el operador
+  necesita saber cuál.
+- **`partner: null` en `login` ⇒ `stage:'no_partner'`, NO `'contract'`.** Colapsar los dos
+  destruye la distinción que el proyecto necesita, y es el caso más probable en la primera
+  prueba real porque la cuenta disponible es de administrador.
 
 ### Reglas duras
 

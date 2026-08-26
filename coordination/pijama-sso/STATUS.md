@@ -18,9 +18,9 @@ ajeno antes de continuarlo. **T2 sigue en vuelo.**
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas | ⚫ Caído (conexión) | Entregó 809 líneas en `7577b85`; sin tests ni readme | — |
+| T1 | Servidor Atlas | ⚫ Dado de baja | Entregó `7577b85`; orden de stand down por riesgo de colisión con T1b | — |
 | T1b | Servidor Atlas (relevo) | 🟡 En progreso | Auditoría de lo heredado + tests + readme | — |
-| T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | Página `/auth` + simulador local | — |
+| T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
 
@@ -91,6 +91,17 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 
 ## Decisiones Resueltas
 
+_Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos):_
+
+| # | Decisión | Razón |
+|---|---|---|
+| 8 | `stage:'no_partner'` agregado al Contrato A | "Autentica pero no es partner" no es contrato roto. Caso más probable en la primera prueba: la cuenta es admin |
+| 9 | `PUBLIC_ROUTES` recibe el path exacto `/dev/atlas-simulator`, **no** el prefijo `/dev/` | Mínimo privilegio. El prefijo publicaría cualquier ruta futura bajo `/dev/` |
+| 10 | El simulador se queda en `/dev/atlas-simulator` | Mover a `/auth/simulator` ensucia el segmento que Crazy Cake tiene configurado |
+| 11 | `/auth` en modo `login` rechazado ⇒ corre el probe **automáticamente** | JP prueba una sola vez; el diagnóstico no puede quedar detrás de un click opcional |
+| 12 | La concesión de origen en dev debe anunciarse **visiblemente** en el panel | Un verde que llega por allowlist ensanchada no prueba la allowlist real |
+
+
 | # | Descripción | Decisión | Fecha |
 |---|-------------|----------|-------|
 | 1 | Perfil de stack para este repo | Crear `artool-pijama-promote-stack` y usarlo desde el arranque | 2026-08-26 |
@@ -139,6 +150,13 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
   de respuesta y no se perdió una línea porque tenía orden de commitear apenas cada pieza
   estuviera lista. El costo de la instrucción es cero; el de omitirla es todo el trabajo.
   _(candidato: ya está en el cuerpo de la skill, confirma su valor)_
+- **Un mensaje de un agente caído puede llegar DESPUÉS de haberlo relevado, y suena a
+  trabajo en curso.** T1 reportó "voy ahora a los tests" después de que su reemplazo ya
+  estaba corriendo en el mismo worktree. Creerle habría puesto dos agentes escribiendo los
+  mismos archivos. El tell es la incoherencia temporal, no el contenido: el mensaje era
+  correcto para el mundo en que se escribió. Al relevar a un agente caído, **ordénale
+  explícitamente parar** en vez de asumir que su caída lo dejó inerte.
+  _(candidato: cuerpo de skill de T0)_
 - **Un cuelgue deja el DoD parcial de forma asimétrica: entrega el código y se come los
   tests.** Los tests van al final, así que son lo primero que se pierde. Al relevar, el
   estado "código sin tests" se ve idéntico a "código listo" en un `git log`. Verificar el
