@@ -28,15 +28,44 @@ function getSecretKey(): Uint8Array {
 // and each route authorizes that token itself via authorizeInternalRequest.
 // Leaving either one out here means the middleware answers 401 before the route
 // ever runs.
+//
+// `/api/auth/atlas/` is the Atlas SSO exchange: it is called by the `/auth`
+// landing page, which by definition has no session cookie yet, and it
+// authorizes itself on Atlas' answer plus a partner allowlist.
 const PUBLIC_ROUTES = [
   '/login',
   '/api/auth/login',
+  '/api/auth/atlas/',
   '/api/cron/',
   '/api/internal/',
   '/privacy-policy',
   '/terms-of-service',
   '/auth',
 ];
+
+// Routes matched EXACTLY, not by prefix, and never in production.
+//
+// The simulator posts a synthetic ATLAS_AUTH message at /auth so the SSO can be
+// exercised without Crazy Cake. It is only reachable with no session - that is
+// the whole scenario it covers - so the middleware has to let it through.
+//
+// Two properties of this list are load-bearing:
+//
+//  1. Exact match, not a '/dev/' entry in PUBLIC_ROUTES. That list is matched
+//     with startsWith, so '/dev/' would publish every future route under /dev/
+//     the moment someone adds one. A sub-route of the simulator needs its own
+//     entry here - deliberately so; the next person should have to think.
+//  2. Empty in production. "The simulator is unreachable in production" is a
+//     two-layer contract: this guard, and the notFound() in the page itself
+//     (src/app/dev/atlas-simulator/page.tsx). Neither layer may be removed on
+//     the assumption that the other one holds.
+const PUBLIC_EXACT_ROUTES = ['/dev/atlas-simulator'];
+
+function isPublicExactRoute(pathname: string): boolean {
+  if (process.env.NODE_ENV === 'production') return false;
+
+  return PUBLIC_EXACT_ROUTES.includes(pathname);
+}
 
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
@@ -46,7 +75,10 @@ export async function middleware(request: NextRequest) {
   const start = Date.now();
 
   // Allow public routes
-  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
+  if (
+    PUBLIC_ROUTES.some((route) => pathname.startsWith(route)) ||
+    isPublicExactRoute(pathname)
+  ) {
     return withRequestLog(request, NextResponse.next(), start);
   }
 
