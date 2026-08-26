@@ -17,8 +17,8 @@ propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas (dueño) | 🟡 En progreso | `9b56405`: 912 líneas de tests. Falta `no_partner`, `/dev/` en middleware, readme, reporte de mutación | — |
-| T1b | Auditor del dominio servidor | 🟡 En progreso | Auditoría (lista) + verificación por mutación en worktree propio | — |
+| T1 | Servidor Atlas (dueño) | 🟡 Reabierto | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
+| T1b | Auditor | 🟡 En progreso | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
 | T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
@@ -32,7 +32,7 @@ archivos son disjuntos.
 
 | Contrato | Productor | Consumidor | Estado |
 |----------|-----------|------------|--------|
-| A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Implementado + 50 tests, **mutación sin verificar** |
+| A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Implementado + 75 tests, 41 mutaciones sin sobrevivientes. **Pendiente: F2, F3** |
 | B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
 
@@ -147,6 +147,29 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 ---
 
 ## Lecciones / gotchas (materia prima del cierre compound)
+
+- **El cruce de mensajes va en las DOS direcciones, y la que sobreestima es la conocida.**
+  Ya habíamos visto un reporte que sonaba a cierre sobre trabajo viejo. Esta vez pasó lo
+  inverso: T1 declaró "DoD cerrado, working tree limpio" y el árbol tenía **más** que el
+  reporte — los cinco arreglos aplicados y 114 líneas sin commitear. Un informe que
+  **subestima** el avance es igual de peligroso: lleva a re-despachar trabajo ya hecho, y
+  deja sin cubrir lo que de verdad falta. La única lectura confiable del avance es el
+  árbol; el informe solo dice qué creía el agente cuando lo escribió.
+  _(candidato: cuerpo de skill de T0)_
+- **Un agente puede irse a idle con trabajo sin commitear, y el idle se lee como "terminó".**
+  T1 aplicó 114 líneas de arreglos y se declaró disponible sin commitear. La instrucción
+  "commitea apenas la feature esté lista" no basta por sí sola: hay que **verificar
+  `git status` en cada reporte de cierre**, porque "hecho sin commitear" y "a medias" son
+  el mismo estado visto desde afuera.
+  _(candidato: cuerpo de skill de T0)_
+- **Una instrucción de T0 puede ser semánticamente incoherente y el agente puede corregirla
+  bien.** Pedí "agrega el path exacto a `PUBLIC_ROUTES`" sobre una lista matcheada con
+  `startsWith`: la instrucción, aplicada literal, no habría hecho lo que decía. T1 creó una
+  lista separada con match exacto y documentó por qué. Es la cláusula de "reportar la
+  frontera es preferible a cruzarla" funcionando en su variante silenciosa: no escaló, hizo
+  lo correcto y lo explicó en el código. Vale registrarlo como evidencia de que la cláusula
+  se paga sola.
+  _(candidato: cuerpo de skill de domain-agent)_
 
 - **Un agente que se cae por error de conexión no corrompe el árbol, pero la instrucción
   de "pushea desde el primer commit" es lo que hace que eso sea verdad.** T1 murió a mitad
