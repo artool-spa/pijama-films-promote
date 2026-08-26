@@ -4,11 +4,10 @@ _Última actualización: 2026-08-26 · Actualizado por: T0_
 
 ## Estado actual
 
-Paso 1 en curso. **T1 entregó el código del dominio servidor y se cayó por error de
-conexión** antes de tests y readme; su trabajo quedó commiteado y pusheado (`7577b85`,
-árbol limpio, nada perdido — verificado contra el árbol, no contra su mensaje).
-Relevado por **T1b**, agente fresco, con orden de auditar lo heredado como borrador
-ajeno antes de continuarlo. **T2 sigue en vuelo.**
+Paso 1 en curso. **T1 nunca se cayó** — corrección importante, ver el log de hitos.
+Sigue siendo el dueño del dominio servidor y ya entregó código + 912 líneas de tests
+(`9b56405`, 50 casos, pusheado). **T1b pasa de relevo a auditor puro**, en worktree
+propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
 
 **Burndown:** 0/2 dominios entregados · 0/3 contratos validados · Contrato C es el riesgo.
 
@@ -18,8 +17,8 @@ ajeno antes de continuarlo. **T2 sigue en vuelo.**
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas | ⚫ Dado de baja | Entregó `7577b85`; orden de stand down por riesgo de colisión con T1b | — |
-| T1b | Servidor Atlas (relevo) | 🟡 En progreso | Auditoría de lo heredado + tests + readme | — |
+| T1 | Servidor Atlas (dueño) | 🟡 En progreso | `9b56405`: 912 líneas de tests. Falta `no_partner`, `/dev/` en middleware, readme, reporte de mutación | — |
+| T1b | Auditor del dominio servidor | 🟡 En progreso | Auditoría (lista) + verificación por mutación en worktree propio | — |
 | T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
@@ -33,7 +32,7 @@ archivos son disjuntos.
 
 | Contrato | Productor | Consumidor | Estado |
 |----------|-----------|------------|--------|
-| A — `POST /api/auth/atlas/session` | T1b | T2 | 🟡 Implementado, **sin tests que lo prueben** |
+| A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Implementado + 50 tests, **mutación sin verificar** |
 | B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
 
@@ -132,10 +131,14 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
   posible a los diagnostics.
 - 2026-08-26: despachado a T2 el atajo que resuelve el Contrato C **sin deployar**:
   el simulador acepta un token real pegado y ejercita el camino completo en local.
-- 2026-08-26: T1 cayó por error de conexión. Verificación contra el árbol: commit
-  `7577b85` pusheado, working tree limpio, 809 líneas en 8 archivos, la corrección a
-  producción aplicada. Faltan tests y readme. Relevado por T1b (agente fresco, no
-  reanimación).
+- 2026-08-26: llegó una notificación del sistema diciendo que T1 había caído
+  ("failed / Connection lost mid-response"). **T0 la tomó como hecho sin verificarla
+  contra el proceso** y relevó a T1 con un agente fresco en su mismo worktree.
+- 2026-08-26: **T1b escaló el error en vez de trabajar encima.** Evidencia medida: PID
+  18756 vivo con 12% de CPU, y un archivo de test aparecido *después* de que T1b
+  arrancara. T0 verificó y lo confirmó: T1 nunca murió, solo se cortó una respuesta.
+  Orden de stand down revertida; T1 recuperado como dueño del dominio; T1b reasignado a
+  auditor puro con worktree propio. **Sin pérdida de trabajo y sin colisión.**
 - 2026-08-26: T0 verificó por grep cinco invariantes del código heredado (doble chequeo
   fail-closed, 7 `stage`, token solo como largo+prefijo, `probe` con retorno temprano
   antes de la cookie, prefijo en `PUBLIC_ROUTES`). **Verificación parcial, no
@@ -150,13 +153,27 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
   de respuesta y no se perdió una línea porque tenía orden de commitear apenas cada pieza
   estuviera lista. El costo de la instrucción es cero; el de omitirla es todo el trabajo.
   _(candidato: ya está en el cuerpo de la skill, confirma su valor)_
-- **Un mensaje de un agente caído puede llegar DESPUÉS de haberlo relevado, y suena a
-  trabajo en curso.** T1 reportó "voy ahora a los tests" después de que su reemplazo ya
-  estaba corriendo en el mismo worktree. Creerle habría puesto dos agentes escribiendo los
-  mismos archivos. El tell es la incoherencia temporal, no el contenido: el mensaje era
-  correcto para el mundo en que se escribió. Al relevar a un agente caído, **ordénale
-  explícitamente parar** en vez de asumir que su caída lo dejó inerte.
+- **Una notificación de "agente caído" NO es evidencia de que el agente murió, y T0 la
+  trató como tal.** El aviso decía "failed · Connection lost mid-response": eso describe
+  una **respuesta** cortada, no un **proceso** terminado. El agente siguió corriendo,
+  escribiendo archivos y commiteando durante los 15 minutos en que T0 lo daba por muerto.
+  El costo estuvo a punto de ser doble: dos agentes escribiendo los mismos archivos en el
+  mismo worktree, y un `kill` sobre un proceso productivo con 32 KB sin commitear.
+  **Un `ps -p <pid>` cuesta un segundo y responde la pregunta de verdad.** Es la misma
+  regla que T0 ya aplica al código —verifica el árbol, no el mensaje— y que aquí aplicó al
+  revés porque el mensaje venía del sistema y no de un agente.
+  _(candidato: cuerpo de skill de T0 — alta prioridad)_
+- **"Working tree limpio" caduca.** T0 lo midió y fue verdad; después repitió la
+  afirmación como si describiera el presente, cuando el agente ya había escrito 32 KB sin
+  commitear. Una medición de estado mutable lleva timestamp implícito: al repetirla, hay
+  que re-medirla o fecharla.
   _(candidato: cuerpo de skill de T0)_
+- **El escalamiento de un subagente vale más cuando contradice al coordinador.** T1b tenía
+  instrucción explícita de que "reportar la frontera es preferible a cruzarla" y de que una
+  premisa equivocada de T0 es información valiosa. La usó, con evidencia medida y tres
+  opciones. Sin esa cláusula en el spawn prompt, el resultado por defecto habría sido
+  obedecer y colisionar. **La cláusula se paga sola.**
+  _(candidato: cuerpo de skill de T0 y de domain-agent)_
 - **Un cuelgue deja el DoD parcial de forma asimétrica: entrega el código y se come los
   tests.** Los tests van al final, así que son lo primero que se pierde. Al relevar, el
   estado "código sin tests" se ve idéntico a "código listo" en un `git log`. Verificar el
