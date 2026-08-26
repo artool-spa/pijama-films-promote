@@ -35,6 +35,7 @@ archivos son disjuntos.
 | A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Implementado + 75 tests, 41 mutaciones sin sobrevivientes. **Pendiente: F2, F3** |
 | B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
+| D — simulador inaccesible en producción | T1 (capa 1) + T2 (capa 2) | — | 🟡 Emergente. Capa 2 ✅, capa 1 en arreglo |
 
 ---
 
@@ -161,6 +162,22 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
   "commitea apenas la feature esté lista" no basta por sí sola: hay que **verificar
   `git status` en cada reporte de cierre**, porque "hecho sin commitear" y "a medias" son
   el mismo estado visto desde afuera.
+  _(candidato: cuerpo de skill de T0)_
+- **Tres veces el mismo patrón en un solo proyecto: la protección existe, funciona, y
+  ningún test se entera si desaparece.** (1) Quitar `/api/auth/atlas/` de `PUBLIC_ROUTES`
+  deja la suite verde y mata todo el SSO con un 401 que no menciona al middleware.
+  (2) Volver `partnerId` opcional deja la suite verde. (3) Vaciar `PUBLIC_EXACT_ROUTES`
+  deja la suite verde, y con ella la única garantía de que el simulador no sea alcanzable
+  en producción. En los tres casos el mecanismo defensivo estaba bien construido; lo que
+  faltaba era la prueba de que alguna vez atrapa algo. **Al revisar un dominio, la pregunta
+  no es "¿existe la protección?" sino "¿qué se pone rojo si la borro?".**
+  _(candidato: cuerpo de skill de T0 — alta prioridad)_
+- **Un contrato entre dominios puede nacer de un cambio que ninguno de los dos agentes ve
+  completo.** T1 publicó en el middleware una ruta cuya página vive en la rama de T2, y no
+  existe en su worktree. T1 no violó su scope —`middleware.ts` es su archivo— pero el
+  efecto cruzó, y solo T0 tenía las dos mitades a la vista. Cuando un cambio dentro de un
+  scope produce efecto en otro dominio, **formalizarlo como contrato con dos dueños** es lo
+  que impide que alguien retire una capa creyendo que la otra la cubre.
   _(candidato: cuerpo de skill de T0)_
 - **Una instrucción de T0 puede ser semánticamente incoherente y el agente puede corregirla
   bien.** Pedí "agrega el path exacto a `PUBLIC_ROUTES`" sobre una lista matcheada con

@@ -207,6 +207,35 @@ requiriendo producción, porque la URL de destino la configuró Crazy Cake en en
 
 ---
 
+## Contrato D — el simulador es inaccesible en producción
+
+**Dueños:** T1 (capa 1) y T2 (capa 2) · **Estado:** 🟡 capa 2 verificada, capa 1 en arreglo
+
+Contrato **emergente**: no existía al inicio del proyecto. Lo destapó la auditoría de T1b
+al notar que T1 publicaba en el middleware una ruta cuya página vive en la rama de T2 —
+un efecto que cruza dominios y que ninguno de los dos agentes podía ver desde su lado.
+
+| Capa | Mecanismo | Archivo | Dueño |
+|---|---|---|---|
+| 1 | `PUBLIC_EXACT_ROUTES` vacío cuando `NODE_ENV === 'production'` | `src/middleware.ts` | T1 |
+| 2 | `notFound()` en la página cuando `NODE_ENV === 'production'` | `src/app/dev/atlas-simulator/page.tsx:19` | T2 |
+
+**Ninguna de las dos capas se saca sin la otra, y cada una lleva su test.**
+
+Estado medido el 2026-08-26: la capa 2 existe y está bien puesta (evaluada en el server
+component). La capa 1 **no tenía guard** — el único `NODE_ENV` de `middleware.ts` está en
+la línea 153 y es para el formato de logging. No hubo exposición real porque la capa 2
+aguantaba, pero el spec §6 pide *"inaccesible en producción"* y una sola capa, alojada en
+otro dominio del que publica la ruta, no sostiene eso.
+
+Origen del defecto: T0 pidió la entrada de middleware sin especificar el guard de ambiente.
+
+**Ambas capas eran invisibles para la suite.** Vaciar `PUBLIC_EXACT_ROUTES` dejaba los 92
+tests verdes. Es el tercer caso en este proyecto del mismo patrón: la protección existe,
+funciona, y ningún test se entera si desaparece.
+
+---
+
 ## Divergencias de stack declaradas
 
 Perfil base: `artool-pijama-promote-stack` (nuevo, creado en este proyecto).
