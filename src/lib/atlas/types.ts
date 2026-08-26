@@ -83,11 +83,24 @@ export const AtlasSessionRequestSchema = z
 
 export type AtlasSessionRequest = z.infer<typeof AtlasSessionRequestSchema>;
 
-/** Where the exchange broke. Mandatory on every error response. */
+/**
+ * Where the exchange broke. Mandatory on every error response.
+ *
+ * The three authorization stages are deliberately separate rather than one
+ * "rejected", because they have three different next steps:
+ *
+ *   - `no_partner`: Atlas authenticated the token fine, but the account has no
+ *     partner attached (the account we have for the first real test is an
+ *     administrator one). Fix: ask for a producer account. NOT a broken contract.
+ *   - `disabled`: the environment kill switch is off. Fix: set ATLAS_LOGIN_ENABLED.
+ *   - `allowlist`: this partner is simply not on the list. Fix: add the id.
+ */
 export type AtlasSessionStage =
   | 'input'
   | 'atlas_call'
   | 'contract'
+  | 'no_partner'
+  | 'disabled'
   | 'allowlist'
   | 'session';
 

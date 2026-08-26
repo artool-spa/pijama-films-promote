@@ -43,6 +43,19 @@ const PUBLIC_ROUTES = [
   '/auth',
 ];
 
+// Routes matched EXACTLY, not by prefix.
+//
+// The simulator posts a synthetic ATLAS_AUTH message at /auth so the SSO can be
+// exercised without Crazy Cake. It is only reachable with no session - that is
+// the whole scenario it covers - so the middleware has to let it through.
+//
+// It lives here rather than as a '/dev/' entry in PUBLIC_ROUTES on purpose:
+// that list is matched with startsWith, so '/dev/' would publish every future
+// route under /dev/ to the internet the moment someone adds one. Exact match
+// means a sub-route of the simulator needs its own entry here - deliberately
+// so; the next person should have to think about it.
+const PUBLIC_EXACT_ROUTES = ['/dev/atlas-simulator'];
+
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
 
@@ -51,7 +64,10 @@ export async function middleware(request: NextRequest) {
   const start = Date.now();
 
   // Allow public routes
-  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
+  if (
+    PUBLIC_ROUTES.some((route) => pathname.startsWith(route)) ||
+    PUBLIC_EXACT_ROUTES.includes(pathname)
+  ) {
     return withRequestLog(request, NextResponse.next(), start);
   }
 

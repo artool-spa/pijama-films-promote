@@ -138,6 +138,45 @@ describe('fetchPartnerMovies - what it reports back', () => {
     expect(result.redirectedTo).not.toContain('?');
   });
 
+  /**
+   * Atlas is a hash-routed SPA, so the fragment is exactly where a session
+   * parameter would sit. `redirectedTo` is logged AND interpolated into the
+   * message the caller reads, so a token surviving here lands in Cloud Logging
+   * and in the browser at once.
+   */
+  it.each([
+    ['a query string', `/auth/auth/logout?next=%2Fmovies&t=${TOKEN}`, '/auth/auth/logout'],
+    ['a hash route with a query token', `/#/auth?token=${TOKEN}`, '/'],
+    ['a hash route with a fragment token', `/#/auth#token=${TOKEN}`, '/'],
+    ['a token in a hash path segment', `/#/session/${TOKEN}`, '/'],
+  ])('keeps a token out of the redirect target: %s', async (_case, location, expected) => {
+    fetchMock.mockResolvedValue(new Response('', { status: 302, headers: { location } }));
+
+    const result = await fetchPartnerMovies(TOKEN);
+
+    expect(
+      result.redirectedTo,
+      `a Location of "${location}" must not survive into the diagnostics: cutting only ` +
+        'at "?" leaves the fragment intact, and in a hash-routed SPA the fragment is ' +
+        'where the credential lives'
+    ).toBe(expected);
+    expect(JSON.stringify(logged)).not.toContain(TOKEN);
+  });
+
+  it('redacts a token sitting in a plain path segment, where truncation cannot reach it', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('', { status: 302, headers: { location: `/session/${TOKEN}/renew` } })
+    );
+
+    const result = await fetchPartnerMovies(TOKEN);
+
+    expect(result.redirectedTo).not.toContain(TOKEN);
+    expect(
+      result.redirectedTo,
+      'the path is still worth reporting; only the credential inside it is removed'
+    ).toBe('/session/[redacted]/renew');
+  });
+
   it('reports top-level keys of a JSON object body', async () => {
     fetchMock.mockResolvedValue(jsonResponse(documentedSuccess));
 

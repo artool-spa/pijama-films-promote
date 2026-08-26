@@ -199,15 +199,32 @@ describe('stage allowlist', () => {
     }
   );
 
-  it('refuses login when ATLAS_LOGIN_ENABLED is not "true"', async () => {
+  it('refuses login with stage disabled when ATLAS_LOGIN_ENABLED is not "true"', async () => {
     process.env.ATLAS_LOGIN_ENABLED = 'false';
 
     const res = await POST(request({ token: TOKEN, mode: 'login' }));
     const body = await res.json();
 
     expect(res.status).toBe(403);
-    expect(body.stage).toBe('allowlist');
+    expect(
+      body.stage,
+      'an environment kill switch and an unlisted partner are different problems with ' +
+        'different fixes; folding both into "allowlist" makes the operator parse prose ' +
+        'to find out which one they have'
+    ).toBe('disabled');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps disabled and allowlist as distinct stages', async () => {
+    process.env.ATLAS_LOGIN_ENABLED = 'false';
+    const disabled = await (await POST(request({ token: TOKEN, mode: 'login' }))).json();
+
+    process.env.ATLAS_LOGIN_ENABLED = 'true';
+    process.env.ATLAS_LOGIN_ALLOWED_PARTNER_IDS = 'someone-else';
+    const unlisted = await (await POST(request({ token: TOKEN, mode: 'login' }))).json();
+
+    expect(disabled.stage).toBe('disabled');
+    expect(unlisted.stage).toBe('allowlist');
   });
 
   it('refuses a partner Atlas vouched for but the allowlist does not name', async () => {
@@ -234,17 +251,68 @@ describe('stage allowlist', () => {
 // ============================================================================
 
 describe('stage atlas_call', () => {
-  it('reports the measured 302 as atlas_call, with the status in the diagnostics', async () => {
+  it('reports the measured 302 to a probe as a result, not as a failure', async () => {
     fetchMock.mockResolvedValue(measuredRedirect());
 
     const res = await POST(request({ token: TOKEN, mode: 'probe' }));
     const body = await res.json();
 
-    expect(body.ok).toBe(false);
-    expect(body.stage).toBe('atlas_call');
+    // The 302 is the ONLY behaviour ever measured against the real Atlas. If the
+    // probe answered it with 502 + ok:false, the first real test with JP's token
+    // would read as "the probe failed" while it had in fact measured something -
+    // and the diagnostics, the only thing a probe exists to produce, would be
+    // buried inside an error envelope.
+    expect(
+      res.status,
+      'a probe that reaches Atlas has succeeded at its job whatever Atlas said; ' +
+        'reporting 502 here turns a measurement into a false negative'
+    ).toBe(200);
+    expect(body.ok).toBe(true);
     expect(body.diagnostics.atlasStatus).toBe(302);
     expect(body.diagnostics.atlasUrlTried).toBe(`${BASE}/movies/by-partner`);
     expect(body.diagnostics.contractMatched).toBe(false);
+  });
+
+  it.each([401, 403, 500])('reports HTTP %i to a probe as a result too', async (status) => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'nope' }, status));
+
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.diagnostics.atlasStatus).toBe(status);
+    expect(
+      body.diagnostics.contractMatched,
+      'a documented-looking body attached to a non-2xx is not a usable answer'
+    ).toBe(false);
+  });
+
+  it('still refuses a login when Atlas answers non-2xx', async () => {
+    fetchMock.mockResolvedValue(measuredRedirect());
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(
+      body.stage,
+      'login judges where probe reports: a 302 means the token was not accepted, ' +
+        'and minting a session off that would be inventing an identity'
+    ).toBe('atlas_call');
+    expect(res.status).toBe(502);
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a documented body attached to a 302 as a matched contract', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(documentedSuccess, 302));
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(body.stage).toBe('atlas_call');
+    expect(body.diagnostics.contractMatched).toBe(false);
+    expect(body.diagnostics.partner).toBeNull();
+    expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
   it('reports an unreachable Atlas as atlas_call with status 0', async () => {
@@ -404,20 +472,39 @@ describe('mode login', () => {
     });
   });
 
-  it('refuses to log in an administrator account that carries no partner', async () => {
+  it('refuses an administrator account with stage no_partner, not contract', async () => {
     fetchMock.mockResolvedValue(jsonResponse(adminAccountSuccess));
 
     const res = await POST(request({ token: TOKEN, mode: 'login' }));
     const body = await res.json();
 
     expect(body.ok).toBe(false);
-    expect(body.stage).toBe('contract');
+    expect(
+      body.stage,
+      'the envelope matched, so the contract is not broken: Atlas correctly said this ' +
+        'token has no partner. Calling it "contract" sends the reader to Crazy Cake ' +
+        'when the fix is to ask for a producer account'
+    ).toBe('no_partner');
+    expect(res.status).toBe(403);
     expect(
       setSessionCookie,
       'with no partnerId there is nothing to authorize against; inventing a session ' +
         'here would hand an admin token a partner-scoped dashboard'
     ).not.toHaveBeenCalled();
     expect(body.diagnostics.contractMatched).toBe(true);
+    expect(body.message).toMatch(/no partner associated/i);
+  });
+
+  it('refuses with no_partner when the partner object is an empty one', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ status: 'ok', data: { movies: [] } })
+    );
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(body.stage).toBe('no_partner');
+    expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
   it('refuses to log in on a 2xx body in an unrecognised shape', async () => {
@@ -465,11 +552,47 @@ describe('mode login', () => {
     expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
-  it('refuses to log in when the partner object is present but malformed', async () => {
+  /**
+   * One case per missing field, on purpose. The earlier single case dropped both
+   * `partnerId` and `muviUuid` at once, so it went green on the absence of
+   * `muviUuid` and proved nothing about `partnerId` - the field the whole
+   * authorization hangs on. Making `partnerId` optional left that test green.
+   */
+  it.each([
+    [
+      'partnerId',
+      { name: 'Pijama Films', email: 'p@example.com', muviUuid: 'muvi-partner-1' },
+    ],
+    [
+      'muviUuid',
+      { name: 'Pijama Films', email: 'p@example.com', partnerId: ALLOWED_PARTNER },
+    ],
+    ['name', { email: 'p@example.com', muviUuid: 'm', partnerId: ALLOWED_PARTNER }],
+    ['email', { name: 'Pijama Films', muviUuid: 'm', partnerId: ALLOWED_PARTNER }],
+  ])('refuses to log in when the partner object is missing %s', async (field, partner) => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 'ok', data: { partner, movies: [] } }));
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(
+      body.stage,
+      `a partner missing "${field}" is a contract mismatch, not an account without a ` +
+        'partner: a present-but-incomplete partner means Atlas changed shape, and ' +
+        'defaulting the field would authorize against a guess'
+    ).toBe('contract');
+    expect(body.diagnostics.contractMatched).toBe(false);
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
+  it('refuses to log in when partnerId is present but empty', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         status: 'ok',
-        data: { partner: { name: 'Pijama Films', email: 'p@example.com' }, movies: [] },
+        data: {
+          partner: { name: 'P', email: 'p@example.com', muviUuid: 'm', partnerId: '' },
+          movies: [],
+        },
       })
     );
 
@@ -478,10 +601,9 @@ describe('mode login', () => {
 
     expect(
       body.stage,
-      'a partner without partnerId is a contract mismatch, not an account without a ' +
-        'partner id: defaulting the missing field would authorize against a guess'
+      'an empty partnerId is not an identity; it would also match nothing on the ' +
+        'allowlist, but it must never get that far'
     ).toBe('contract');
-    expect(body.diagnostics.contractMatched).toBe(false);
     expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
@@ -524,6 +646,14 @@ describe('token handling across every path', () => {
     ['a successful login', () => {}, 'login'],
     ['a probe', () => {}, 'probe'],
     ['a 302 from Atlas', () => fetchMock.mockResolvedValue(measuredRedirect()), 'probe'],
+    [
+      'a 302 whose Location carries a token in the fragment',
+      () =>
+        fetchMock.mockResolvedValue(
+          new Response('', { status: 302, headers: { location: `/#/auth#token=${TOKEN}` } })
+        ),
+      'login',
+    ],
     [
       'an allowlist refusal',
       () => {

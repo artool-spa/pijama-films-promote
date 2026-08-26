@@ -91,10 +91,13 @@ export async function POST(req: NextRequest) {
     if (!isAtlasLoginEnabled()) {
       log.warn({ mode }, 'Atlas login rejected: ATLAS_LOGIN_ENABLED is not "true"');
 
+      // Its own stage, not `allowlist`: an environment kill switch and an
+      // unlisted partner are two different problems with two different fixes,
+      // and a stage is read where a message has to be parsed.
       return errorResponse(
         403,
-        'allowlist',
-        'Atlas login is disabled on this environment (ATLAS_LOGIN_ENABLED)'
+        'disabled',
+        'Atlas login is disabled on this environment (ATLAS_LOGIN_ENABLED is not "true")'
       );
     }
 
@@ -113,40 +116,46 @@ export async function POST(req: NextRequest) {
   }
 
   // --------------------------------------------------------------------------
-  // stage: atlas_call
+  // The upstream call. What counts as failure from here on depends on the mode.
   // --------------------------------------------------------------------------
   const call = await fetchPartnerMovies(token);
 
-  if (!call.ok) {
-    const because = call.networkError
-      ? `transport failure (${call.networkError})`
-      : `HTTP ${call.status}${call.redirectedTo ? ` redirecting to ${call.redirectedTo}` : ''}`;
-
-    return errorResponse(
-      502,
-      'atlas_call',
-      `Atlas did not answer with 2xx: ${because}`,
-      diagnosticsFrom(call, null)
-    );
-  }
-
-  // --------------------------------------------------------------------------
-  // stage: contract
-  // --------------------------------------------------------------------------
   const shape = AtlasMoviesResponseSchema.safeParse(call.json);
-  const contract = shape.success ? shape.data : null;
+  // A contract only counts as matched when Atlas actually answered 2xx: a
+  // documented-looking body attached to a 302 or a 500 is not a usable answer.
+  const contract = call.ok && shape.success ? shape.data : null;
   const diagnostics = diagnosticsFrom(call, contract);
 
+  // --------------------------------------------------------------------------
+  // mode: probe - reports, does not judge
+  //
+  // Any HTTP response from Atlas is a reportable result, including a 302. The
+  // only measurement ever taken against the real Atlas IS a 302, so answering
+  // that with a 502 and `ok:false` would bury the diagnostics - the one thing
+  // the probe exists to produce - inside an error envelope, and the real test
+  // would read as "it failed" when it had in fact measured something.
+  //
+  // `stage: 'atlas_call'` in probe mode therefore means one thing only: Atlas
+  // produced no HTTP response at all (DNS, timeout, refused connection, or no
+  // base URL configured).
+  // --------------------------------------------------------------------------
   if (mode === 'probe') {
-    // A probe reports; it does not judge. `contractMatched: false` with a real
-    // status and real top-level keys is the whole point of this mode, so a
-    // shape mismatch is still a 200 here.
+    if (call.status === 0) {
+      return errorResponse(
+        502,
+        'atlas_call',
+        `Atlas produced no HTTP response: ${call.networkError ?? 'unknown transport failure'}`,
+        diagnostics
+      );
+    }
+
     log.info(
       {
         mode,
         atlasStatus: diagnostics.atlasStatus,
         contractMatched: diagnostics.contractMatched,
         responseShapeKeys: diagnostics.responseShapeKeys,
+        redirectedTo: call.redirectedTo,
       },
       'Atlas probe completed'
     );
@@ -154,6 +163,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, diagnostics }, { status: 200 });
   }
 
+  // --------------------------------------------------------------------------
+  // stage: atlas_call - login DOES judge, so a non-2xx stops here
+  // --------------------------------------------------------------------------
+  if (!call.ok) {
+    const because = call.networkError
+      ? `transport failure (${call.networkError})`
+      : `HTTP ${call.status}${call.redirectedTo ? ` redirecting to ${call.redirectedTo}` : ''}`;
+
+    return errorResponse(502, 'atlas_call', `Atlas did not answer with 2xx: ${because}`, diagnostics);
+  }
+
+  // --------------------------------------------------------------------------
+  // stage: contract
+  // --------------------------------------------------------------------------
   if (!contract) {
     return errorResponse(
       502,
@@ -169,14 +192,19 @@ export async function POST(req: NextRequest) {
   const partner = contract.data.partner ?? null;
 
   if (!partner) {
-    // The envelope matched but carries no partner. That is the "this account is
-    // not a partner" case (an Atlas admin account has no partnerId), not an
-    // upstream breakage - and it is unauthorizable either way, so login stops.
+    // Its own stage. The envelope matched, so the contract is NOT broken: Atlas
+    // authenticated this token and told us, correctly, that no partner hangs
+    // off it - which is what an administrator account looks like. Collapsing
+    // this into `contract` would send whoever reads it to Crazy Cake, when the
+    // actual fix is to ask JP for a producer account.
+    log.warn({ mode }, 'Atlas login rejected: the token authenticates an account with no partner');
+
     return errorResponse(
-      502,
-      'contract',
-      'Atlas answered in the documented shape but returned no partner for this token ' +
-        '(an administrator account has no partnerId to authorize against)',
+      403,
+      'no_partner',
+      'Atlas answered in the documented shape but this account has no partner associated ' +
+        '(no partnerId to authorize against - an administrator account looks like this). ' +
+        'The Atlas contract is working; this token just does not belong to a partner.',
       diagnostics
     );
   }

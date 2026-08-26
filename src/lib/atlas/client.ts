@@ -68,11 +68,34 @@ function shapeKeysOf(json: unknown): string[] {
   return Object.keys(json as Record<string, unknown>);
 }
 
-/** Drop the query string: a redirect target may carry values we have no business keeping. */
+/**
+ * Anything that looks like a JWT: the "eyJ" prefix is base64url for '{"', which
+ * is how every JSON-header token starts.
+ */
+const JWT_SHAPED = /eyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)*/g;
+
+/**
+ * Reduce a redirect target to the part that is safe to log and to show.
+ *
+ * Cutting at `?` alone is not enough, and this is not hypothetical: Atlas is a
+ * hash-routed SPA (`dashboard.pijamafilms.com/#/`), and in a hash-routed SPA
+ * the fragment is exactly where session parameters live. A Location of
+ * `/#/auth#token=eyJ...` or `/#/session/eyJ...` would have carried a live
+ * credential into Cloud Logging and into the message the caller reads.
+ *
+ * So: cut at the first `?` or `#`, whichever comes first. Then redact anything
+ * still JWT-shaped, which covers the remaining case truncation cannot - a token
+ * sitting in a plain path segment (`/session/eyJ...`). The redaction is the
+ * second line of defence, not the first; the truncation above is what carries
+ * the guarantee.
+ */
 function sanitizeLocation(location: string | null): string | null {
   if (!location) return null;
 
-  return location.split('?')[0].slice(0, 200);
+  const cut = location.search(/[?#]/);
+  const truncated = (cut === -1 ? location : location.slice(0, cut)).slice(0, 200);
+
+  return truncated.replace(JWT_SHAPED, '[redacted]');
 }
 
 /**
