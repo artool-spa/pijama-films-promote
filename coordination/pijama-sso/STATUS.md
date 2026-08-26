@@ -31,7 +31,7 @@ archivos son disjuntos.
 | Contrato | Productor | Consumidor | Estado |
 |----------|-----------|------------|--------|
 | A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Definido por T0, sin validar |
-| B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado |
+| B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
 
 ---
@@ -81,7 +81,8 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 
 | # | Descripción | Opciones | Urgencia |
 |---|-------------|----------|----------|
-| — | ninguna abierta | | |
+| 6 | La prueba del `postMessage` desde Console requiere el código en **producción** (la URL de destino la fijó Crazy Cake en enero y no acepta `localhost`). Un deploy además arrastra `STRIPE_SECRET_KEY` v3 y `META_PIXEL_ID` v2. | (a) resolver Contrato C en local y deployar solo cuando eso esté verde, (b) deployar antes para probar las dos mitades juntas | Media — no bloquea a los agentes |
+| 7 | La cuenta disponible es admin, no productor. Puede no tener `partnerId`. | (a) conseguir una cuenta de productor en el dashboard, (b) aceptar que la prueba valide el mecanismo y no el scoping | Media |
 
 ---
 
@@ -108,6 +109,15 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 - 2026-08-26: perfil `artool-pijama-promote` entregado como PR #13 a `artool-spa/artool-devs`.
 - 2026-08-26: T1 y T2 lanzados en paralelo. Contrato A fijado por T0 e inyectado idéntico
   en ambos spawn prompts, así que ninguno espera al otro.
+- 2026-08-26: **corrección de JP** — el ambiente objetivo es producción
+  (`dashboard.pijamafilms.com`), no el lab, y tiene un usuario con acceso a películas.
+  Despachada a T1 (default de `ATLAS_API_BASE_URL` y orden de los orígenes) y a T2
+  (allowlist y prominencia del origen en el panel).
+- 2026-08-26: T0 detectó que la cuenta disponible es de **administrador**, no de
+  productor, y que el endpoint es scoped por partner. Agregado el tercer resultado
+  posible a los diagnostics.
+- 2026-08-26: despachado a T2 el atajo que resuelve el Contrato C **sin deployar**:
+  el simulador acepta un token real pegado y ejercita el camino completo en local.
 
 ---
 

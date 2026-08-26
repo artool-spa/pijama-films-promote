@@ -89,12 +89,16 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 Fuente: correo de Mathias Beckhaus del 8 de enero de 2026. El campo `partner` aparece en
 el correo pero **no** en el markdown adjunto — el correo es la fuente más completa.
 
-Orígenes permitidos (vía `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS`):
+Orígenes permitidos (vía `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS`), **producción primero**:
 
-| Ambiente | Origen |
-|---|---|
-| Testing | `https://dashboard-lab.pijamafilms.com` |
-| Producción | `https://dashboard.pijamafilms.com` |
+| Ambiente | Origen | Rol |
+|---|---|---|
+| **Producción** | `https://dashboard.pijamafilms.com` | **ambiente objetivo de la prueba** |
+| Testing | `https://dashboard-lab.pijamafilms.com` | secundario |
+
+Corrección de JP (2026-08-26): el dashboard productivo de Crazy Cake es
+`dashboard.pijamafilms.com`, y ahí tiene un usuario con acceso a películas. La prueba
+real corre contra producción, no contra el lab.
 
 **Trampa conocida:** el ejemplo de código de Crazy Cake valida contra el origen del lab
 en literal. Copiarlo tal cual **rompe producción**. La validación es por ambiente.
@@ -141,8 +145,26 @@ No se cierra por diseño: se cierra **midiendo con un token real**. Por eso:
 
 **Caso ambiguo previsto:** si `movies` viene vacío, la forma decide.
 `{status:'ok', data:{partner:{...}, movies:[]}}` prueba que el contrato funciona sin
-datos. Un `302`, o un body con otras keys, prueba que no. La cuenta del lab que JP tiene
-muestra 0 créditos y "0 AVAILABLE", así que el caso vacío es probable.
+datos. Un `302`, o un body con otras keys, prueba que no.
+
+**La cuenta que tenemos es de administrador, no de productor.** En la captura de JP del
+dashboard productivo el encabezado dice *"Administra todas las películas de la plataforma
+y revisa el contenido enviado por los socios"*, y hay controles de moderación (aprobar /
+revisar / rechazar) sobre una película en "Aprobación pend.". El catálogo muestra cinco
+películas con estados Borrador / Publicada / Aprobación pendiente.
+
+El endpoint es `/movies/by-partner` — **scoped por partner**. Una cuenta admin puede no
+tener `partnerId` asociado. Tercer resultado posible, además de "funciona" y "roto":
+`atlasStatus: 200` + `responseShapeKeys: ['status','data']` + `partner: null` significa
+**"el contrato funciona pero esta cuenta no es un partner"**. Los diagnostics de T1 deben
+dejar los tres casos distinguibles sin adivinar.
+
+**Cómo se resuelve este contrato sin deployar:** el JWT vive en el browser de JP, que
+tiene sesión abierta. El simulador de T2 acepta un token pegado a mano y lo postea por
+`postMessage` a `/auth` tal como lo haría Console, así que el camino real
+(`postMessage` → listener → Contrato A → servidor → Atlas) se ejercita **completo y en
+local**, sin fakes en ninguna frontera. La mitad del `postMessage` desde Console sigue
+requiriendo producción, porque la URL de destino la configuró Crazy Cake en enero.
 
 ---
 
