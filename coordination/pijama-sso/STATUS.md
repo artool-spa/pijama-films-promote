@@ -4,9 +4,11 @@ _Última actualización: 2026-08-26 · Actualizado por: T0_
 
 ## Estado actual
 
-Paso 1 en curso: **T1 y T2 lanzados en paralelo**, cada uno en su worktree desde
-`feat/atlas-sso`. Paso 0 cerrado (perfil de stack en PR #13 de `artool-devs`, docs de
-coordinación pusheados en `coordination/pijama-sso`).
+Paso 1 en curso. **T1 entregó el código del dominio servidor y se cayó por error de
+conexión** antes de tests y readme; su trabajo quedó commiteado y pusheado (`7577b85`,
+árbol limpio, nada perdido — verificado contra el árbol, no contra su mensaje).
+Relevado por **T1b**, agente fresco, con orden de auditar lo heredado como borrador
+ajeno antes de continuarlo. **T2 sigue en vuelo.**
 
 **Burndown:** 0/2 dominios entregados · 0/3 contratos validados · Contrato C es el riesgo.
 
@@ -16,7 +18,8 @@ coordinación pusheados en `coordination/pijama-sso`).
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas (cliente + endpoint de intercambio) | 🟡 En progreso | Cliente Atlas + `POST /api/auth/atlas/session` | — |
+| T1 | Servidor Atlas | ⚫ Caído (conexión) | Entregó 809 líneas en `7577b85`; sin tests ni readme | — |
+| T1b | Servidor Atlas (relevo) | 🟡 En progreso | Auditoría de lo heredado + tests + readme | — |
 | T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | Página `/auth` + simulador local | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
@@ -30,7 +33,7 @@ archivos son disjuntos.
 
 | Contrato | Productor | Consumidor | Estado |
 |----------|-----------|------------|--------|
-| A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Definido por T0, sin validar |
+| A — `POST /api/auth/atlas/session` | T1b | T2 | 🟡 Implementado, **sin tests que lo prueben** |
 | B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
 
@@ -118,10 +121,29 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
   posible a los diagnostics.
 - 2026-08-26: despachado a T2 el atajo que resuelve el Contrato C **sin deployar**:
   el simulador acepta un token real pegado y ejercita el camino completo en local.
+- 2026-08-26: T1 cayó por error de conexión. Verificación contra el árbol: commit
+  `7577b85` pusheado, working tree limpio, 809 líneas en 8 archivos, la corrección a
+  producción aplicada. Faltan tests y readme. Relevado por T1b (agente fresco, no
+  reanimación).
+- 2026-08-26: T0 verificó por grep cinco invariantes del código heredado (doble chequeo
+  fail-closed, 7 `stage`, token solo como largo+prefijo, `probe` con retorno temprano
+  antes de la cookie, prefijo en `PUBLIC_ROUTES`). **Verificación parcial, no
+  exhaustiva** — T1b tiene orden de confirmarla y de desmentirla si corresponde.
 
 ---
 
 ## Lecciones / gotchas (materia prima del cierre compound)
+
+- **Un agente que se cae por error de conexión no corrompe el árbol, pero la instrucción
+  de "pushea desde el primer commit" es lo que hace que eso sea verdad.** T1 murió a mitad
+  de respuesta y no se perdió una línea porque tenía orden de commitear apenas cada pieza
+  estuviera lista. El costo de la instrucción es cero; el de omitirla es todo el trabajo.
+  _(candidato: ya está en el cuerpo de la skill, confirma su valor)_
+- **Un cuelgue deja el DoD parcial de forma asimétrica: entrega el código y se come los
+  tests.** Los tests van al final, así que son lo primero que se pierde. Al relevar, el
+  estado "código sin tests" se ve idéntico a "código listo" en un `git log`. Verificar el
+  DoD por artefacto (¿existe `__tests__/`? ¿existe el readme?) y no por el commit.
+  _(candidato: cuerpo de skill de T0)_
 
 - **Un stub que devuelve 404 se ve igual que una ruta inexistente.** `src/app/auth/route.ts`
   logueaba y devolvía 404; desde afuera —y desde una auditoría de rutas que busca
