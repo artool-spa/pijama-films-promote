@@ -14,8 +14,8 @@
  */
 import type { Metadata } from 'next';
 import {
-  DEFAULT_ATLAS_ALLOWED_ORIGINS,
   DEFAULT_HANDSHAKE_TIMEOUT_MS,
+  defaultAllowedOrigins,
   parseAllowedOrigins,
   type AtlasSessionMode,
 } from './atlas-bridge';
@@ -43,7 +43,7 @@ export default async function AtlasAuthPage({ searchParams }: AtlasAuthPageProps
   );
   const usingDefaultOrigins = configuredOrigins.length === 0;
   const allowedOrigins = usingDefaultOrigins
-    ? [...DEFAULT_ATLAS_ALLOWED_ORIGINS]
+    ? defaultAllowedOrigins(process.env.NODE_ENV)
     : configuredOrigins;
   const strictOrigins = origins === 'strict';
   const allowSelfOrigin = process.env.NODE_ENV !== 'production' && !strictOrigins;

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   ATLAS_ERROR_STAGES,
+  ATLAS_LAB_ORIGIN,
+  ATLAS_PRODUCTION_ORIGIN,
+  defaultAllowedOrigins,
   STAGE_CONCLUSION,
   atlasAuthEnvelopeSchema,
   describeToken,
@@ -32,6 +35,27 @@ describe('parseAllowedOrigins', () => {
     expect(
       parseAllowedOrigins(`https://*.pijamafilms.com,${LAB}/dashboard,not-a-url,*,${LAB}`)
     ).toEqual([LAB]);
+  });
+});
+
+describe('defaultAllowedOrigins', () => {
+  it('accepts only the production Console in production', () => {
+    // An absent variable must not make a working SSO look broken, but it must
+    // also not quietly admit a third party's *testing* console into our
+    // production sign-in. The lab origin buys nothing there.
+    expect(defaultAllowedOrigins('production')).toEqual([PROD]);
+    expect(defaultAllowedOrigins('production')).not.toContain(LAB);
+  });
+
+  it('accepts both outside production, production first', () => {
+    for (const env of ['development', 'test', undefined]) {
+      expect(defaultAllowedOrigins(env)).toEqual([PROD, LAB]);
+    }
+  });
+
+  it('names the same origins the rest of the module uses', () => {
+    expect(ATLAS_PRODUCTION_ORIGIN).toBe(PROD);
+    expect(ATLAS_LAB_ORIGIN).toBe(LAB);
   });
 });
 

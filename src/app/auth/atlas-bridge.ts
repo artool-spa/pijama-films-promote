@@ -28,24 +28,40 @@ export const TOKEN_PREFIX_LENGTH = 6;
 /** Contract A endpoint (producer: the server-Atlas domain). */
 export const ATLAS_SESSION_ENDPOINT = '/api/auth/atlas/session';
 
+/** Crazy Cake's production Atlas Console. The origin the real handshake comes from. */
+export const ATLAS_PRODUCTION_ORIGIN = 'https://dashboard.pijamafilms.com';
+
+/** Crazy Cake's testing Atlas Console. A third party's test environment. */
+export const ATLAS_LAB_ORIGIN = 'https://dashboard-lab.pijamafilms.com';
+
 /**
  * Fallback allowlist, used only when `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` yields
- * nothing usable. Production first, because production is the environment the
- * real handshake comes from.
+ * nothing usable.
  *
  * Why this is a per-environment list read from an env var and not a literal
  * compared inline: Crazy Cake's own sample code validates against the *lab*
  * origin as a hardcoded string. Copying that shape rejects the production
  * handshake, which is the failure this project exists to prevent. The env var
- * is what lets an environment be re-pointed without a code change; this constant
+ * is what lets an environment be re-pointed without a code change; this fallback
  * only keeps an unset variable from silently rejecting Atlas altogether. When it
  * is in use the panel says so, because "the default saved us" and "the variable
  * is configured" are different facts and must not look the same on screen.
+ *
+ * The fallback narrows in production, and that asymmetry is the point. An absent
+ * variable must not make a working SSO look broken — but it also must not quietly
+ * admit a third party's *testing* console into our production sign-in. Outside
+ * production nothing is lost by accepting both; inside it, the lab origin buys
+ * nothing and widens the surface, so it is not there.
+ *
+ * `nodeEnv` is a parameter rather than a read of `process.env` so this stays a
+ * pure function: a test that flips the environment after import still exercises
+ * it, instead of passing because a value was captured at module load.
  */
-export const DEFAULT_ATLAS_ALLOWED_ORIGINS = [
-  'https://dashboard.pijamafilms.com',
-  'https://dashboard-lab.pijamafilms.com',
-] as const;
+export function defaultAllowedOrigins(nodeEnv: string | undefined): string[] {
+  return nodeEnv === 'production'
+    ? [ATLAS_PRODUCTION_ORIGIN]
+    : [ATLAS_PRODUCTION_ORIGIN, ATLAS_LAB_ORIGIN];
+}
 
 export const atlasAuthEnvelopeSchema = z.object({
   type: z.literal(ATLAS_MESSAGE_TYPE),

@@ -1,6 +1,6 @@
 # readme-T2 — Página de aterrizaje del SSO Atlas
 
-_Última actualización: 2026-08-26 (rev. 3, tras la auditoría) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 4) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -23,7 +23,7 @@ _Última actualización: 2026-08-26 (rev. 3, tras la auditoría) · Proyecto: SS
   `feat/atlas-sso`) · pusheada desde el primer commit.
 - **Deploy activo:** ninguno. Esta rama no se despliega; App Hosting construye desde la rama
   conectada en GitHub. El merge lo decide T0/JP.
-- **Suite de tests:** 112 tests propios, todos verdes. La suite completa del repo son 375 tests
+- **Suite de tests:** 117 tests propios, todos verdes. La suite completa del repo son 380 tests
   verdes con mis cambios aplicados.
 - **Recursos de datos activos:** no aplica — este dominio no toca Firestore.
 - **Jobs/cron activos:** no aplica.
@@ -103,9 +103,9 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - [x] 5. El token completo no se renderiza, no se loguea, no va al DOM.
 - [x] 6. Simulador funciona en dev y no existe en producción — producción medida (`307`); dev
       desbloqueado por `PUBLIC_EXACT_ROUTES` de T1.
-- [x] 7. Tests con reporte de mutación: 89 mutantes, 87 muertos, 2 supervivientes y ambos
+- [x] 7. Tests con reporte de mutación: 96 mutantes, 94 muertos, 2 supervivientes y ambos
       equivalentes (uno era un mutante no-op mío; el otro lo neutraliza un closure obsoleto en el
-      propio código, y sus dos variantes no neutralizadas mueren). De los 112 tests, **98 los vi
+      propio código, y sus dos variantes no neutralizadas mueren). De los 117 tests, **103 los vi
       ponerse rojos** y 14 nacieron verdes.
 - [x] 8. `npx tsc --noEmit` y `eslint` limpios.
 - [x] 9. **El simulador resuelve el Contrato C localmente** ejercitando el camino real
@@ -124,6 +124,32 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 4. El postMessage real desde el lab de Atlas — necesita credenciales que solo tiene JP.
 
 ---
+
+## El fallback de orígenes se angosta en producción (decidido por T0)
+
+`defaultAllowedOrigins(nodeEnv)` solo entra en juego si `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` no trae
+ningún origen válido:
+
+| Ambiente | Default |
+|---|---|
+| `production` | **solo** `https://dashboard.pijamafilms.com` |
+| cualquier otro | los dos, producción primero |
+
+La asimetría es el punto. Una variable ausente no debe hacer que un SSO que funciona se vea roto
+—por eso no es fail-closed total— pero tampoco debe admitir el ambiente de **testing de un tercero**
+en nuestro login de producción, donde no aporta nada. Fuera de producción no se pierde nada
+aceptando ambos.
+
+`nodeEnv` es parámetro y no una lectura de `process.env` adentro, para que la función sea pura: un
+test que cambia el ambiente después del import la ejercita de verdad en vez de pasar porque el valor
+quedó capturado en la carga del módulo.
+
+**Medido** contra un build de producción sin la env var, servido en el puerto 3219:
+
+```
+var ALLOWED=["https://dashboard.pijamafilms.com"]
+grep -c "dashboard-lab" → 0     (el origen del lab no aparece en NINGUNA parte del HTML)
+```
 
 ## Deuda Conocida — la lista de stages es una copia a mano
 
@@ -167,13 +193,6 @@ que son mi DoD 8.
   como red para reintentos.
 - **Ventana de timeout: 20 s** (`DEFAULT_HANDSHAKE_TIMEOUT_MS`). Elegida a ojo. Si el
   click-through muestra que Console tarda más, hay que subirla.
-- **La allowlist por defecto acepta también el lab en producción.** `DEFAULT_ATLAS_ALLOWED_ORIGINS`
-  trae los dos orígenes, y solo entra en juego si la env var falta. La alternativa —rechazar todo—
-  convierte una variable no seteada en un SSO que se ve roto. El costo es que, con la variable
-  ausente, un `postMessage` del lab sería aceptado en producción; sigue teniendo que sobrevivir la
-  llamada server-side a Atlas y la allowlist de `partnerId` de T1. El panel avisa en pantalla cuando
-  el default está en uso.
-
 - **Filtro de ruido en el listener.** Se registran los mensajes con `data.type` string que vengan
   de un origen permitido, más **cualquier** `ATLAS_AUTH` venga de donde venga. El resto (HMR del
   dev server, extensiones) solo se cuenta. Si algún día Atlas postea con otro `type` desde otro

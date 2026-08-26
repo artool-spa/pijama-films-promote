@@ -131,6 +131,29 @@ describe('AtlasAuthPage — allowlist resolution', () => {
     expect(props.usingDefaultOrigins).toBe(true);
   });
 
+  it('narrows the fallback to production alone when running in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS', '');
+
+    const props = await renderController();
+
+    expect(props.allowedOrigins).toEqual([PROD]);
+    expect(props.allowedOrigins).not.toContain(LAB);
+    expect(props.usingDefaultOrigins).toBe(true);
+  });
+
+  it('keeps the lab origin out of the inline script when the fallback runs in production', async () => {
+    // The allowlist the browser actually enforces is the one baked into the
+    // script, so that is where the narrowing has to be visible.
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS', '');
+
+    const script = await renderScript();
+
+    expect(script).toContain(PROD);
+    expect(script).not.toContain(LAB);
+  });
+
   it('falls back when the variable holds only unusable entries', async () => {
     vi.stubEnv('NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS', 'https://*.pijamafilms.com, nonsense');
 

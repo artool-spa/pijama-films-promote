@@ -593,6 +593,13 @@ describe('AtlasAuthClient — the relaxed-origin allowance is announced', () => 
     renderClient({ usingDefaultOrigins: true });
 
     expect(screen.getByText('Using the built-in allowlist, not a configured one')).toBeTruthy();
+    // The warning has to say which default, not just that there is one: the
+    // fallback narrows in production and a reader who assumes otherwise would
+    // expect the lab origin to work there.
+    expect(
+      screen.getByText(/In production that default is the production Console alone/)
+    ).toBeTruthy();
+    expect(screen.getByText(/baked in at build\s+time/)).toBeTruthy();
   });
 });
 

@@ -386,8 +386,9 @@ export default function AtlasAuthClient({
         <Alert severity="warning" sx={{ mb: 2 }}>
           <AlertTitle>Using the built-in allowlist, not a configured one</AlertTitle>
           <code>NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS</code> is unset or held no valid origin, so the
-          built-in default is in use. That variable is baked in at build time, so setting it
-          requires a new build — merging alone will not change this.
+          built-in default is in use. In production that default is the production Console alone —
+          Crazy Cake&apos;s lab origin is not accepted there. The variable is baked in at build
+          time, so setting it requires a new build; merging alone will not change this.
         </Alert>
       )}
 
