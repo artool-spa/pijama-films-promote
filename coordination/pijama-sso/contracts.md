@@ -52,7 +52,7 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 ```ts
 {
   ok: false,
-  stage: 'input' | 'atlas_call' | 'contract' | 'no_partner' | 'allowlist' | 'session',
+  stage: 'input' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session',
   message: string,
   diagnostics?: { ... }    // el mismo objeto de arriba, parcial, cuando aplique
 }
@@ -67,17 +67,43 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 | `atlas_call` | No se pudo llegar a Atlas (red, DNS, timeout) o devolvió no-2xx |
 | `contract` | Atlas respondió 2xx pero la forma no calza con el Contrato C |
 | `no_partner` | Atlas respondió 2xx **con la forma correcta**, pero `data.partner` es `null` o sin `partnerId`. La cuenta autentica y no es un partner |
-| `allowlist` | El `partnerId` no está en la allowlist, la allowlist está vacía/ausente, o `ATLAS_LOGIN_ENABLED` está apagado (el mensaje distingue cuál) |
+| `disabled` | `ATLAS_LOGIN_ENABLED` está apagado. Un kill switch de ambiente no es una allowlist |
+| `allowlist` | El `partnerId` no está en la allowlist, o la allowlist está vacía/ausente |
 | `session` | Falló emitir la cookie o el upsert del partner |
+
+### Política de HTTP status en modo `probe` — corregida 2026-08-26
+
+Defecto de T0, encontrado por la auditoría de T1b (D1) y verificado: la implementación
+cumplía la tabla original al pie de la letra, y la tabla estaba mal.
+
+| Situación | HTTP | `stage` |
+|---|---|---|
+| Atlas produjo **cualquier** respuesta HTTP (200, 302, 401, 500…) | **200** | — · `ok:true`, `atlasStatus` real |
+| Body de request inválido | 400 | `input` |
+| Atlas **no** produjo respuesta HTTP (DNS, timeout, conexión rechazada) | 502 | `atlas_call` |
+
+En `probe`, `atlas_call` significa únicamente **inalcanzable**. En `login` no cambia: un
+no-2xx sigue siendo `atlas_call` con 502, porque ahí sí hay que juzgar.
+
+**Por qué importa:** el único comportamiento medido contra Atlas real es `302`. Con la
+tabla vieja, la prueba real habría respondido `502` + `ok:false` con los diagnostics
+—lo único que se le pide a la sonda— enterrados dentro del error. Un panel que renderiza
+diagnostics solo en `ok:true` no habría mostrado nada, y "no muestra nada" se lee como
+roto. Era el falso negativo que el proyecto existe para evitar, entrando por una puerta
+que nadie había mirado.
+
+Incoherencia de origen: T0 escribió que una sonda "reporta, no juzga" y aplicó el
+principio al shape mismatch pero no al status.
 
 ### Interpretaciones resueltas por T0 (2026-08-26)
 
 - **`probe` con shape mismatch ⇒ 200**, con `contractMatched: false` y `responseShapeKeys`
-  reales. Una sonda **reporta, no juzga**; un mismatch es su resultado más valioso, no un
-  error.
-- **`ATLAS_LOGIN_ENABLED=false` ⇒ `stage:'allowlist'`**, con mensaje que distinga "login
-  deshabilitado" de "partner fuera de la lista". Dos causas del mismo rechazo; el operador
-  necesita saber cuál.
+  reales. Una sonda **reporta, no juzga**.
+- **`ATLAS_LOGIN_ENABLED=false` ⇒ `stage:'disabled'`** (corregido: antes decía
+  `'allowlist'` con mensaje distinguido; un stage propio es mejor que un mensaje que hay
+  que leer).
+- **El consumidor lee `diagnostics` sin mirar `ok` ni el status HTTP.** Defensa en
+  profundidad contra otro error de T0 en la política de status.
 - **`partner: null` en `login` ⇒ `stage:'no_partner'`, NO `'contract'`.** Colapsar los dos
   destruye la distinción que el proyecto necesita, y es el caso más probable en la primera
   prueba real porque la cuenta disponible es de administrador.
