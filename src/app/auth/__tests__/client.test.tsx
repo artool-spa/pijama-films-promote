@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ATLAS_BRIDGE_GLOBAL, type AtlasBridge } from '../atlas-bridge';
 import { buildBridgeScript } from '../bridge-script';
 import AtlasAuthClient from '../client';
@@ -670,5 +670,33 @@ describe('AtlasAuthClient — the bridge copy is scrubbed once the view has the 
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect((buffered.payload as { token?: string }).token).toBeUndefined();
+  });
+});
+
+describe('AtlasAuthClient — the re-run button', () => {
+  it('replays the whole token in probe mode', async () => {
+    // The only consumer of the token after the first exchange. Nothing covered it,
+    // so a scrub landing one line too early would have silently left this button
+    // posting an empty token — working screen, useless diagnosis.
+    const fetchMock = respondWith(502, { ok: false, stage: 'atlas_call' });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient({ mode: 'probe' });
+
+    await screen.findByText('Sign-in did not complete');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /Re-run as diagnostic probe/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ token: TOKEN, mode: 'probe' });
+  });
+
+  it('stays disabled until there is a token to replay', () => {
+    installBridge();
+    renderClient();
+
+    const button = screen.getByRole('button', { name: /Re-run as diagnostic probe/i });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 # readme-T2 — Página de aterrizaje del SSO Atlas
 
-_Última actualización: 2026-08-26 (rev. 4) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 5, sobre la base integrada) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -23,8 +23,8 @@ _Última actualización: 2026-08-26 (rev. 4) · Proyecto: SSO Atlas Console → 
   `feat/atlas-sso`) · pusheada desde el primer commit.
 - **Deploy activo:** ninguno. Esta rama no se despliega; App Hosting construye desde la rama
   conectada en GitHub. El merge lo decide T0/JP.
-- **Suite de tests:** 117 tests propios, todos verdes. La suite completa del repo son 380 tests
-  verdes con mis cambios aplicados.
+- **Suite de tests:** 126 tests propios, todos verdes. La suite completa del repo son 504 tests
+  verdes (mi rama ya trae la base integrada con el dominio de T1).
 - **Recursos de datos activos:** no aplica — este dominio no toca Firestore.
 - **Jobs/cron activos:** no aplica.
 
@@ -103,10 +103,10 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - [x] 5. El token completo no se renderiza, no se loguea, no va al DOM.
 - [x] 6. Simulador funciona en dev y no existe en producción — producción medida (`307`); dev
       desbloqueado por `PUBLIC_EXACT_ROUTES` de T1.
-- [x] 7. Tests con reporte de mutación: 96 mutantes, 94 muertos, 2 supervivientes y ambos
+- [x] 7. Tests con reporte de mutación: 104 mutantes, 102 muertos, 2 supervivientes y ambos
       equivalentes (uno era un mutante no-op mío; el otro lo neutraliza un closure obsoleto en el
-      propio código, y sus dos variantes no neutralizadas mueren). De los 117 tests, **103 los vi
-      ponerse rojos** y 14 nacieron verdes.
+      propio código, y sus dos variantes no neutralizadas mueren). De los 126 tests, **109 los vi
+      ponerse rojos** y 17 nacieron verdes.
 - [x] 8. `npx tsc --noEmit` y `eslint` limpios.
 - [x] 9. **El simulador resuelve el Contrato C localmente** ejercitando el camino real
       (`postMessage` → listener pre-paint → Contrato A → servidor → Atlas), sin fake en ninguna
@@ -151,38 +151,56 @@ var ALLOWED=["https://dashboard.pijamafilms.com"]
 grep -c "dashboard-lab" → 0     (el origen del lab no aparece en NINGUNA parte del HTML)
 ```
 
-## Deuda Conocida — la lista de stages es una copia a mano
+## La taxonomía de stages se deriva del tipo del servidor (deuda saldada)
 
-`ATLAS_ERROR_STAGES` en `src/app/auth/atlas-bridge.ts` es una **copia a mano** de
-`AtlasSessionStage`, que vive en `src/lib/atlas/types.ts` — dominio de T1, **no está en esta
-rama**. La taxonomía creció tres veces en un día y la copia quedó atrás cada vez. El modo de falla
-no es un error visible: un `stage` legítimo se renderizaba como *"not a Contract A stage"*, o sea
-el servidor pareciendo violar el contrato mientras lo cumplía.
-
-**Mitigación en runtime, ya implementada:** `describeStage()` degrada un stage desconocido al
-`message` crudo del servidor y lo rotula *"newer than this page"*. Nunca acusa. Más un test que
-exige que `ATLAS_ERROR_STAGES` y `STAGE_CONCLUSION` tengan exactamente las mismas claves.
-
-**El arreglo definitivo, verificado pero no aplicable aquí todavía.** Cuando las dos ramas se
-encuentren, esto lo convierte en error de compilación:
+`AtlasErrorStage` **es** `AtlasSessionStage`, importado de `@/lib/atlas/types` — el módulo de
+tipos, no el barrel `@/lib/atlas`, que reexporta `client.ts` (código de servidor).
 
 ```ts
-import type { AtlasSessionStage } from '@/lib/atlas/types';   // el módulo de tipos, no el barrel
-export const ATLAS_ERROR_STAGES: readonly AtlasErrorStage[] = [ … ];   // era `as const`
-export type AtlasErrorStage = AtlasSessionStage;               // era (typeof …)[number]
+import type { AtlasSessionStage } from '@/lib/atlas/types';
+export type AtlasErrorStage = AtlasSessionStage;
+export const ATLAS_ERROR_STAGES: readonly AtlasErrorStage[] = [ … ];
 ```
 
-Lo medí en un worktree desechable con las dos ramas mergeadas: `tsc --noEmit` limpio, 109 tests
-verdes. Y agregando un noveno stage al tipo de T1, el build falla exactamente donde debe:
+Antes era una copia a mano y quedó atrás **tres veces en un día**. El modo de falla nunca fue un
+crash: un stage legítimo se renderizaba como si el servidor violara el contrato, que es justo el
+falso negativo que este proyecto existe para evitar.
+
+Ahora `STAGE_CONCLUSION` está tipado con el tipo importado, así que agregar un stage en el dominio
+del servidor **rompe este build** hasta que alguien escriba qué significa. Verificado agregando un
+noveno stage a `src/lib/atlas/types.ts`:
 
 ```
-src/app/auth/atlas-bridge.ts(210,14): error TS2741:
-Property 'quota_exceeded' is missing in type '{ input: …; session: string; }'
-but required in type 'Record<AtlasSessionStage, string>'.
+src/app/auth/atlas-bridge.ts(237,14): error TS2741:
+Property 'quota_exceeded' is missing … but required in type 'Record<AtlasSessionStage, string>'.
 ```
 
-No lo apliqué en esta rama porque `@/lib/atlas/types` no existe acá y rompería `tsc` y `build`,
-que son mi DoD 8.
+**Tres capas, porque el tipo solo cubre una dirección:**
+
+| Capa | Qué atrapa |
+|---|---|
+| El tipo importado | un stage nuevo en el servidor sin conclusión acá ⇒ falla el build |
+| Dos tests de guardia | el array de runtime quedándose **corto** (un subconjunto tipa bien) |
+| `describeStage()` | un servidor desplegado más nuevo que el bundle del navegador |
+
+El array de runtime sigue existiendo porque un tipo no puede validar un string que llega por la red.
+
+## El token no se queda en el buffer
+
+El bridge bufferea una **copia superficial**, no `event.data`. Dos razones: `event.data` es del
+navegador y mutarlo sería tocar algo que no es nuestro —cualquier otro listener de la página lo
+vería—, y guardar la referencia mantiene vivo el payload entero mientras viva el buffer.
+
+`bridge.scrub(message)` borra el token, y **la vista lo llama después de tenerlo en la mano**, nunca
+al pasar. Destruirlo en la lectura convertiría cualquier fallo entre leer y usar en un login roto
+intermitente, que es peor que la ventana que cierra. `scrub` toca **solo** el mensaje que recibe:
+los sobres que nadie leyó todavía sobreviven.
+
+Alcance honesto: la ventana real ya estaba acotada porque `subscribe()` vacía el buffer al drenar
+(ahora hay un test que lo fija). Lo que agrega esto es no retener `event.data` y no dejar el token
+en la copia una vez consumido. **Lo que no cubre:** si la vista nunca monta, el buffer conserva el
+sobre. No le puse un auto-borrado por tiempo porque rompería la garantía del buffer pre-paint, que
+es la razón de ser de todo esto.
 
 ## Decisiones Abiertas
 
