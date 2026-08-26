@@ -1,6 +1,6 @@
 # readme-T1 — Dominio Servidor Atlas
 
-_Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 2: F1/F2/F3 + stages no_partner/disabled + política de status del probe) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -9,7 +9,7 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
 - **Agente:** T1
 - **Dominio:** Servidor Atlas — cliente HTTP hacia Atlas Console y endpoint de intercambio de sesión.
 - **Scope:** `src/lib/atlas/**` (config, client, types, index + tests) y
-  `POST /api/auth/atlas/session` (Contrato A). Más una línea en `src/middleware.ts` y las
+  `POST /api/auth/atlas/session` (Contrato A). Más dos cambios en `src/middleware.ts` y las
   env vars nuevas en `apphosting.yaml` / `.env.example`.
 - **No cubre:** `src/app/auth/**` ni el simulador (T2). `src/lib/pijama/**` es zona
   prohibida (andamiaje muerto que apunta a `api.pijamafilms.com`, NXDOMAIN; su retiro es
@@ -24,8 +24,8 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
   (ramificada de `feat/atlas-sso`) · Worktree: `/Users/jpudev2/Proyectos/pijama-t1`
 - **Deploy activo:** ninguno. Nada desplegado; App Hosting despliega desde la rama
   conectada y esta rama no lo es.
-- **Suite de tests:** 75 tests propios en `src/lib/atlas/__tests__/` ✅ verdes.
-  Suite completa del repo: 338 ✅. `npx tsc --noEmit` limpio, `lint` sin errores
+- **Suite de tests:** 100 tests propios en `src/lib/atlas/__tests__/` ✅ verdes.
+  Suite completa del repo: 363 ✅. `npx tsc --noEmit` limpio, `lint` sin errores
   (4 warnings preexistentes de React hooks, ninguno en mis archivos).
 - **Recursos de datos activos:** ninguno propio. El login hace upsert en `partners` vía
   `getOrCreatePartner`; el modo `probe` no escribe nada.
@@ -40,30 +40,44 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
 | A — `POST /api/auth/atlas/session` | Productor | ✅ Implementado, ambos modos, con `stage` obligatorio en todo error |
 | C — `GET {ATLAS_API_BASE_URL}/movies/by-partner` | Consumidor | 🔴 **No verificado.** Consumido a la defensiva: se reporta la forma cruda, nunca se asume la documentada |
 
-### Interpretaciones del Contrato A que tomé (T0 las conoce)
+### Taxonomía de `stage` (7 stages, fijada por T0)
 
-1. **`probe` con 2xx y forma que no calza ⇒ `200 { ok:true, contractMatched:false }`**, no
-   error. Es la única lectura que hace útil el campo `contractMatched` del contrato: probe
-   reporta, no juzga. En `login` la misma situación es `stage:'contract'`.
-2. **Non-2xx (incluido el 302 medido) ⇒ error `stage:'atlas_call'`** en ambos modos, con
-   `diagnostics` adjuntos. Es lo que dice la tabla de stages del contrato.
-3. **`ATLAS_LOGIN_ENABLED != 'true'` ⇒ `stage:'allowlist'`.** El enum de stages no tiene
-   uno para "login apagado"; `allowlist` es la compuerta de autorización, y el `message`
-   nombra la variable exacta.
-4. **Atlas 2xx en forma correcta pero sin `partner` ⇒ `login` rechaza con
-   `stage:'contract'`**, mensaje explícito de "cuenta admin sin partnerId". El `probe`
-   del mismo caso devuelve `ok:true, contractMatched:true, partner:null` para que los
-   tres resultados queden distinguibles.
+```
+'input' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session'
+```
 
-### Códigos HTTP elegidos (el contrato solo fija 4xx/5xx)
+Los tres stages de autorización están separados a propósito, porque tienen **tres
+siguientes-pasos distintos**:
 
-| stage | HTTP |
-|---|---|
-| `input` | 400 |
-| `allowlist` | 403 |
-| `atlas_call` | 502 |
-| `contract` | 502 |
-| `session` | 500 |
+| stage | HTTP | Significa | Qué hace el que lo lee |
+|---|---|---|---|
+| `input` | 400 | El body no pasó Zod | Arreglar al caller |
+| `atlas_call` | 502 | Atlas inalcanzable (probe) · Atlas no respondió 2xx (login) | Revisar `ATLAS_API_BASE_URL`, red, DNS |
+| `contract` | 502 | Atlas respondió 2xx pero la forma no calza | **Hallazgo para Crazy Cake** |
+| `no_partner` | 403 | Atlas autenticó bien, pero la cuenta no tiene partner asociado | **Pedirle a JP una cuenta de productor**, no es contrato roto |
+| `disabled` | 403 | `ATLAS_LOGIN_ENABLED` no es `'true'` | Encender la env var |
+| `allowlist` | 403 | El `partnerId` no está en la lista | Agregar el id a la lista |
+| `session` | 500 | Falló el upsert del partner o la cookie | Mirar Firestore / logs |
+
+### Política de status en modo `probe` — "una sonda reporta, no juzga"
+
+| Situación | HTTP | Respuesta |
+|---|---|---|
+| Atlas produjo **cualquier** respuesta HTTP (200, 302, 401, 500…) | **200** | `ok:true` con `atlasStatus` real |
+| Body de request inválido | 400 | `stage:'input'` |
+| Atlas **no** produjo respuesta HTTP (DNS, timeout, sin base URL) | 502 | `stage:'atlas_call'` |
+
+O sea: en `probe`, `atlas_call` significa únicamente **inalcanzable**. El 302 —el único
+comportamiento jamás medido contra el Atlas real— es un resultado perfectamente
+reportable. Si el probe lo respondiera con 502, la primera prueba con el token de JP
+se leería como "falló" cuando en realidad midió algo, y los diagnostics quedarían
+enterrados dentro de un envelope de error. Ese es exactamente el falso negativo que este
+proyecto existe para evitar.
+
+**El modo `login` no cambia**: ahí un non-2xx sigue siendo `stage:'atlas_call'` con 502,
+porque login sí tiene que juzgar. Y `contractMatched` solo puede ser `true` si Atlas
+respondió 2xx: un body con forma documentada colgando de un 302 no es una respuesta
+usable.
 
 ---
 
@@ -86,8 +100,16 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
 - [x] 4. El token no aparece en logs, respuestas ni mensajes de error. Solo largo y prefijo.
 - [x] 5. El JWT se trata como opaco: no se decodifica en ninguna parte del código.
 - [x] 6. Se reporta la forma cruda (`atlasStatus`, `responseShapeKeys`, `bodyKind`).
-- [x] 7. Tests con reporte de mutación (41 mutaciones, 0 sobrevivientes).
+- [x] 7. Tests con reporte de mutación (52 mutaciones propias, 0 sobrevivientes).
 - [x] 8. `tsc --noEmit` y lint limpios.
+- [x] 9. F1 — el token no escapa por `redirectedTo` (corte en `?` **y** `#`, más redacción
+      de lo que siga con forma de JWT).
+- [x] 10. F2 — test de `middleware.ts`: sacar `/api/auth/atlas/` dejaba la suite verde
+      con el SSO muerto en 401.
+- [x] 11. F3 — un caso por campo faltante del partner; el caso único anterior pasaba por
+      la razón equivocada.
+- [x] 12. `stage:'no_partner'`, `stage:'disabled'`, y `/dev/atlas-simulator` en el
+      matcher exacto de `PUBLIC_ROUTES`.
 
 ---
 
@@ -146,7 +168,8 @@ pijama-films-promote/
 ├── src/lib/atlas/index.ts                       ← superficie pública del módulo
 ├── src/lib/atlas/__tests__/config.test.ts       ← 21 tests
 ├── src/lib/atlas/__tests__/client.test.ts       ← 15 tests (stub en la red, no en el módulo)
-├── src/lib/atlas/__tests__/session-route.test.ts← 39 tests del endpoint
+├── src/lib/atlas/__tests__/session-route.test.ts← 51 tests del endpoint
+├── src/lib/atlas/__tests__/middleware-public-routes.test.ts ← 8 tests: las 3 rutas que el SSO necesita abiertas
 ├── src/app/api/auth/atlas/session/route.ts      ← Contrato A: probe y login
 ├── src/middleware.ts                            ← 1 línea: '/api/auth/atlas/' en PUBLIC_ROUTES
 ├── apphosting.yaml                              ← 4 env vars nuevas
@@ -163,6 +186,14 @@ pijama-films-promote/
 2. **`redirect: 'manual'` en el client.** Toda ruta no autenticada de Atlas responde
    `302 → /auth/auth/logout`. Si se sigue el redirect, la respuesta llega como `200` con
    una página HTML de login: un rechazo se lee como éxito.
+3. **`sanitizeLocation` corta en `?` y en `#`, no solo en `?`.** Atlas es una SPA con
+   routing por hash, así que el fragmento es justo donde viven los parámetros de sesión.
+   Un `Location: /#/auth#token=eyJ...` con corte solo en `?` metía un JWT vivo en Cloud
+   Logging y en el mensaje que ve el caller. La redacción de lo que tenga forma de JWT es
+   la segunda línea de defensa; el corte es la primera.
+4. **`PUBLIC_EXACT_ROUTES` existe aparte de `PUBLIC_ROUTES`.** La segunda se matchea con
+   `startsWith`; poner `'/dev/'` ahí publicaría toda ruta futura bajo `/dev/`. Si T2
+   agrega un sub-path al simulador, necesita su propia entrada — a propósito.
 
 ---
 
@@ -174,7 +205,7 @@ cd /Users/jpudev2/Proyectos/pijama-t1
 # node_modules es un symlink al del repo principal (mismo lockfile, y está gitignoreado).
 # Si no existe: ln -s /Users/jpudev2/Proyectos/pijama-films-promote/node_modules node_modules
 
-npx vitest run src/lib/atlas/__tests__/    # 75 tests del dominio
+npx vitest run src/lib/atlas/__tests__/    # 100 tests del dominio
 npx tsc --noEmit
 npx yarn@1.22.22 lint                      # yarn/corepack pueden no estar en el PATH
 
@@ -194,8 +225,8 @@ Local corre en: `localhost:3000`
 | 200 | `true` | `{...}` | El Contrato C funciona. Siguiente paso: poblar la allowlist y probar `login`. |
 | 200 | `true` | `null` | El contrato funciona pero **esta cuenta no es un partner** (cuenta admin sin `partnerId`). Hay que pedirle a JP una cuenta de productor. |
 | 200 | `false` | `null` | Atlas respondió otra cosa. Mirar `responseShapeKeys` — es el hallazgo que va a Crazy Cake. |
-| 302 | `false` | `null` | Token rechazado o base URL equivocado. `message` trae el destino del redirect. |
-| 0 | `false` | `null` | No se llegó a Atlas: DNS, timeout, o `ATLAS_API_BASE_URL` sin configurar. |
+| 302 | `false` | `null` | Token rechazado o base URL equivocado. En `probe` esto llega como **200 `ok:true`**, no como error. |
+| 0 | `false` | `null` | No se llegó a Atlas: DNS, timeout, o `ATLAS_API_BASE_URL` sin configurar. Único caso de `502 stage:'atlas_call'` en probe. |
 
 ---
 
