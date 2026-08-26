@@ -9,6 +9,11 @@
  *   { type: 'ATLAS_AUTH', token: string, partner: { name: string, email: string } }
  */
 import { z } from 'zod';
+// The type module, not the `@/lib/atlas` barrel: the barrel re-exports
+// `client.ts`, which is server code. `import type` erases at compile time and
+// would not have pulled it in anyway, but pointing at the type module removes
+// the question instead of relying on nobody turning this into a value import.
+import type { AtlasSessionStage } from '@/lib/atlas/types';
 
 /** Global the pre-paint inline script installs on `window`. */
 export const ATLAS_BRIDGE_GLOBAL = '__atlasAuthBridge';
@@ -100,6 +105,11 @@ export interface AtlasBridge {
     at: number;
   };
   subscribe(listener: (message: BridgeMessage) => void): () => void;
+  /**
+   * Removes the token from a message the view has already consumed. Optional so
+   * a page served before this existed still type-checks against the global.
+   */
+  scrub?(message: BridgeMessage): void;
 }
 
 export function readBridge(): AtlasBridge | null {
@@ -186,25 +196,29 @@ export function isSafeRedirect(target: unknown): target is string {
 export type AtlasSessionMode = 'probe' | 'login';
 
 /**
- * The stage taxonomy, kept in the same order as the server domain's
- * `AtlasSessionStage` in `src/lib/atlas/types.ts`.
+ * The stage taxonomy is **derived from the server domain's type**, not copied.
  *
- * TODO(integration): this is a hand-maintained copy of a type that lives in
- * another domain, and it has already fallen behind three times — each time
- * rendering a legitimate stage as though the server were violating the contract.
- * Once `src/lib/atlas/types.ts` is on this branch the fix is two lines:
+ * This used to be a hand-maintained duplicate of `AtlasSessionStage`, and it fell
+ * behind three times in a single day. The failure mode was not a crash: a
+ * legitimate stage rendered as though the server were violating the contract,
+ * which is the exact false negative this project exists to prevent.
  *
- *     import type { AtlasSessionStage } from '@/lib/atlas/types';
- *     export type AtlasErrorStage = AtlasSessionStage;
+ * Now `STAGE_CONCLUSION` is keyed by the imported type, so adding a stage in
+ * `src/lib/atlas/types.ts` breaks *this* build until someone writes what it means.
+ * Divergence stopped depending on anyone remembering.
  *
- * with the array below annotated `readonly AtlasErrorStage[]`. `STAGE_CONCLUSION`
- * is already keyed by `AtlasErrorStage`, so from that moment on a stage added in
- * the server domain fails this build until someone writes its conclusion. Until
- * the branches meet, `describeStage` below is what carries the risk: an
- * unrecognised stage degrades to the server's own message rather than to an
- * accusation.
+ * The runtime array below still has to exist — a type cannot validate a string
+ * that arrives at runtime — and it is annotated with the derived type so an entry
+ * that is not a real stage fails to compile. What the type cannot catch is the
+ * array being *short*, so a test asserts it holds exactly the keys of
+ * `STAGE_CONCLUSION`. Type covers one direction, test covers the other.
+ *
+ * And `describeStage` still degrades gracefully, because a deployed server can be
+ * newer than the bundle running in someone's browser.
  */
-export const ATLAS_ERROR_STAGES = [
+export type AtlasErrorStage = AtlasSessionStage;
+
+export const ATLAS_ERROR_STAGES: readonly AtlasErrorStage[] = [
   'input',
   'rate_limited',
   'atlas_call',
@@ -213,9 +227,7 @@ export const ATLAS_ERROR_STAGES = [
   'disabled',
   'allowlist',
   'session',
-] as const;
-
-export type AtlasErrorStage = (typeof ATLAS_ERROR_STAGES)[number];
+];
 
 /**
  * What each stage means for the question this project exists to answer: is the

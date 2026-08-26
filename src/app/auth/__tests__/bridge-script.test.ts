@@ -208,6 +208,67 @@ describe('buildBridgeScript — buffering', () => {
   });
 });
 
+describe('buildBridgeScript — the token does not linger', () => {
+  it('empties the buffer when the view drains it', () => {
+    // The window in which a raw token sits on a global reachable by any script
+    // on the page is exactly the span between arrival and drain, so the drain
+    // emptying the buffer is the property that bounds it.
+    const bridge = install({ allowedOrigins: [LAB] });
+    post({ type: 'ATLAS_AUTH', token: 'a-real-looking-token', partner: { name: 'n', email: 'e' } }, LAB);
+    expect(bridge.buffer).toHaveLength(1);
+
+    bridge.subscribe(() => {});
+
+    expect(bridge.buffer).toHaveLength(0);
+    expect(JSON.stringify(bridge.buffer)).not.toContain('a-real-looking-token');
+  });
+
+  it('scrubs the token out of a message once it is handed one', () => {
+    const bridge = install({ allowedOrigins: [LAB] });
+    const seen: BridgeMessage[] = [];
+    bridge.subscribe((message) => seen.push(message));
+    post({ type: 'ATLAS_AUTH', token: 'a-real-looking-token', partner: { name: 'n', email: 'e' } }, LAB);
+
+    expect((seen[0].payload as { token?: string }).token).toBe('a-real-looking-token');
+
+    bridge.scrub?.(seen[0]);
+
+    expect((seen[0].payload as { token?: string }).token).toBeUndefined();
+    expect(JSON.stringify(seen[0])).not.toContain('a-real-looking-token');
+  });
+
+  it('scrubs only the message it is given, never the ones still waiting', () => {
+    // A token must not be destroyed before it has been consumed. Scrubbing the
+    // whole buffer here would take out envelopes nobody has read yet, turning a
+    // privacy tidy-up into an intermittent broken sign-in.
+    const bridge = install({ allowedOrigins: [LAB] });
+    const seen: BridgeMessage[] = [];
+    const unsubscribe = bridge.subscribe((message) => seen.push(message));
+    post({ type: 'ATLAS_AUTH', token: 'consumed-token', partner: { name: 'n', email: 'e' } }, LAB);
+    unsubscribe();
+    post({ type: 'ATLAS_AUTH', token: 'not-yet-read', partner: { name: 'n', email: 'e' } }, LAB);
+
+    bridge.scrub?.(seen[0]);
+
+    expect((bridge.buffer[0].payload as { token?: string }).token).toBe('not-yet-read');
+  });
+
+  it('never touches the event own data', () => {
+    // The buffer holds a copy. Mutating `event.data` would be reaching into an
+    // object the browser owns, and any other listener on the page would see it.
+    const bridge = install({ allowedOrigins: [LAB] });
+    const seen: BridgeMessage[] = [];
+    bridge.subscribe((message) => seen.push(message));
+
+    const original = { type: 'ATLAS_AUTH', token: 'original-token', partner: { name: 'n', email: 'e' } };
+    post(original, LAB);
+    bridge.scrub?.(seen[0]);
+
+    expect(original.token).toBe('original-token');
+    expect(seen[0].payload).not.toBe(original);
+  });
+});
+
 describe('buildBridgeScript — origin classification', () => {
   it('records an ATLAS_AUTH from a disallowed origin, marked not allowed', () => {
     // Rejecting it silently would make "wrong origin" indistinguishable from

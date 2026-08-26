@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { ATLAS_BRIDGE_GLOBAL } from '../atlas-bridge';
+import { ATLAS_BRIDGE_GLOBAL, type AtlasBridge } from '../atlas-bridge';
 import { buildBridgeScript } from '../bridge-script';
 import AtlasAuthClient from '../client';
 
@@ -19,9 +19,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 /** Runs the real inline script, so the tests exercise what the browser runs. */
-function installBridge(allowedOrigins: string[] = [LAB, PROD]) {
+function installBridge(allowedOrigins: string[] = [LAB, PROD]): AtlasBridge {
   Object.defineProperty(window, 'opener', { value: null, configurable: true, writable: true });
   new Function(buildBridgeScript({ allowedOrigins, allowSelfOrigin: false }))();
+  return (window as unknown as Record<string, unknown>)[ATLAS_BRIDGE_GLOBAL] as AtlasBridge;
 }
 
 function post(data: unknown, origin: string) {
@@ -627,5 +628,47 @@ describe('AtlasAuthClient — the received origin is prominent', () => {
     // And on the event row itself, not only in the summary card, so the reason
     // travels with the message that was rejected.
     expect(screen.getByText(new RegExp(`Allowed origins are: ${PROD}`))).toBeTruthy();
+  });
+});
+
+describe('AtlasAuthClient — the bridge copy is scrubbed once the view has the token', () => {
+  it('still exchanges normally', async () => {
+    // The scrub must not break the thing it is tidying up after.
+    const fetchMock = respondWith(200, { ok: true, diagnostics: {} });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).token).toBe(TOKEN);
+    expect(await screen.findByText('Probe succeeded')).toBeTruthy();
+  });
+
+  it('leaves no token anywhere on the bridge global afterwards', async () => {
+    respondWith(200, { ok: true, diagnostics: {} });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    await screen.findByText('Probe succeeded');
+
+    const bridge = (window as unknown as Record<string, unknown>)[ATLAS_BRIDGE_GLOBAL];
+    expect(JSON.stringify(bridge)).not.toContain('SECRET-PAYLOAD-MUST-NEVER-RENDER');
+  });
+
+  it('keeps the token long enough to use it, scrubbing only after', async () => {
+    // Ordering is the whole condition: scrubbing on the way past would turn any
+    // failure between reading and using the token into an intermittent failure.
+    const bridge = installBridge();
+    const fetchMock = respondWith(200, { ok: true, diagnostics: {} });
+    post(validEnvelope(), PROD);
+
+    const buffered = bridge.buffer[0];
+    expect((buffered.payload as { token?: string }).token).toBe(TOKEN);
+
+    renderClient();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect((buffered.payload as { token?: string }).token).toBeUndefined();
   });
 });

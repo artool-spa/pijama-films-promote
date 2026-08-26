@@ -315,6 +315,12 @@ export default function AtlasAuthClient({
       if (handledRef.current) return;
       handledRef.current = true;
       tokenRef.current = parsed.data.token;
+
+      // Only now, with the token safely held and the panel row already written,
+      // is it safe to drop it from the bridge's copy. `parsed.data.token` is
+      // Zod's own output, a separate string, so scrubbing cannot reach it.
+      readBridge()?.scrub?.(message);
+
       void runWithAutoProbe(parsed.data.token, mode);
     },
     [allowedOrigins, mode, pushEvent, runWithAutoProbe]

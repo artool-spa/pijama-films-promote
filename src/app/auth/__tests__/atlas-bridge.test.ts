@@ -16,6 +16,19 @@ import {
   stageConclusion,
 } from '../atlas-bridge';
 
+import type { AtlasSessionStage } from '@/lib/atlas/types';
+import type { AtlasErrorStage } from '../atlas-bridge';
+
+/**
+ * Compile-time, not runtime: `tsc --noEmit` covers this file, so if the two types
+ * ever stop being the same these two lines stop compiling. This is the assertion
+ * that the taxonomy is *derived* and not merely equal by coincidence today.
+ */
+const _stageIsTheServerType: AtlasErrorStage = null as unknown as AtlasSessionStage;
+const _serverTypeIsTheStage: AtlasSessionStage = null as unknown as AtlasErrorStage;
+void _stageIsTheServerType;
+void _serverTypeIsTheStage;
+
 const LAB = 'https://dashboard-lab.pijamafilms.com';
 const PROD = 'https://dashboard.pijamafilms.com';
 
@@ -167,10 +180,10 @@ describe('atlasAuthEnvelopeSchema (Contract B)', () => {
 
 describe('the stage taxonomy', () => {
   it('is the eight stages the server domain defines, in its order', () => {
-    // Hand-maintained copy of `AtlasSessionStage` in src/lib/atlas/types.ts, which
-    // is not on this branch yet. Until it is, this list is the only thing standing
-    // between a new stage and a legitimate response rendering as a contract
-    // violation — it has fallen behind three times already.
+    // The *type* is now imported from the server domain, so a stage added there
+    // fails this build. What the type cannot catch is this runtime array being
+    // short — it validates fine as a subset — so the list is pinned here and to
+    // STAGE_CONCLUSION's keys below.
     expect([...ATLAS_ERROR_STAGES]).toEqual([
       'input',
       'rate_limited',

@@ -65,7 +65,13 @@ var bridge={version:1,startedAt:Date.now(),allowedOrigins:ALLOWED,buffer:[],igno
 readySignal:{hasOpener:false,postedTo:[],failedFor:[],at:0},subscriber:null,
 subscribe:function(fn){bridge.subscriber=fn;var pending=bridge.buffer.slice();bridge.buffer.length=0;
 for(var i=0;i<pending.length;i++){pending[i].buffered=true;try{fn(pending[i]);}catch(e){}}
-return function(){if(bridge.subscriber===fn){bridge.subscriber=null;}};}};
+return function(){if(bridge.subscriber===fn){bridge.subscriber=null;}};},
+// Drops the token from ONE message, and only the one handed in. The view calls
+// this after it has taken the token, never before: destroying it on the way past
+// would turn any failure between reading and using it into an intermittent
+// broken sign-in, which is worse than the window being closed.
+scrub:function(message){
+if(message&&message.payload&&typeof message.payload==="object"){delete message.payload.token;}}};
 function record(event){
 var data=event.data;
 var type=(data&&typeof data==="object"&&typeof data.type==="string")?data.type:null;
@@ -74,7 +80,13 @@ var allowed=ALLOWED.indexOf(event.origin)!==-1;
 // "a wrong origin tried" is a diagnostic result, not noise to hide. Everything
 // else from a rejected origin is dev-server and extension chatter, and is counted only.
 if(!type||(!allowed&&type!==AUTH)){bridge.ignoredCount++;return;}
-var message={origin:event.origin,type:type,allowed:allowed,receivedAt:Date.now(),buffered:false,payload:data};
+// A shallow copy, not the event's own object. Two reasons: event.data belongs to
+// the browser and scrubbing it later would be mutating something that is not
+// ours, and holding a reference keeps the whole delivered payload alive for as
+// long as the buffer does.
+var copy=data;
+if(data&&typeof data==="object"){copy={};for(var k in data){if(Object.prototype.hasOwnProperty.call(data,k)){copy[k]=data[k];}}}
+var message={origin:event.origin,type:type,allowed:allowed,receivedAt:Date.now(),buffered:false,payload:copy};
 if(bridge.subscriber){try{bridge.subscriber(message);}catch(e){}return;}
 if(bridge.buffer.length<LIMIT){bridge.buffer.push(message);}else{bridge.ignoredCount++;}}
 window.addEventListener("message",record,false);
