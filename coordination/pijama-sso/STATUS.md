@@ -160,6 +160,40 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 
 ## Lecciones / gotchas (materia prima del cierre compound)
 
+- **El MISMO test puede ponerse rojo por la propiedad con un mutante y por setup roto con
+  otro — y la tabla mutante→test los muestra idénticos.** Hallazgo de T1b/T2b, y es el
+  avance metodológico del proyecto. El test *"no queda token en el global"* aparecía rojo
+  bajo tres mutantes: con el compuesto M6+M7 moría **por la propiedad** (`expected … not to
+  contain 'SECRET-PAYLOAD'`), y con M1/M3 moría por `Unable to find an element with the text
+  'Probe succeeded'` — o sea el token se destruía antes, Zod rechazaba el envelope, la sonda
+  nunca corría y el `await` reventaba antes de llegar a la aserción. **Contar esos rojos
+  como cobertura infla el número sin mentir en ninguna cifra.** Ya sabíamos que "un rojo por
+  la razón equivocada es peor que ningún test"; lo nuevo es que un test legítimo puede
+  producir las dos clases de rojo, así que el reporte de mutación **tiene que leer el mensaje
+  de fallo**, no solo el conteo.
+  _(candidato: cuerpo de skill de domain-agent — alta prioridad)_
+- **Un mutante suelto que sobrevive no es un veredicto, es una pregunta.** Formulación de
+  T2. Puede ser un hueco, un mutante equivalente, o redundancia deliberada, y las tres se
+  ven idénticas en la tabla. La segunda pasada es barata: si sospechas redundancia, muta las
+  dos compuertas juntas; si sigue verde, ahí sí es hueco. En un solo dominio los tres casos
+  aparecieron y resultaron cosas distintas: un mutante inválido, código doblemente protegido
+  por accidente, y un agujero real.
+  _(candidato: cuerpo de skill de domain-agent — alta prioridad)_
+- **Una justificación falsa en un commit o un comentario sobrevive al código que describe.**
+  Un commit afirmaba que mover el scrub una línea antes habría dejado un botón posteando un
+  token vacío. T2b lo refutó y T0 lo verificó: el mutante es **equivalente** (504/504 verdes)
+  porque el consumidor lee la copia de Zod, no el payload — y el propio código lo explicaba
+  tres líneas antes. El test ganado era válido; el **porqué** escrito era falso. El mensaje
+  del commit ya no se arregla sin reescribir historia; el comentario sí. **La cobertura y su
+  explicación se verifican por separado.**
+  _(candidato: cuerpo de skill de domain-agent)_
+- **Un auditor que declara qué NO verificó vale más que uno que entrega un total.** T2b
+  reportó explícitamente que los `104 mutantes / 102 muertos` de T2 no los revisó uno por
+  uno, y verificó solo los 10 que cubrían lo listado como el corazón de la tarea. Sin esa
+  declaración, T0 habría tratado el total ajeno como verificado de forma independiente
+  cuando no lo estaba.
+  _(candidato: cuerpo de skill de T0)_
+
 - **Una orden no prueba obediencia, igual que una notificación no prueba muerte.** T0
   mandó un stand down y trató el mensaje como si hubiera detenido el proceso; lanzó un
   relevo en el mismo worktree y estuvo a un `git add -A` de que una mutación temporal en el
