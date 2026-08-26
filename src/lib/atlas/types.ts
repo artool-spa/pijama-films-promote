@@ -94,9 +94,16 @@ export type AtlasSessionRequest = z.infer<typeof AtlasSessionRequestSchema>;
  *     administrator one). Fix: ask for a producer account. NOT a broken contract.
  *   - `disabled`: the environment kill switch is off. Fix: set ATLAS_LOGIN_ENABLED.
  *   - `allowlist`: this partner is simply not on the list. Fix: add the id.
+ *
+ * `rate_limited` is an addition to the taxonomy T0 defined. The endpoint is
+ * unauthenticated and now carries a limiter, and the contract's own hard rule
+ * is that EVERY error carries a stage - so returning the house
+ * `{ error, code: 'RATE_LIMITED' }` shape here would have broken the envelope
+ * that T2 parses. One extra enum value is the smaller deviation.
  */
 export type AtlasSessionStage =
   | 'input'
+  | 'rate_limited'
   | 'atlas_call'
   | 'contract'
   | 'no_partner'

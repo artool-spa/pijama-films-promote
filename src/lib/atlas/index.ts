@@ -17,6 +17,13 @@ export {
 } from './config';
 
 export { describeToken, fetchPartnerMovies } from './client';
+
+export {
+  callerKey,
+  consumeAtlasSessionQuota,
+  resetAtlasSessionQuota,
+} from './rate-limit';
+export type { RateLimitResult } from './rate-limit';
 export type { AtlasBodyKind, AtlasCallResult } from './client';
 
 export {

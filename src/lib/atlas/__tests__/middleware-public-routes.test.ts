@@ -97,3 +97,58 @@ describe('what stays closed', () => {
     expect(isPassThrough(res)).toBe(false);
   });
 });
+
+/**
+ * "The simulator is unreachable in production" is a two-layer contract with two
+ * owners: this guard, and the notFound() inside the page itself, which lives in
+ * T2's domain. Neither layer may be dropped on the assumption that the other
+ * holds - and until this test existed, emptying PUBLIC_EXACT_ROUTES (or
+ * publishing it in production) left the whole suite green.
+ */
+describe('the simulator in production', () => {
+  it('is not public when NODE_ENV is production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+
+    try {
+      const res = await middleware(requestFor('/dev/atlas-simulator'));
+
+      expect(
+        isPassThrough(res),
+        'the simulator mints a synthetic ATLAS_AUTH message; leaving it reachable in ' +
+          'production publishes a login-shaped surface to the internet, and the only ' +
+          'thing left standing between it and a visitor would be a notFound() in ' +
+          "another agent's file"
+      ).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('is still public outside production, or the simulator is useless', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+
+    try {
+      const res = await middleware(requestFor('/dev/atlas-simulator'));
+
+      expect(isPassThrough(res)).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('keeps the SSO exchange public in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+
+    try {
+      const res = await middleware(requestFor('/api/auth/atlas/session'));
+
+      expect(
+        isPassThrough(res),
+        'the guard must fence off the simulator only: JP runs the real test against ' +
+          'production, so the exchange itself has to stay reachable there'
+      ).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

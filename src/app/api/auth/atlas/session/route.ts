@@ -11,6 +11,8 @@ import {
   getAtlasMoviesUrl,
   isAtlasLoginEnabled,
   isPartnerAllowed,
+  callerKey,
+  consumeAtlasSessionQuota,
   toMovieSample,
   type AtlasCallResult,
   type AtlasDiagnostics,
@@ -49,6 +51,27 @@ const log = createLogger('atlas-session');
  * - The allowlist is fail-closed. Empty or absent rejects everyone.
  */
 export async function POST(req: NextRequest) {
+  // --------------------------------------------------------------------------
+  // stage: rate_limited
+  //
+  // First, before parsing anything: a flood of malformed bodies costs the same
+  // as a flood of valid ones. The limiter is a noise buffer for an endpoint
+  // that must stay unauthenticated and public - never an authorization
+  // control. That job belongs to the fail-closed allowlist below.
+  // --------------------------------------------------------------------------
+  const quota = consumeAtlasSessionQuota(callerKey(req.headers));
+
+  if (!quota.allowed) {
+    return NextResponse.json(
+      {
+        ok: false,
+        stage: 'rate_limited' as const,
+        message: `Too many Atlas session requests. Retry in ${quota.retryAfterSeconds}s.`,
+      },
+      { status: 429, headers: { 'Retry-After': String(quota.retryAfterSeconds) } }
+    );
+  }
+
   // --------------------------------------------------------------------------
   // stage: input
   // --------------------------------------------------------------------------
@@ -199,8 +222,10 @@ export async function POST(req: NextRequest) {
     // actual fix is to ask JP for a producer account.
     log.warn({ mode }, 'Atlas login rejected: the token authenticates an account with no partner');
 
+    // 422, not 403: the request was well-formed and the caller authenticated
+    // fine. What is unusable is the content Atlas returned for it.
     return errorResponse(
-      403,
+      422,
       'no_partner',
       'Atlas answered in the documented shape but this account has no partner associated ' +
         '(no partnerId to authorize against - an administrator account looks like this). ' +

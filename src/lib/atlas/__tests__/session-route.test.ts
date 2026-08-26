@@ -38,6 +38,7 @@ vi.mock('@/lib/auth/session', () => ({
 }));
 
 const { POST } = await import('@/app/api/auth/atlas/session/route');
+const { resetAtlasSessionQuota } = await import('@/lib/atlas/rate-limit');
 
 const BASE = 'https://dashboard.pijamafilms.com';
 const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.PAYLOAD-THAT-MUST-NEVER-LEAK.sig';
@@ -100,6 +101,10 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   logged.length = 0;
+  // Every request here is unattributed, so they all share one bucket. Without
+  // this the suite would exhaust its own quota partway through and the failures
+  // would look like route bugs.
+  resetAtlasSessionQuota();
   getOrCreatePartner.mockReset().mockResolvedValue({ id: 'doc-1', partnerId: ALLOWED_PARTNER });
   createSessionToken.mockReset().mockResolvedValue('signed-session-token');
   setSessionCookie.mockReset().mockResolvedValue(undefined);
@@ -485,7 +490,11 @@ describe('mode login', () => {
         'token has no partner. Calling it "contract" sends the reader to Crazy Cake ' +
         'when the fix is to ask for a producer account'
     ).toBe('no_partner');
-    expect(res.status).toBe(403);
+    expect(
+      res.status,
+      '422, not 403: the request was well-formed and the caller authenticated fine; ' +
+        'what is unusable is the content Atlas returned for it'
+    ).toBe(422);
     expect(
       setSessionCookie,
       'with no partnerId there is nothing to authorize against; inventing a session ' +
@@ -686,5 +695,88 @@ describe('token handling across every path', () => {
     await POST(request({ token: TOKEN, mode: 'probe' }));
 
     expect(JSON.stringify(logged)).toContain('"tokenPrefix":"eyJhbG"');
+  });
+});
+
+// ============================================================================
+// stage: rate_limited
+// ============================================================================
+
+describe('stage rate_limited', () => {
+  it('refuses past the per-caller budget, with a stage and a Retry-After', async () => {
+    const from = (ip: string) =>
+      new NextRequest('https://promote.pijamafilms.com/api/auth/atlas/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ token: TOKEN, mode: 'probe' }),
+      });
+
+    for (let i = 0; i < 20; i++) {
+      expect((await POST(from('9.9.9.9'))).status).toBe(200);
+    }
+
+    const res = await POST(from('9.9.9.9'));
+    const body = await res.json();
+
+    expect(res.status).toBe(429);
+    expect(
+      body.stage,
+      'Contract A says every error carries a stage; answering a rate limit with the ' +
+        'house { error, code } shape would break the envelope T2 parses'
+    ).toBe('rate_limited');
+    expect(body.ok).toBe(false);
+    expect(res.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('counts before parsing, so malformed bodies cannot flood for free', async () => {
+    const junk = () =>
+      new NextRequest('https://promote.pijamafilms.com/api/auth/atlas/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '8.8.8.8' },
+        body: 'not json',
+      });
+
+    for (let i = 0; i < 20; i++) await POST(junk());
+
+    expect(
+      (await POST(junk())).status,
+      'a flood of garbage costs the same to serve as a flood of valid requests'
+    ).toBe(429);
+  });
+
+  it('does not let one noisy caller lock out another', async () => {
+    const from = (ip: string) =>
+      new NextRequest('https://promote.pijamafilms.com/api/auth/atlas/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ token: TOKEN, mode: 'probe' }),
+      });
+
+    for (let i = 0; i < 25; i++) await POST(from('7.7.7.7'));
+
+    expect(
+      (await POST(from('6.6.6.6'))).status,
+      'JP running the real probe must not be blocked by unrelated traffic'
+    ).toBe(200);
+  });
+
+  it('never reaches Atlas once the caller is over budget', async () => {
+    const from = () =>
+      new NextRequest('https://promote.pijamafilms.com/api/auth/atlas/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '5.5.5.5' },
+        body: JSON.stringify({ token: TOKEN, mode: 'probe' }),
+      });
+
+    for (let i = 0; i < 20; i++) await POST(from());
+    const callsBefore = fetchMock.mock.calls.length;
+
+    await POST(from());
+
+    expect(
+      fetchMock.mock.calls.length,
+      'the whole point is to stop the outbound call; a limiter that still calls Atlas ' +
+        'buys nothing'
+    ).toBe(callsBefore);
   });
 });

@@ -43,18 +43,29 @@ const PUBLIC_ROUTES = [
   '/auth',
 ];
 
-// Routes matched EXACTLY, not by prefix.
+// Routes matched EXACTLY, not by prefix, and never in production.
 //
 // The simulator posts a synthetic ATLAS_AUTH message at /auth so the SSO can be
 // exercised without Crazy Cake. It is only reachable with no session - that is
 // the whole scenario it covers - so the middleware has to let it through.
 //
-// It lives here rather than as a '/dev/' entry in PUBLIC_ROUTES on purpose:
-// that list is matched with startsWith, so '/dev/' would publish every future
-// route under /dev/ to the internet the moment someone adds one. Exact match
-// means a sub-route of the simulator needs its own entry here - deliberately
-// so; the next person should have to think about it.
+// Two properties of this list are load-bearing:
+//
+//  1. Exact match, not a '/dev/' entry in PUBLIC_ROUTES. That list is matched
+//     with startsWith, so '/dev/' would publish every future route under /dev/
+//     the moment someone adds one. A sub-route of the simulator needs its own
+//     entry here - deliberately so; the next person should have to think.
+//  2. Empty in production. "The simulator is unreachable in production" is a
+//     two-layer contract: this guard, and the notFound() in the page itself
+//     (src/app/dev/atlas-simulator/page.tsx). Neither layer may be removed on
+//     the assumption that the other one holds.
 const PUBLIC_EXACT_ROUTES = ['/dev/atlas-simulator'];
+
+function isPublicExactRoute(pathname: string): boolean {
+  if (process.env.NODE_ENV === 'production') return false;
+
+  return PUBLIC_EXACT_ROUTES.includes(pathname);
+}
 
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
@@ -66,7 +77,7 @@ export async function middleware(request: NextRequest) {
   // Allow public routes
   if (
     PUBLIC_ROUTES.some((route) => pathname.startsWith(route)) ||
-    PUBLIC_EXACT_ROUTES.includes(pathname)
+    isPublicExactRoute(pathname)
   ) {
     return withRequestLog(request, NextResponse.next(), start);
   }
