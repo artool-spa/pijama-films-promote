@@ -227,3 +227,47 @@ env:
     secret: GOOGLE_ADS_LOGIN_CUSTOMER_ID
     availability:
       - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # Atlas Console SSO (dashboard.pijamafilms.com, operated by Crazy Cake)
+  #
+  # Atlas opens https://promote.pijamafilms.com/auth in a new window and posts a
+  # JWT over postMessage; /api/auth/atlas/session exchanges it for a session.
+  #
+  # None of these are secrets: two are URLs and one is a list of partner ids.
+  # ---------------------------------------------------------------------------
+
+  # Base URL of the Atlas API. Deliberately configurable: the real base is NOT
+  # confirmed. Atlas is a hash-routed SPA, four candidate paths probed on
+  # 2026-08-26 all answered 302, and api.pijamafilms.com does not resolve.
+  # Keeping it here means re-pointing the integration is a config change.
+  # The path /movies/by-partner is appended by src/lib/atlas/config.ts.
+  - variable: ATLAS_API_BASE_URL
+    value: https://dashboard.pijamafilms.com
+    availability:
+      - RUNTIME
+
+  # Gate for the `login` mode. Only the exact string "true" enables it; probe
+  # mode is unaffected and never mints a session.
+  - variable: ATLAS_LOGIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # Comma-separated partner ids allowed to log in through Atlas. FAIL-CLOSED:
+  # empty or absent rejects everyone. It must never be read as "empty = all" -
+  # getFilms() does not filter by partner, so one unintended session sees the
+  # whole catalogue. Leave empty until JP names the partner ids.
+  - variable: ATLAS_LOGIN_ALLOWED_PARTNER_IDS
+    value: ""
+    availability:
+      - RUNTIME
+
+  # Origins allowed to postMessage into /auth. Production first; the lab is
+  # secondary. No wildcards. NEXT_PUBLIC_* is baked at BUILD time: merging a
+  # change to this value does NOT activate it - a rollout is required.
+  - variable: NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS
+    value: https://dashboard.pijamafilms.com,https://dashboard-lab.pijamafilms.com
+    availability:
+      - BUILD
+      - RUNTIME

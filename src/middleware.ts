@@ -28,9 +28,14 @@ function getSecretKey(): Uint8Array {
 // and each route authorizes that token itself via authorizeInternalRequest.
 // Leaving either one out here means the middleware answers 401 before the route
 // ever runs.
+//
+// `/api/auth/atlas/` is the Atlas SSO exchange: it is called by the `/auth`
+// landing page, which by definition has no session cookie yet, and it
+// authorizes itself on Atlas' answer plus a partner allowlist.
 const PUBLIC_ROUTES = [
   '/login',
   '/api/auth/login',
+  '/api/auth/atlas/',
   '/api/cron/',
   '/api/internal/',
   '/privacy-policy',
