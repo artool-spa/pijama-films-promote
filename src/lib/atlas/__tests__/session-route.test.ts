@@ -432,6 +432,39 @@ describe('mode login', () => {
     expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
+  it('refuses to log in when the envelope reports a non-ok status', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ status: 'error', data: { partner: documentedSuccess.data.partner, movies: [] } })
+    );
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(
+      body.stage,
+      'the envelope carries its own verdict; authorizing off data attached to ' +
+        'status:"error" is trusting a payload Atlas already disowned'
+    ).toBe('contract');
+    expect(body.diagnostics.contractMatched).toBe(false);
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
+  it('refuses to log in when the envelope has no movies key at all', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ status: 'ok', data: { partner: documentedSuccess.data.partner } })
+    );
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    // Deliberately strict, and deliberately fail-closed: a body missing a
+    // documented key is a divergence to report to the humans, not something to
+    // absorb quietly. The probe will name it via responseShapeKeys.
+    expect(body.stage).toBe('contract');
+    expect(body.diagnostics.contractMatched).toBe(false);
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
   it('refuses to log in when the partner object is present but malformed', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
