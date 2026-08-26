@@ -675,9 +675,15 @@ describe('AtlasAuthClient — the bridge copy is scrubbed once the view has the 
 
 describe('AtlasAuthClient — the re-run button', () => {
   it('replays the whole token in probe mode', async () => {
-    // The only consumer of the token after the first exchange. Nothing covered it,
-    // so a scrub landing one line too early would have silently left this button
-    // posting an empty token — working screen, useless diagnosis.
+    // This button is the only consumer of the token after the first exchange, and
+    // it had no coverage at all. What it guards is the *pair*: where the token is
+    // read from, and whether the scrub can reach that source. Moving the scrub
+    // earlier changes nothing on its own, and reading the token out of
+    // `message.payload` instead of Zod's copy changes nothing on its own either —
+    // each is still correct with the other half in place. Do both and the button
+    // posts an empty token: a working screen producing a useless diagnosis.
+    // Verified by mutating the two halves separately (both stay green) and
+    // together (this test goes red).
     const fetchMock = respondWith(502, { ok: false, stage: 'atlas_call' });
     installBridge();
     post(validEnvelope(), PROD);

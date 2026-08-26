@@ -209,7 +209,7 @@ Los 9 tests que defienden este mecanismo: **los 9 los vi ponerse rojos**, ningun
 | el intercambio sigue funcionando | D12 |
 | no queda token en el global del bridge | D12, D13 |
 | conserva el token hasta usarlo, y limpia después | D02, D05, D10, D11, D12, D13 |
-| el botón de re-run reenvía el token completo | D06, D12 |
+| el botón de re-run reenvía el token completo | D06 (compuesto, ver abajo), D12 |
 | el botón queda deshabilitado sin token | D14 |
 
 Tres nacieron verdes en la primera pasada y los cerré con mutantes dirigidos: **D12** (la vista
@@ -217,9 +217,33 @@ scrubbea *antes* de validar — el desorden realista), **D13** (scrub no-op *má
 vacía: esa propiedad necesita los dos mecanismos, así que ningún mutante suelto la mataba) y **D14**
 (el botón habilitado sin token).
 
-El más instructivo fue **D06**: mover el scrub una línea antes no rompía nada, porque el intercambio
-usa la copia de Zod — pero el botón de re-run habría posteado un token vacío. Pantalla que funciona
-produciendo un diagnóstico inútil. Ese botón no tenía ningún test.
+### Corrección — D06 estaba mal explicado
+
+El mensaje del commit `5eb2dba` y el comentario del test decían que **mover el scrub una línea antes**
+habría dejado el botón de re-run posteando un token vacío. **Es falso**, lo detectó T2b y lo verifiqué
+descomponiendo mi propio mutante:
+
+| Mutante | Resultado |
+|---|---|
+| solo mover el `scrub()` una línea antes | **0 rojos** — equivalente |
+| solo leer el token de `message.payload` en vez de la copia de Zod | **0 rojos** — equivalente |
+| las dos cosas juntas (mi D06 original) | **1 rojo** |
+
+Mi D06 cambiaba **dos** cosas a la vez y le atribuí la muerte a la mitad equivocada. El botón nunca
+toca `message.payload`: lee `tokenRef`, que sale de `parsed.data.token`, que es salida propia de Zod
+—un string distinto— así que el scrub no lo alcanza. El comentario del código en `client.tsx:319-321`
+siempre lo dijo bien; la justificación del test decía lo contrario.
+
+**Lo que el test protege de verdad** es el *par*: de dónde se lee el token y si el scrub alcanza esa
+fuente. Cada mitad por separado sigue siendo correcta con la otra en su lugar. Juntas, el botón
+postea vacío.
+
+**Lo que sí sigue en pie:** el botón no tenía **ningún** test y ahora tiene dos, y son load-bearing
+—romper el botón los pone rojos—. La cobertura ganada es real; el *porqué* estaba mal.
+
+Y D06 resulta ser **el mismo fenómeno que D13**, no un caso aparte: una propiedad que solo muere con
+un mutante compuesto. Que yo lo hubiera clasificado como "agujero real" mientras nombraba la categoría
+en el mismo readme es la mejor ilustración posible de por qué un mutante suelto no es un veredicto.
 
 Alcance honesto: la ventana real ya estaba acotada porque `subscribe()` vacía el buffer al drenar
 (ahora hay un test que lo fija). Lo que agrega esto es no retener `event.data` y no dejar el token
