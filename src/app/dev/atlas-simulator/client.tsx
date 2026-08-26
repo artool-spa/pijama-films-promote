@@ -30,12 +30,17 @@ import {
   FormControl,
   FormControlLabel,
   FormLabel,
+  IconButton,
+  InputAdornment,
   Radio,
   RadioGroup,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import {
   ATLAS_MESSAGE_TYPE,
   PROMOTE_READY_TYPE,
@@ -84,6 +89,62 @@ export function buildAuthUrl(mode: SessionMode, originMode: OriginMode): string 
 }
 
 const READY_WAIT_MS = 10_000;
+
+/**
+ * Every token field on this page is masked by default, whichever token it holds.
+ *
+ * Not because the synthetic one is secret, but because this is the screen that
+ * gets screenshotted to report results, and a field that is sometimes safe to
+ * show trains the habit of showing it. Revealing is one deliberate click.
+ */
+function MaskedTokenField({
+  label,
+  helperText,
+  value,
+  onChange,
+  inputRef,
+}: {
+  label: string;
+  helperText?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  inputRef?: React.Ref<HTMLInputElement>;
+}) {
+  const [revealed, setRevealed] = useState(false);
+
+  return (
+    <TextField
+      label={label}
+      helperText={helperText}
+      type={revealed ? 'text' : 'password'}
+      fullWidth
+      autoComplete="off"
+      spellCheck={false}
+      {...(value !== undefined ? { value } : {})}
+      {...(onChange ? { onChange: (event) => onChange(event.target.value) } : {})}
+      {...(inputRef ? { inputRef } : {})}
+      slotProps={{
+        htmlInput: { 'data-lpignore': 'true' },
+        input: {
+          endAdornment: (
+            <InputAdornment position="end">
+              <Tooltip title={revealed ? 'Hide' : 'Reveal'}>
+                <IconButton
+                  aria-label={revealed ? `Hide ${label}` : `Reveal ${label}`}
+                  onClick={() => setRevealed((current) => !current)}
+                  edge="end"
+                  size="small"
+                >
+                  {revealed ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                </IconButton>
+              </Tooltip>
+            </InputAdornment>
+          ),
+        },
+      }}
+    />
+  );
+}
 
 export default function AtlasSimulatorClient() {
   const [token, setToken] = useState(SYNTHETIC_TOKEN);
@@ -256,14 +317,9 @@ export default function AtlasSimulatorClient() {
             because a shortcut past our own listener would prove nothing. It is not stored, not
             logged, not put in the URL, and the field is cleared the moment it is used.
           </Alert>
-          <TextField
+          <MaskedTokenField
             inputRef={realTokenInputRef}
             label="Paste a real Atlas JWT"
-            type="password"
-            fullWidth
-            autoComplete="off"
-            spellCheck={false}
-            slotProps={{ htmlInput: { 'data-lpignore': 'true' } }}
             helperText="Runs in probe mode only: no session cookie is ever issued from this path."
           />
           <Box sx={{ mt: 2 }}>
@@ -280,17 +336,22 @@ export default function AtlasSimulatorClient() {
             Synthetic run
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            The token below is synthetic: the exchange will fail against the real Atlas, which is
-            the point — it proves our half of the handshake independently of Crazy Cake.
+            This half drives the handshake with a made-up token and every failure mode on demand:
+            timing, origin and envelope shape are all selectable, so our side can be proved out
+            without Crazy Cake. The token below is pre-filled with a synthetic value and the
+            exchange with Atlas will fail — that is the point, and it does not affect anything
+            being tested here.{' '}
+            <strong>
+              To settle Contract C with a real production JWT, use the field above, not this one:
+              this form can be switched into login mode and that one cannot.
+            </strong>
           </Typography>
           <Stack spacing={3}>
-            <TextField
-              label="Token (synthetic)"
+            <MaskedTokenField
+              label="Token (synthetic by default)"
+              helperText="Masked like the field above, so a screenshot of this page never carries a token."
               value={token}
-              onChange={(event) => setToken(event.target.value)}
-              fullWidth
-              multiline
-              minRows={2}
+              onChange={setToken}
             />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField

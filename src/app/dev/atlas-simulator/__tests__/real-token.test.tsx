@@ -42,8 +42,17 @@ function openSimulator() {
   return render(<AtlasSimulatorClient />);
 }
 
+function realTokenField(): HTMLInputElement {
+  // By label, not by position: there is more than one masked field on the page.
+  // `selector` because MUI renders the label text twice: the <label> and the
+  // fieldset legend that draws the notch in the outline.
+  return screen.getByLabelText(/Paste a real Atlas JWT/i, {
+    selector: 'input',
+  }) as HTMLInputElement;
+}
+
 function pasteRealToken(value = REAL_TOKEN) {
-  const field = document.querySelector('input[type="password"]') as HTMLInputElement;
+  const field = realTokenField();
   fireEvent.change(field, { target: { value } });
   return field;
 }
@@ -106,12 +115,41 @@ afterEach(() => {
 });
 
 describe('the pasted-token field', () => {
-  it('is a password field, not plain text', () => {
+  it('is masked, not plain text', () => {
     openSimulator();
 
-    const field = document.querySelector('input[type="password"]');
-    expect(field).not.toBeNull();
-    expect(field?.getAttribute('autocomplete')).toBe('off');
+    const field = realTokenField();
+    expect(field.type).toBe('password');
+    expect(field.getAttribute('autocomplete')).toBe('off');
+  });
+
+  it('reveals only on a deliberate click, and re-hides', () => {
+    openSimulator();
+    const toggle = screen.getByRole('button', { name: /Reveal Paste a real Atlas JWT/i });
+
+    fireEvent.click(toggle);
+    expect(realTokenField().type).toBe('text');
+
+    fireEvent.click(screen.getByRole('button', { name: /Hide Paste a real Atlas JWT/i }));
+    expect(realTokenField().type).toBe('password');
+  });
+
+  it('masks the synthetic field too, so no screenshot of this page carries a token', () => {
+    // Not because the synthetic token is secret, but because a field that is
+    // sometimes safe to show trains the habit of showing it — and this is the
+    // page that gets screenshotted to report results.
+    openSimulator();
+
+    const synthetic = screen.getByLabelText(/Token \(synthetic by default\)/i, {
+      selector: 'input',
+    }) as HTMLInputElement;
+    expect(synthetic.type).toBe('password');
+  });
+
+  it('points at the real-token field for a production JWT', () => {
+    openSimulator();
+
+    expect(screen.getByText(/use the field above, not this one/i)).toBeTruthy();
   });
 
   it('does nothing at all when nothing was pasted', () => {

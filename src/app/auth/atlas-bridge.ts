@@ -169,8 +169,28 @@ export function isSafeRedirect(target: unknown): target is string {
 
 export type AtlasSessionMode = 'probe' | 'login';
 
+/**
+ * The stage taxonomy, kept in the same order as the server domain's
+ * `AtlasSessionStage` in `src/lib/atlas/types.ts`.
+ *
+ * TODO(integration): this is a hand-maintained copy of a type that lives in
+ * another domain, and it has already fallen behind three times — each time
+ * rendering a legitimate stage as though the server were violating the contract.
+ * Once `src/lib/atlas/types.ts` is on this branch the fix is two lines:
+ *
+ *     import type { AtlasSessionStage } from '@/lib/atlas/types';
+ *     export type AtlasErrorStage = AtlasSessionStage;
+ *
+ * with the array below annotated `readonly AtlasErrorStage[]`. `STAGE_CONCLUSION`
+ * is already keyed by `AtlasErrorStage`, so from that moment on a stage added in
+ * the server domain fails this build until someone writes its conclusion. Until
+ * the branches meet, `describeStage` below is what carries the risk: an
+ * unrecognised stage degrades to the server's own message rather than to an
+ * accusation.
+ */
 export const ATLAS_ERROR_STAGES = [
   'input',
+  'rate_limited',
   'atlas_call',
   'contract',
   'no_partner',
@@ -188,6 +208,8 @@ export type AtlasErrorStage = (typeof ATLAS_ERROR_STAGES)[number];
  */
 export const STAGE_CONCLUSION: Record<AtlasErrorStage, string> = {
   input: 'Our own request was malformed. This is a bug on our side, not a problem with the integration.',
+  rate_limited:
+    'Too many attempts in a short window — wait a minute and try again. The integration is fine; this is our own limiter.',
   atlas_call: 'Atlas could not be reached at all. Nothing can be concluded about the token or the account.',
   contract:
     'Atlas answered, so the token was delivered, but the response does not match what Crazy Cake documented.',
@@ -210,6 +232,115 @@ export function isInformationalStage(stage: string | undefined): boolean {
 export function stageConclusion(stage: string | undefined): string | null {
   if (!stage) return null;
   return (STAGE_CONCLUSION as Record<string, string>)[stage] ?? null;
+}
+
+export interface StageDescription {
+  label: string;
+  /** What to show under "what this means". Never empty when there is anything to say. */
+  meaning: string | null;
+  known: boolean;
+}
+
+/**
+ * Turns whatever `stage` arrived into something readable.
+ *
+ * The failure mode being avoided: this contract has grown three times in a day,
+ * and an unrecognised value used to render as "not a Contract A stage" — which
+ * reads as *the server is broken* when the truth is *this page is older than the
+ * server*. An unknown stage now degrades to the server's own message.
+ */
+export function describeStage(
+  stage: string | undefined,
+  message: string | undefined
+): StageDescription {
+  if (!stage) {
+    return {
+      label: 'MISSING — Contract A requires a stage on every error',
+      meaning: message ?? null,
+      known: false,
+    };
+  }
+
+  const conclusion = (STAGE_CONCLUSION as Record<string, string>)[stage];
+  if (conclusion) return { label: stage, meaning: conclusion, known: true };
+
+  return {
+    label: `${stage} (newer than this page — showing the server's own message)`,
+    meaning: message ?? 'The server sent no message alongside it.',
+    known: false,
+  };
+}
+
+/**
+ * Reads the Atlas half of the diagnostics and says what to do about it.
+ *
+ * The measured behaviour of the real Atlas is a `302`: every unauthenticated
+ * route there redirects to `/auth/auth/logout` rather than answering the `401`
+ * its documentation promises. Rendering that as a bare number leaves the reader
+ * to guess; naming it is the difference between a diagnosis and a status code.
+ */
+export function describeAtlasOutcome(diagnostics: AtlasDiagnostics | undefined): string | null {
+  if (!diagnostics) return null;
+  const status = diagnostics.atlasStatus;
+  if (status === undefined) return null;
+
+  if (status === 0) {
+    return 'The request to Atlas never completed — DNS, timeout or a refused connection. Nothing can be concluded about the token.';
+  }
+  if (status >= 300 && status < 400) {
+    return 'Atlas redirected instead of answering. That is exactly what an unauthenticated request looks like there, so either the token was rejected or ATLAS_API_BASE_URL points at the wrong host.';
+  }
+  if (status === 401 || status === 403) {
+    return 'Atlas rejected the token outright.';
+  }
+  if (status >= 500) {
+    return 'Atlas answered with a server error. The token cannot be judged from this.';
+  }
+  if (diagnostics.contractMatched === false) {
+    return 'Atlas answered normally, so the token was accepted, but the body does not match Contract C. Compare the response keys below with what Crazy Cake documented.';
+  }
+  return null;
+}
+
+export type NonContractBodyKind = 'not-json' | 'middleware' | 'json-wrong-shape';
+
+/**
+ * Explains a response that never became a Contract A envelope.
+ *
+ * These three cases send a reader to three different places, and collapsing them
+ * into "the endpoint is missing or returned non-JSON" actively misleads: the
+ * session middleware answers `401 {"error":"Unauthorized"}`, which is valid JSON
+ * from a route that exists. Saying "missing endpoint" there points at the wrong
+ * file entirely.
+ */
+export function describeNonContractBody(args: {
+  httpStatus: number | null;
+  bodyWasJson: boolean;
+  bodyKeys: string[];
+}): { kind: NonContractBodyKind; message: string } {
+  const status = args.httpStatus ?? 0;
+  const shown = args.httpStatus === null ? '?' : String(args.httpStatus);
+
+  if (!args.bodyWasJson) {
+    return {
+      kind: 'not-json',
+      message: `HTTP ${shown} with a body that is not JSON. A missing route is the usual cause — Next answers one with an HTML 404.`,
+    };
+  }
+
+  if ((status === 401 || status === 403) && args.bodyKeys.includes('error')) {
+    return {
+      kind: 'middleware',
+      message: `HTTP ${shown} with {"error": …}. That is the session middleware refusing the request before the route ran, not ${ATLAS_SESSION_ENDPOINT} itself — the route exists but is not on the public list.`,
+    };
+  }
+
+  return {
+    kind: 'json-wrong-shape',
+    message: `HTTP ${shown} with valid JSON that is not a Contract A envelope (keys: ${
+      args.bodyKeys.length > 0 ? args.bodyKeys.join(', ') : 'none'
+    }). The endpoint answered; its response shape is wrong.`,
+  };
 }
 
 export interface AtlasDiagnostics {

@@ -296,13 +296,35 @@ describe('AtlasAuthClient — Contract A results', () => {
     expect(screen.getByText('partner not in allowlist')).toBeTruthy();
   });
 
-  it('flags a stage that is not one of the five the contract defines', async () => {
-    respondWith(403, { ok: false, stage: 'login_disabled', message: 'off' });
+  it('degrades an unrecognised stage to the server own message, not to an accusation', async () => {
+    // This taxonomy grew three times in a day. A stage this page does not know is
+    // far more likely to mean "the server is newer" than "the server is broken",
+    // and rendering it as a contract violation sends the reader to the wrong file.
+    respondWith(403, { ok: false, stage: 'quota_exceeded', message: 'Out of quota until 10:00.' });
     installBridge();
     post(validEnvelope(), LAB);
     renderClient();
 
-    expect(await screen.findByText('login_disabled (not a Contract A stage)')).toBeTruthy();
+    expect(
+      await screen.findByText("quota_exceeded (newer than this page — showing the server's own message)")
+    ).toBeTruthy();
+    expect(screen.getAllByText('Out of quota until 10:00.').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/not a Contract A stage/)).toBeNull();
+  });
+
+  it('explains rate limiting as our own limiter, not a broken integration', async () => {
+    respondWith(429, {
+      ok: false,
+      stage: 'rate_limited',
+      message: 'Too many Atlas session requests. Retry in 56s.',
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    renderClient();
+
+    expect(await screen.findByText('rate_limited')).toBeTruthy();
+    expect(screen.getAllByText(/wait a minute and try again/).length).toBeGreaterThan(0);
+    expect(screen.getByText('429')).toBeTruthy();
   });
 
   it('flags an error response that omits the stage entirely', async () => {
@@ -316,16 +338,61 @@ describe('AtlasAuthClient — Contract A results', () => {
     ).toBeTruthy();
   });
 
-  it('survives a body that is not Contract A at all', async () => {
+  it('names a non-JSON body as a missing route', async () => {
     // What a missing endpoint looks like today: Next answers with an HTML 404.
     respondWith(404, null, true);
     installBridge();
     post(validEnvelope(), LAB);
     renderClient();
 
-    expect(await screen.findByText(/does not match Contract A/)).toBeTruthy();
+    expect(await screen.findByText(/body that is not JSON/)).toBeTruthy();
+    expect(screen.getByText(/A missing route is the usual cause/)).toBeTruthy();
     expect(
       screen.getByText('transport (detected by this page, not reported by the endpoint)')
+    ).toBeTruthy();
+  });
+
+  it('names a 401 from the middleware as the middleware, not a missing endpoint', async () => {
+    // The exact shape the session middleware returns. It is valid JSON from a
+    // route that exists, so "the endpoint is missing" would point at the wrong file.
+    respondWith(401, { error: 'Unauthorized' });
+    installBridge();
+    post(validEnvelope(), LAB);
+    renderClient();
+
+    expect(await screen.findByText(/session middleware refusing the request/)).toBeTruthy();
+    expect(screen.queryByText(/not JSON/)).toBeNull();
+  });
+
+  it('names a JSON body of the wrong shape as a wrong shape', async () => {
+    respondWith(200, { status: 'ok', data: {} });
+    installBridge();
+    post(validEnvelope(), LAB);
+    renderClient();
+
+    expect(await screen.findByText(/not a Contract A envelope \(keys: status, data\)/)).toBeTruthy();
+  });
+
+  it('says what Atlas did when it redirected instead of answering', async () => {
+    // The one Atlas behaviour anyone has measured.
+    respondWith(200, {
+      ok: true,
+      diagnostics: {
+        atlasUrlTried: 'https://dashboard.pijamafilms.com/movies/by-partner',
+        atlasStatus: 302,
+        contractMatched: false,
+        partner: null,
+        movieCount: 0,
+        responseShapeKeys: [],
+      },
+    });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    expect(await screen.findByText('What Atlas did')).toBeTruthy();
+    expect(
+      screen.getByText(/either the token was rejected or ATLAS_API_BASE_URL points at the wrong host/)
     ).toBeTruthy();
   });
 

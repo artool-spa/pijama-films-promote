@@ -42,13 +42,15 @@ import {
   ATLAS_MESSAGE_TYPE,
   ATLAS_SESSION_ENDPOINT,
   atlasAuthEnvelopeSchema,
+  describeAtlasOutcome,
+  describeNonContractBody,
+  describeStage,
   describeToken,
   formatTokenFingerprint,
   isInformationalStage,
   isSafeRedirect,
   parseSessionResponse,
   readBridge,
-  stageConclusion,
   type AtlasSessionMode,
   type BridgeMessage,
   type ParsedSessionResponse,
@@ -168,6 +170,7 @@ export default function AtlasAuthClient({
 
       let httpStatus: number | null = null;
       let body: unknown = null;
+      let bodyWasJson = false;
       try {
         const httpResponse = await fetch(ATLAS_SESSION_ENDPOINT, {
           method: 'POST',
@@ -177,6 +180,7 @@ export default function AtlasAuthClient({
         httpStatus = httpResponse.status;
         try {
           body = await httpResponse.json();
+          bodyWasJson = true;
         } catch {
           body = null;
         }
@@ -189,16 +193,18 @@ export default function AtlasAuthClient({
         return { ok: false };
       }
 
-      const parsed = body === null ? null : parseSessionResponse(body);
+      const parsed = bodyWasJson ? parseSessionResponse(body) : null;
 
       if (!parsed) {
-        // Most likely cause while the server domain is still in flight: the route
-        // does not exist yet, so Next answers with an HTML 404.
+        // Three different causes with three different next steps, so they are
+        // named apart rather than collapsed into "the endpoint is missing".
+        const bodyKeys =
+          bodyWasJson && body !== null && typeof body === 'object' && !Array.isArray(body)
+            ? Object.keys(body as Record<string, unknown>)
+            : [];
         settle({
           httpStatus,
-          transportError:
-            `HTTP ${httpStatus ?? '?'} with a body that does not match Contract A. ` +
-            'The endpoint is missing or returned non-JSON.',
+          transportError: describeNonContractBody({ httpStatus, bodyWasJson, bodyKeys }).message,
         });
         return { ok: false };
       }
@@ -603,22 +609,7 @@ function AttemptPanel({ attempt }: { attempt: ExchangeAttempt }) {
       {response && (
         <>
           <Row label="Result" value={response.ok ? 'ok' : 'failed'} />
-          {!response.ok && (
-            <>
-              <Row
-                label="Stage"
-                value={
-                  response.stage
-                    ? `${response.stage}${response.stageIsContractual ? '' : ' (not a Contract A stage)'}`
-                    : 'MISSING — Contract A requires a stage on every error'
-                }
-                emphasis
-              />
-              {stageConclusion(response.stage) && (
-                <Row label="What this means" value={stageConclusion(response.stage) as string} />
-              )}
-            </>
-          )}
+          {!response.ok && <StageRows response={response} />}
           {response.message && <Row label="Message" value={response.message} />}
           {response.ok && response.redirectTo && (
             <Row label="Redirect to" value={response.redirectTo} />
@@ -637,6 +628,9 @@ function AttemptPanel({ attempt }: { attempt: ExchangeAttempt }) {
           )}
           {diagnostics.atlasStatus !== undefined && (
             <Row label="Atlas HTTP status" value={String(diagnostics.atlasStatus)} emphasis />
+          )}
+          {describeAtlasOutcome(diagnostics) && (
+            <Row label="What Atlas did" value={describeAtlasOutcome(diagnostics) as string} />
           )}
           {diagnostics.contractMatched !== undefined && (
             <Row label="Contract C matched" value={diagnostics.contractMatched ? 'yes' : 'no'} />
@@ -678,6 +672,22 @@ function AttemptPanel({ attempt }: { attempt: ExchangeAttempt }) {
         </>
       )}
     </Stack>
+  );
+}
+
+/**
+ * An unrecognised stage degrades to the server's own message. It never renders as
+ * a contract violation: this page being older than the server is the likelier
+ * explanation, and this taxonomy has grown three times already.
+ */
+function StageRows({ response }: { response: ParsedSessionResponse }) {
+  const stage = describeStage(response.stage, response.message);
+
+  return (
+    <>
+      <Row label="Stage" value={stage.label} emphasis />
+      {stage.meaning && <Row label="What this means" value={stage.meaning} />}
+    </>
   );
 }
 
@@ -763,7 +773,8 @@ function SettledBanner({
     return (
       <Alert severity="info">
         <AlertTitle>The SSO works — this account has no partner attached</AlertTitle>
-        {stageConclusion(informational.response.stage)} Sign-in did not complete, but the
+        {describeStage(informational.response.stage, informational.response.message).meaning}{' '}
+        Sign-in did not complete, but the
         handshake, the token and the call to Atlas all did.
       </Alert>
     );
@@ -780,7 +791,9 @@ function SettledBanner({
     );
   }
 
-  const conclusion = primary?.response ? stageConclusion(primary.response.stage) : null;
+  const conclusion = primary?.response
+    ? describeStage(primary.response.stage, primary.response.message).meaning
+    : null;
 
   return (
     <Alert severity="error">
