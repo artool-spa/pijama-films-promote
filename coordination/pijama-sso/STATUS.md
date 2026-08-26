@@ -23,7 +23,7 @@ propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
 |--------|---------|--------|--------------|---------------|
 | T1 | Servidor Atlas | ✅ Cerrado | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
 | T1b | Auditor + guard/rate-limit | ✅ Cerrado | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
-| T2 | Página `/auth` + simulador | 🟡 Un ítem | `793a88f` entregado; escribiendo tests | — |
+| T2 | Página `/auth` + simulador | 🟡 Ronda final | 7 ítems de auditoría; los 4 mutantes vivos están en los dos `page.tsx` | — | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
 
@@ -152,6 +152,39 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 ---
 
 ## Lecciones / gotchas (materia prima del cierre compound)
+
+- **Una medición de estado móvil caduca entre razonarla y despacharla, y T0 la trató como
+  válida indefinidamente — dos veces.** Primero con "working tree limpio", después con el
+  SHA de la rama: leí `593b8c1` como HEAD (correcto en ese instante) y despaché sobre esa
+  lectura minutos más tarde, cuando la rama ya iba dos commits adelante. Los dos agentes
+  receptores lo atraparon con un `git log --oneline -3` antes de escribir.
+  **Regla:** el `git log` va inmediatamente antes de redactar el mensaje, no antes de
+  razonarlo; y si el mensaje cita un commit, lleva SHA y hora de lectura, de modo que la
+  instrucción **se invalide sola** cuando el receptor esté más adelante. Que el agente
+  receptor tenga que atraparlo es descargarle un trabajo del coordinador.
+  _(candidato: cuerpo de skill de T0 — alta prioridad)_
+- **T0 atribuyó a un agente el trabajo de otro, y el error nació de su propio despacho.**
+  Asigné el guard a T1b; lo entregó T1 en `d0f1a2c`; vi el commit, leí la implementación, la
+  elogié — y se la atribuí a T1b porque venía de mi orden. El crédito prestado corrompe el
+  registro y también el juicio: por un rato creí que T1 había ignorado una instrucción que
+  en realidad había ejecutado mejor de lo pedido. **Verificar autoría contra el commit, no
+  contra el despacho.**
+  _(candidato: cuerpo de skill de T0)_
+- **Los controladores server se quedan sin tests y ahí viven las defensas de producción.**
+  En el dominio de la página, los 4 mutantes sobrevivientes estaban **todos** en los dos
+  `page.tsx`, y ningún test importaba ninguno de los dos. El agente cubrió a fondo sus
+  módulos puros y su componente cliente — lo testeable sin fricción — y dejó descubierto
+  justo donde estaban los dos guards de `NODE_ENV` y el cableado del script pre-paint.
+  **Al auditar un dominio de Next, preguntar explícitamente qué tests importan los
+  `page.tsx`.**
+  _(candidato: perfil de stack `artool-pijama-promote`)_
+- **El copy de una pantalla puede documentar el procedimiento equivocado y nadie lo nota
+  porque no es código.** El simulador rotulaba su campo como *"Token (synthetic)"* bajo un
+  banner que decía que el intercambio *debe* fallar contra el Atlas real — y ese campo es
+  exactamente donde el humano pega un JWT de producción, según el flujo escrito en
+  `contracts.md`. Ningún test podía atraparlo: el defecto era la contradicción entre dos
+  documentos. Lo encontró un auditor leyendo la pantalla y el contrato juntos.
+  _(candidato: cuerpo de skill de domain-agent)_
 
 - **El cruce de mensajes va en las DOS direcciones, y la que sobreestima es la conocida.**
   Ya habíamos visto un reporte que sonaba a cierre sobre trabajo viejo. Esta vez pasó lo
