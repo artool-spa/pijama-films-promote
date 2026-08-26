@@ -93,6 +93,12 @@ export default function AtlasAuthClient({
   timeoutMs,
 }: AtlasAuthClientProps) {
   const router = useRouter();
+  // Held in a ref so `runExchange` has no reactive dependency at all. With the
+  // router in its dependency list, any host that hands back a fresh router object
+  // per render would re-create the subscription effect on every render, and the
+  // effect's own setState would spin that into an infinite loop.
+  const routerRef = useRef(router);
+  routerRef.current = router;
 
   const [phase, setPhase] = useState<Phase>('waiting');
   const [events, setEvents] = useState<PanelEvent[]>([]);
@@ -192,11 +198,11 @@ export default function AtlasAuthClient({
       setPhase('authenticated');
 
       if (requestedMode === 'login' && isSafeRedirect(parsed.redirectTo)) {
-        router.push(parsed.redirectTo);
-        router.refresh();
+        routerRef.current.push(parsed.redirectTo);
+        routerRef.current.refresh();
       }
     },
-    [router]
+    []
   );
 
   const pushEvent = useCallback((event: Omit<PanelEvent, 'id'>) => {
