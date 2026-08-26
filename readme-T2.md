@@ -1,6 +1,6 @@
 # readme-T2 — Página de aterrizaje del SSO Atlas
 
-_Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 2, tras cinco correcciones de T0) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -23,7 +23,7 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
   `feat/atlas-sso`) · pusheada desde el primer commit.
 - **Deploy activo:** ninguno. Esta rama no se despliega; App Hosting construye desde la rama
   conectada en GitHub. El merge lo decide T0/JP.
-- **Suite de tests:** 65 tests propios, todos verdes. La suite completa del repo son 328 tests
+- **Suite de tests:** 99 tests propios, todos verdes. La suite completa del repo son 362 tests
   verdes con mis cambios aplicados.
 - **Recursos de datos activos:** no aplica — este dominio no toca Firestore.
 - **Jobs/cron activos:** no aplica.
@@ -37,6 +37,14 @@ _Última actualización: 2026-08-26 · Proyecto: SSO Atlas Console → promote.p
 | `GET /auth` | `404 {"error":"Not found"}` | **`200`**, HTML con el script inline |
 | `GET /dev/atlas-simulator` | no existía | **`307` → `/login`** (inalcanzable en producción) |
 
+Con `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` seteada, el HTML de producción trae la lista horneada
+**con producción primero**:
+
+```
+var ALLOWED=["https://dashboard.pijamafilms.com","https://dashboard-lab.pijamafilms.com"]
+if(false&&ALLOWED.indexOf(location.origin)===-1)
+```
+
 En el HTML servido con `NODE_ENV=production` el script inline aparece en el índice 12603 y el
 markup del panel en el 14597 — el listener se instala antes de que el navegador llegue siquiera
 a parsear la UI. La concesión de origen propio sale horneada como `if(false&&…)`.
@@ -49,6 +57,15 @@ a parsear la UI. La concesión de origen propio sale horneada como `if(false&&�
 |----------|-----|--------|
 | Contrato B — envelope `ATLAS_AUTH` | Consumidor (productor: Crazy Cake) | ✅ Implementado; 🔴 **no observado en la realidad** |
 | Contrato A — `POST /api/auth/atlas/session` | Consumidor (productor: T1) | ✅ Construido contra la especificación; pendiente de ejercerlo contra el endpoint real |
+| Contrato C — endpoint de películas de Atlas | Indirecto: el simulador es lo que permite cerrarlo hoy | 🔴 no verificado |
+| Contrato D — el simulador es inaccesible en producción | **Productor (capa 2)** | ✅ `notFound()` + test que se pone rojo si desaparece |
+
+**Contrato D, capa 2 — no borrar.** `src/app/dev/atlas-simulator/page.tsx` llama `notFound()`
+cuando `NODE_ENV === 'production'`. La capa 1 (`PUBLIC_EXACT_ROUTES` en `src/middleware.ts`) es de
+T1. Ninguna de las dos se saca sin la otra, y hay un test
+(`src/app/dev/atlas-simulator/__tests__/page.test.ts`) que se pone rojo si el guard desaparece —
+antes no lo había, y una defensa cuyo modo de falla es el silencio es indistinguible de no tener
+defensa.
 
 Notas de implementación del Contrato A: parseo defensivo con Zod `.passthrough()`, que **nunca
 lanza**. Una respuesta que no calza devuelve `null` y el panel lo muestra como error de
@@ -64,12 +81,15 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - **Necesito de T1:** `POST /api/auth/atlas/session`. Mientras no exista, `/auth` muestra un
   error de transporte claro y el resto del panel funciona igual. El simulador cierra mi DoD sin
   T1.
-- **Necesito de T1 (1 línea, bloqueante para el DoD 6):** `'/dev/'` en `PUBLIC_ROUTES` de
-  `src/middleware.ts`. Hoy el simulador redirige a `/login` también en local. Reportado a T0.
+- **Necesito de T1 (resuelto por T1, no tocar):** T1 agregó `PUBLIC_EXACT_ROUTES` en
+  `src/middleware.ts` con match exacto para `/dev/atlas-simulator`. **No agregues tu propia
+  entrada de middleware**: colisiona al mergear.
 - **Necesito de T1 (variable de entorno):** `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` en
-  `apphosting.yaml` con `availability: BUILD`. Sin ella la allowlist queda vacía y la página
-  rechaza **todo** origen — fail-closed a propósito. Ojo: al ser `NEXT_PUBLIC_*` se hornea en
-  build, así que mergear no la activa; hace falta rollout.
+  `apphosting.yaml` con `availability: BUILD`, con **producción primero**:
+  `https://dashboard.pijamafilms.com,https://dashboard-lab.pijamafilms.com`. Si falta, la página
+  cae a `DEFAULT_ATLAS_ALLOWED_ORIGINS` (los mismos dos, mismo orden) y **lo dice en pantalla**.
+  Ojo: al ser `NEXT_PUBLIC_*` se hornea en build, así que mergear no la activa; hace falta
+  rollout.
 - **Me necesita:** nadie. Soy hoja del grafo.
 
 ---
@@ -81,12 +101,16 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - [x] 3. Listener pre-paint + buffer + señal READY + timeout distinguible.
 - [x] 4. Origen no permitido ⇒ rechazado y visible en el panel.
 - [x] 5. El token completo no se renderiza, no se loguea, no va al DOM.
-- [x] 6. Simulador funciona en dev y no existe en producción — **la mitad de producción está
-      medida (`307`); la mitad de dev queda bloqueada por el middleware** hasta que entre `'/dev/'`
-      en `PUBLIC_ROUTES`.
-- [x] 7. Tests con reporte de mutación: 41 mutantes, 40 muertos, 1 inválido (mutante no-op).
-      De los 65 tests, **53 los vi ponerse rojos** y 12 nacieron verdes.
+- [x] 6. Simulador funciona en dev y no existe en producción — producción medida (`307`); dev
+      desbloqueado por `PUBLIC_EXACT_ROUTES` de T1.
+- [x] 7. Tests con reporte de mutación: 72 mutantes, 70 muertos, 2 supervivientes y ambos
+      equivalentes (uno era un mutante no-op mío; el otro lo neutraliza un closure obsoleto en el
+      propio código, y sus dos variantes no neutralizadas mueren). De los 99 tests, **80 los vi
+      ponerse rojos** y 19 nacieron verdes.
 - [x] 8. `npx tsc --noEmit` y `eslint` limpios.
+- [x] 9. **El simulador resuelve el Contrato C localmente** ejercitando el camino real
+      (`postMessage` → listener pre-paint → Contrato A → servidor → Atlas), sin fake en ninguna
+      frontera declarada en `contracts.md`.
 
 ---
 
@@ -103,11 +127,20 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 
 ## Decisiones Abiertas
 
-- **`?mode=` por defecto es `login`.** Es el flujo real de Console y calza con la decisión #2 de
-  JP. `/auth?mode=probe` corre solo diagnóstico y nunca redirige. Si T0 prefiere que la primera
-  pasada sea siempre `probe` y el login vaya detrás de un click, es un cambio de tres líneas.
+- **`?mode=` por defecto es `login`**, y **un login rechazado escala solo a un `probe`**. La razón
+  es operativa: la prueba real ocurre una vez, en una ventana que abre Console, desde una cuenta de
+  administrador — el rechazo es el resultado más probable, y un diagnóstico detrás de un botón que
+  nadie aprieta es un diagnóstico que no obtenemos. El botón "Re-run as diagnostic probe" queda
+  como red para reintentos.
 - **Ventana de timeout: 20 s** (`DEFAULT_HANDSHAKE_TIMEOUT_MS`). Elegida a ojo. Si el
   click-through muestra que Console tarda más, hay que subirla.
+- **La allowlist por defecto acepta también el lab en producción.** `DEFAULT_ATLAS_ALLOWED_ORIGINS`
+  trae los dos orígenes, y solo entra en juego si la env var falta. La alternativa —rechazar todo—
+  convierte una variable no seteada en un SSO que se ve roto. El costo es que, con la variable
+  ausente, un `postMessage` del lab sería aceptado en producción; sigue teniendo que sobrevivir la
+  llamada server-side a Atlas y la allowlist de `partnerId` de T1. El panel avisa en pantalla cuando
+  el default está en uso.
+
 - **Filtro de ruido en el listener.** Se registran los mensajes con `data.type` string que vengan
   de un origen permitido, más **cualquier** `ATLAS_AUTH` venga de donde venga. El resto (HMR del
   dev server, extensiones) solo se cuenta. Si algún día Atlas postea con otro `type` desde otro
@@ -137,13 +170,33 @@ src/app/auth/
 │                                   fingerprint del token, guardia de redirect
 ├── bridge-script.ts             ← genera el JS que corre ANTES del primer paint
 ├── route.ts                     ← BORRADO (no puede coexistir con page.tsx)
-└── __tests__/{atlas-bridge,bridge-script,client}.test.*
+└── __tests__/{atlas-bridge,bridge-script,client,page}.test.*
 
 src/app/dev/atlas-simulator/
-├── page.tsx                     ← notFound() si NODE_ENV === 'production'
-├── client.tsx                   ← abre /auth en ventana nueva y postea un ATLAS_AUTH sintético
-└── __tests__/client.test.ts
+├── page.tsx                     ← notFound() si NODE_ENV === 'production' (Contrato D, capa 2)
+├── client.tsx                   ← abre /auth en ventana nueva y postea ATLAS_AUTH (sintético o real)
+└── __tests__/{client,page,real-token}.test.*
 ```
+
+### El campo de token real
+
+`src/app/dev/atlas-simulator/client.tsx` acepta un JWT de producción pegado a mano. Es lo que
+permite cerrar el Contrato C hoy, en local, sin deployar: JP tiene sesión abierta en
+`dashboard.pijamafilms.com` y ese JWT sirve como Bearer para la llamada server-side a Atlas.
+
+El token se postea por **`postMessage`, el mismo camino que usa Console** — nunca se inyecta
+directo en el estado de la página. Un atajo que saltara nuestro propio listener validaría la
+frontera con un fake, que es justo lo que no queremos.
+
+Manejo, todo aserido en `__tests__/real-token.test.tsx`:
+
+- campo `type="password"`, `autoComplete="off"`;
+- **no controlado** (`inputRef`): React nunca sostiene el valor, así que no puede terminar renderizado;
+- nunca a `localStorage`/`sessionStorage`, nunca a la URL, nunca a un query param;
+- nunca al log ni a la consola — solo el fingerprint;
+- el campo se limpia en cuanto el token se entregó;
+- siempre `mode: 'probe'`, aunque el formulario sintético diga `login`. Es el único modo que no
+  emite sesión.
 
 ### Por qué el script inline y no un `useEffect`
 
@@ -201,8 +254,15 @@ Abre `http://localhost:3217/dev/atlas-simulator` (requiere el fix de middleware)
 4. **`on-ready` + `strict`** → *"Envelope rejected: origin not allowed"* con el origen a la vista.
 5. **`on-ready` + `dev` + `missing-token`** → *"Envelope does not match Contract B"*, y `absent`
    en el fingerprint del token.
+6. **`on-ready` + `dev` + `wrong-type`** → *"Ignored: unrelated message type"*, y al vencer el
+   timeout el texto debe decir *"Messages did arrive, but none of them was an ATLAS_AUTH
+   envelope"* — distinto de "no llegó nada".
+7. **Token real pegado** → pega el JWT de la sesión de `dashboard.pijamafilms.com`, aprieta
+   *"Open /auth in probe mode and post the real token"*. Esto es lo que cierra el Contrato C.
+   Lee `Atlas HTTP status` y `Atlas response keys` en el panel: son la evidencia cruda. Si el
+   `stage` es `no_partner`, el resultado es **el SSO funciona** y la cuenta es de administrador.
 
-En los cinco, confirma con Ctrl+F que la cadena completa del token **no** aparece en el DOM.
+En los siete, confirma con Ctrl+F que la cadena completa del token **no** aparece en el DOM.
 
 ---
 

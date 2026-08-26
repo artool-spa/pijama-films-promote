@@ -490,7 +490,10 @@ describe('AtlasAuthClient — no_partner reads as a working SSO', () => {
       renderClient();
 
       // Twice on purpose: once as the headline verdict, once in the detail rows.
-      expect((await screen.findAllByText(fragment)).length).toBeGreaterThan(0);
+      // Both matter — the banner answers "did it work", the row sits next to the
+      // stage it explains.
+      expect((await screen.findAllByText(fragment)).length).toBe(2);
+      expect(screen.getByText('What this means')).toBeTruthy();
       cleanup();
       delete (window as unknown as Record<string, unknown>)[ATLAS_BRIDGE_GLOBAL];
     }
@@ -542,5 +545,8 @@ describe('AtlasAuthClient — the received origin is prominent', () => {
     // Both facts on screen: what arrived, and what would have been accepted.
     expect(screen.getAllByText(LAB).length).toBeGreaterThan(0);
     expect(screen.getAllByText(new RegExp(PROD)).length).toBeGreaterThan(0);
+    // And on the event row itself, not only in the summary card, so the reason
+    // travels with the message that was rejected.
+    expect(screen.getByText(new RegExp(`Allowed origins are: ${PROD}`))).toBeTruthy();
   });
 });

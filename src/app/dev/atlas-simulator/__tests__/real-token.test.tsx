@@ -126,13 +126,20 @@ describe('the pasted-token field', () => {
 describe('the pasted-token run', () => {
   it('always opens probe mode, whatever the synthetic form says', () => {
     openSimulator();
-    // Flip the synthetic form to login: the real-token path must ignore it,
-    // because this path exists to settle Contract C without issuing a session.
     fireEvent.click(screen.getByRole('radio', { name: /^login$/i }));
+
+    // Prove the synthetic form really is in login mode by launching it, so the
+    // assertion below is about the real-token path ignoring that setting rather
+    // than about a click that never landed.
+    fireEvent.click(screen.getByRole('button', { name: /Open \/auth and post/i }));
+    expect(openedUrls).toEqual(['/auth?mode=login']);
+
     pasteRealToken();
     clickRealTokenButton();
 
-    expect(openedUrls).toEqual(['/auth?mode=probe']);
+    // The real-token path exists to settle Contract C, and probe is the only mode
+    // that never issues a session. It must not be steerable into login.
+    expect(openedUrls).toEqual(['/auth?mode=login', '/auth?mode=probe']);
   });
 
   it('delivers the token through postMessage, the same path Console uses', () => {
