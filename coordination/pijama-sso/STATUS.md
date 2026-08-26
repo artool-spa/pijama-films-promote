@@ -4,7 +4,11 @@ _Última actualización: 2026-08-26 · Actualizado por: T0_
 
 ## Estado actual
 
-Paso 1 en curso. **T1 nunca se cayó** — corrección importante, ver el log de hitos.
+Paso 2 completo: **integración verificada por T0**. Ambos dominios entregados y mergeados
+sin conflicto; 443/443 tests; smoke por el ensamblador real contra Atlas, sin fakes.
+Falta solo el click-through de JP con su token, que es lo único que cierra el Contrato C.
+
+_Historia previa:_ Paso 1. **T1 nunca se cayó** — corrección importante, ver el log de hitos.
 Sigue siendo el dueño del dominio servidor y ya entregó código + 912 líneas de tests
 (`9b56405`, 50 casos, pusheado). **T1b pasa de relevo a auditor puro**, en worktree
 propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
@@ -17,9 +21,9 @@ propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas (dueño) | 🟡 Reabierto | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
-| T1b | Auditor | 🟡 En progreso | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
-| T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | `793a88f` entregado; escribiendo tests | — |
+| T1 | Servidor Atlas | ✅ Cerrado | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
+| T1b | Auditor + guard/rate-limit | ✅ Cerrado | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
+| T2 | Página `/auth` + simulador | 🟡 Un ítem | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
 
@@ -32,10 +36,10 @@ archivos son disjuntos.
 
 | Contrato | Productor | Consumidor | Estado |
 |----------|-----------|------------|--------|
-| A — `POST /api/auth/atlas/session` | T1 | T2 | 🟡 Implementado + 75 tests, 41 mutaciones sin sobrevivientes. **Pendiente: F2, F3** |
+| A — `POST /api/auth/atlas/session` | T1 | T2 | ✅ **Validado por T0 con medición end-to-end**. 8 stages |
 | B — envelope `postMessage` | Crazy Cake | T2 | 🟡 Documentado, no observado. Origen objetivo: **producción** |
 | C — `GET /movies/by-partner` | Crazy Cake | T1 | 🔴 **No verificado — dos contradicciones medidas** |
-| D — simulador inaccesible en producción | T1 (capa 1) + T2 (capa 2) | — | 🟡 Emergente. Capa 2 ✅, capa 1 en arreglo |
+| D — simulador inaccesible en producción | T1 (capa 1) + T2 (capa 2) | — | ✅ Dos capas, ambas con test |
 
 ---
 
@@ -57,12 +61,12 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 
 ## DoD Global
 
-- [ ] DoD de T1 completo
+- [x] DoD de T1 completo
 - [ ] DoD de T2 completo
 - [ ] Suite verde con reporte de mutación (nacidos-verdes vs vistos-fallar)
-- [ ] Build propio de T0 en el HEAD real: `tsc` + `lint` + `test`
-- [ ] Smoke sin fakes en las fronteras del `contracts.md`
-- [ ] `/auth` deja de responder 404 en el ambiente probado
+- [x] Build propio de T0 en el HEAD real: `tsc` + `lint` + `test` — **443/443**
+- [x] Smoke sin fakes en las fronteras del `contracts.md` — 7 pruebas medidas
+- [x] `/auth` deja de responder 404 — **200 medido**
 - [ ] Click-through de JP con la cuenta del lab
 - [ ] Contrato C resuelto con evidencia (aunque la evidencia sea que no calza)
 - [ ] Working tree limpio

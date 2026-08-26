@@ -52,7 +52,7 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 ```ts
 {
   ok: false,
-  stage: 'input' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session',
+  stage: 'input' | 'rate_limited' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session',
   message: string,
   diagnostics?: { ... }    // el mismo objeto de arriba, parcial, cuando aplique
 }
@@ -67,6 +67,7 @@ emitida con `createSessionToken` + `setSessionCookie` de `src/lib/auth/session.t
 | `atlas_call` | No se pudo llegar a Atlas (red, DNS, timeout) o devolvió no-2xx |
 | `contract` | Atlas respondió 2xx pero la forma no calza con el Contrato C |
 | `no_partner` | Atlas respondió 2xx **con la forma correcta**, pero `data.partner` es `null` o sin `partnerId`. La cuenta autentica y no es un partner |
+| `rate_limited` | Más de 20 requests por minuto desde la misma IP. HTTP **429**. Agregado por T1b y **ratificado por T0**: el endpoint es anónimo y necesitaba limiter, y la regla dura del envelope exige que todo error lleve `stage` — devolver la forma de la casa habría roto el parseo de T2 |
 | `disabled` | `ATLAS_LOGIN_ENABLED` está apagado. Un kill switch de ambiente no es una allowlist |
 | `allowlist` | El `partnerId` no está en la allowlist, o la allowlist está vacía/ausente |
 | `session` | Falló emitir la cookie o el upsert del partner |
@@ -204,6 +205,37 @@ tiene sesión abierta. El simulador de T2 acepta un token pegado a mano y lo pos
 (`postMessage` → listener → Contrato A → servidor → Atlas) se ejercita **completo y en
 local**, sin fakes en ninguna frontera. La mitad del `postMessage` desde Console sigue
 requiriendo producción, porque la URL de destino la configuró Crazy Cake en enero.
+
+### Medición de integración por T0 — 2026-08-26
+
+Merge de las dos ramas de dominio en worktree propio, sin conflicto, **cero archivos en
+común entre dominios**. `tsc` exit 0 · `eslint` 0 errores · **443/443 tests, 36 archivos**.
+
+Smoke por el ensamblador real, servidor corriendo, sin fakes en ninguna frontera:
+
+| Prueba | Resultado |
+|---|---|
+| `GET /auth` | **200** (era 404 en producción esa mañana) |
+| `GET /dev/atlas-simulator` en dev | 200 |
+| `GET /dev/atlas-simulator-internal` | 307 → `/login` (el match exacto hace lo que dice) |
+| `GET /api/partners` sin cookie | 401 |
+| `login` con `ATLAS_LOGIN_ENABLED=false` | 403 `stage:'disabled'`, **0 `set-cookie`** |
+| 25 requests seguidos al probe | 20×200, luego 429 `stage:'rate_limited'` |
+| Token en logs del server | **0 ocurrencias** del payload; solo `tokenPrefix: "eyJhbG"` |
+
+**Probe contra Atlas real, token inválido:**
+
+```json
+{"ok":true,"diagnostics":{
+  "atlasUrlTried":"https://dashboard.pijamafilms.com/movies/by-partner",
+  "atlasStatus":302,"contractMatched":false,
+  "partner":null,"movieCount":0,"movieSample":[],"responseShapeKeys":[]}}
+HTTP 200
+```
+
+Esto valida la corrección de la política de status **por medición**: el caso que sabíamos
+que iba a ocurrir llega como éxito con diagnóstico visible. Con la tabla original habría
+sido un 502 con los diagnostics enterrados.
 
 ---
 
