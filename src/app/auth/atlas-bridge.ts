@@ -28,6 +28,25 @@ export const TOKEN_PREFIX_LENGTH = 6;
 /** Contract A endpoint (producer: the server-Atlas domain). */
 export const ATLAS_SESSION_ENDPOINT = '/api/auth/atlas/session';
 
+/**
+ * Fallback allowlist, used only when `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` yields
+ * nothing usable. Production first, because production is the environment the
+ * real handshake comes from.
+ *
+ * Why this is a per-environment list read from an env var and not a literal
+ * compared inline: Crazy Cake's own sample code validates against the *lab*
+ * origin as a hardcoded string. Copying that shape rejects the production
+ * handshake, which is the failure this project exists to prevent. The env var
+ * is what lets an environment be re-pointed without a code change; this constant
+ * only keeps an unset variable from silently rejecting Atlas altogether. When it
+ * is in use the panel says so, because "the default saved us" and "the variable
+ * is configured" are different facts and must not look the same on screen.
+ */
+export const DEFAULT_ATLAS_ALLOWED_ORIGINS = [
+  'https://dashboard.pijamafilms.com',
+  'https://dashboard-lab.pijamafilms.com',
+] as const;
+
 export const atlasAuthEnvelopeSchema = z.object({
   type: z.literal(ATLAS_MESSAGE_TYPE),
   token: z.string().min(1),
@@ -154,11 +173,44 @@ export const ATLAS_ERROR_STAGES = [
   'input',
   'atlas_call',
   'contract',
+  'no_partner',
+  'disabled',
   'allowlist',
   'session',
 ] as const;
 
 export type AtlasErrorStage = (typeof ATLAS_ERROR_STAGES)[number];
+
+/**
+ * What each stage means for the question this project exists to answer: is the
+ * SSO working? Written as a conclusion rather than an error code, because the
+ * person reading this panel is deciding whether to ship, not debugging a trace.
+ */
+export const STAGE_CONCLUSION: Record<AtlasErrorStage, string> = {
+  input: 'Our own request was malformed. This is a bug on our side, not a problem with the integration.',
+  atlas_call: 'Atlas could not be reached at all. Nothing can be concluded about the token or the account.',
+  contract:
+    'Atlas answered, so the token was delivered, but the response does not match what Crazy Cake documented.',
+  no_partner:
+    'The SSO works. The token was accepted by Atlas and identified the account — that account simply has no partner attached, which is expected for an administrator rather than a producer.',
+  disabled: 'Sign-in is switched off by configuration. The handshake itself was not the problem.',
+  allowlist: 'The partner was identified but is not on the list allowed to sign in.',
+  session: 'Everything up to the last step worked; issuing our own session cookie failed.',
+};
+
+/**
+ * `no_partner` is a finding, not a failure: it is the most likely outcome of the
+ * first real test, because the account we have is an administrator's. Showing it
+ * in red would report a working SSO as broken.
+ */
+export function isInformationalStage(stage: string | undefined): boolean {
+  return stage === 'no_partner';
+}
+
+export function stageConclusion(stage: string | undefined): string | null {
+  if (!stage) return null;
+  return (STAGE_CONCLUSION as Record<string, string>)[stage] ?? null;
+}
 
 export interface AtlasDiagnostics {
   atlasUrlTried?: string;

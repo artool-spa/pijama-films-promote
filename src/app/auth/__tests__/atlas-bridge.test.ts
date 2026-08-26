@@ -164,17 +164,25 @@ describe('parseSessionResponse (Contract A)', () => {
     expect(parsed?.redirectTo).toBe('/films');
   });
 
-  it('marks the five documented stages as contractual', () => {
-    for (const stage of ['input', 'atlas_call', 'contract', 'allowlist', 'session']) {
+  it('marks all seven documented stages as contractual', () => {
+    for (const stage of [
+      'input',
+      'atlas_call',
+      'contract',
+      'no_partner',
+      'disabled',
+      'allowlist',
+      'session',
+    ]) {
       expect(parseSessionResponse({ ok: false, stage })?.stageIsContractual).toBe(true);
     }
   });
 
   it('surfaces an unknown stage instead of hiding it', () => {
     // A stage outside the contract is a finding for T0, so it must stay visible.
-    const parsed = parseSessionResponse({ ok: false, stage: 'disabled', message: 'login off' });
+    const parsed = parseSessionResponse({ ok: false, stage: 'quota', message: 'rate limited' });
 
-    expect(parsed?.stage).toBe('disabled');
+    expect(parsed?.stage).toBe('quota');
     expect(parsed?.stageIsContractual).toBe(false);
   });
 

@@ -14,6 +14,7 @@
  */
 import type { Metadata } from 'next';
 import {
+  DEFAULT_ATLAS_ALLOWED_ORIGINS,
   DEFAULT_HANDSHAKE_TIMEOUT_MS,
   parseAllowedOrigins,
   type AtlasSessionMode,
@@ -33,9 +34,17 @@ interface AtlasAuthPageProps {
 export default async function AtlasAuthPage({ searchParams }: AtlasAuthPageProps) {
   const { mode, origins } = await searchParams;
 
-  const allowedOrigins = parseAllowedOrigins(
+  // Per environment, from the variable — never a literal compared inline. See the
+  // comment on DEFAULT_ATLAS_ALLOWED_ORIGINS for why that distinction is the whole
+  // point: Crazy Cake's sample validates the lab origin as a hardcoded string, and
+  // the real handshake comes from production.
+  const configuredOrigins = parseAllowedOrigins(
     process.env.NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS
   );
+  const usingDefaultOrigins = configuredOrigins.length === 0;
+  const allowedOrigins = usingDefaultOrigins
+    ? [...DEFAULT_ATLAS_ALLOWED_ORIGINS]
+    : configuredOrigins;
   const strictOrigins = origins === 'strict';
   const allowSelfOrigin = process.env.NODE_ENV !== 'production' && !strictOrigins;
   const resolvedMode: AtlasSessionMode = mode === 'probe' ? 'probe' : 'login';
@@ -55,6 +64,7 @@ export default async function AtlasAuthPage({ searchParams }: AtlasAuthPageProps
       <AtlasAuthClient
         allowedOrigins={allowedOrigins}
         allowSelfOrigin={allowSelfOrigin}
+        usingDefaultOrigins={usingDefaultOrigins}
         mode={resolvedMode}
         timeoutMs={DEFAULT_HANDSHAKE_TIMEOUT_MS}
       />

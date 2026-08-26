@@ -1,17 +1,26 @@
 'use client';
 
 /**
- * Stands in for Atlas Console: opens `/auth` in a new window and posts a
- * synthetic `ATLAS_AUTH` envelope, with the timing and the shape both under
- * control so the failure modes can be reproduced deliberately.
+ * Stands in for Atlas Console: opens `/auth` in a new window and posts an
+ * `ATLAS_AUTH` envelope, with the timing and the shape both under control so the
+ * failure modes reproduce on demand.
  *
- * The token used here is synthetic and non-secret. Even so, the activity log
- * only ever prints its fingerprint, to keep the habit honest.
+ * This is not a convenience. The destination URL was configured on Crazy Cake's
+ * side in January and points at production, so nobody can make Console open a
+ * localhost window. Driving `/auth` from here is the only way to exercise our
+ * half of the handshake before the code is in production.
+ *
+ * It also carries the one path that can settle Contract C today: a real token,
+ * pasted by hand, posted through the same `postMessage` the real Console uses.
+ * Deliberately through that path and not injected into the page's state — a
+ * shortcut past our own listener would validate the boundary with a fake, which
+ * is exactly what must not happen.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Card,
@@ -87,7 +96,16 @@ export default function AtlasSimulatorClient() {
   const [shape, setShape] = useState<EnvelopeShape>('valid');
   const [log, setLog] = useState<string[]>([]);
 
+  /**
+   * The real production JWT. Uncontrolled on purpose: React never manages this
+   * value, so it never reaches component state and cannot end up rendered. It is
+   * read once, at the moment of posting, and the field is cleared afterwards.
+   * Never stored, never put in the URL, never logged.
+   */
+  const realTokenInputRef = useRef<HTMLInputElement>(null);
+
   const childRef = useRef<Window | null>(null);
+  const pendingRef = useRef<Record<string, unknown> | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const append = useCallback((line: string) => {
@@ -95,20 +113,20 @@ export default function AtlasSimulatorClient() {
   }, []);
 
   const post = useCallback(
-    (child: Window, targetOrigin: string, note: string) => {
+    (child: Window, targetOrigin: string, note: string, envelope: Record<string, unknown>) => {
       if (child.closed) {
         append(`${note}: the target window is already closed. Nothing posted.`);
         return;
       }
-      const envelope = buildSimulatorEnvelope(shape, { token, partnerName, partnerEmail });
       child.postMessage(envelope, targetOrigin);
+      // Fingerprint only. Never the token itself, not even in development.
       append(
         `${note}: posted ${String(envelope.type)} to ${targetOrigin} · token ${formatTokenFingerprint(
           describeToken(envelope.token)
         )}`
       );
     },
-    [append, partnerEmail, partnerName, shape, token]
+    [append]
   );
 
   // Listens the way Console would: it is the opener, so PROMOTE_READY lands here.
@@ -118,8 +136,10 @@ export default function AtlasSimulatorClient() {
       if (!data || typeof data !== 'object' || data.type !== PROMOTE_READY_TYPE) return;
       if (childRef.current && event.source !== childRef.current) return;
       append(`Received ${PROMOTE_READY_TYPE} from ${event.origin}.`);
-      if (timing === 'on-ready' && childRef.current) {
-        post(childRef.current, event.origin, 'On PROMOTE_READY');
+      const envelope = pendingRef.current;
+      if (timing === 'on-ready' && childRef.current && envelope) {
+        pendingRef.current = null;
+        post(childRef.current, event.origin, 'On PROMOTE_READY', envelope);
       }
     }
 
@@ -134,43 +154,85 @@ export default function AtlasSimulatorClient() {
     };
   }, []);
 
-  const handleOpen = useCallback(() => {
-    setLog([]);
-    const url = buildAuthUrl(mode, originMode);
-    const child = window.open(url, '_blank', 'width=980,height=900');
+  const launch = useCallback(
+    (envelope: Record<string, unknown>, sessionMode: SessionMode, banner: string) => {
+      setLog([]);
+      const url = buildAuthUrl(sessionMode, originMode);
+      const child = window.open(url, '_blank', 'width=980,height=900');
 
-    if (!child) {
-      append('window.open returned null — the browser blocked the popup. Allow popups and retry.');
-      return;
-    }
+      if (!child) {
+        append('window.open returned null — the browser blocked the popup. Allow popups and retry.');
+        return;
+      }
 
-    childRef.current = child;
-    append(`Opened ${url} in a new window.`);
+      childRef.current = child;
+      pendingRef.current = envelope;
+      append(banner);
+      append(`Opened ${url} in a new window.`);
 
-    const targetOrigin = window.location.origin;
+      const targetOrigin = window.location.origin;
 
-    if (timing === 'immediate') {
-      // Posts before the new document has parsed anything. Expected to be lost:
-      // this is the race the pre-paint listener cannot help with, and it should
-      // show up on /auth as a timeout, not as a failure.
-      post(child, targetOrigin, 'Immediately (expected to be lost)');
-      return;
-    }
+      if (timing === 'immediate') {
+        // Posts before the new document has parsed anything. Expected to be lost:
+        // this is the race the pre-paint listener cannot help with, and it should
+        // show up on /auth as a timeout, not as a failure.
+        pendingRef.current = null;
+        post(child, targetOrigin, 'Immediately (expected to be lost)', envelope);
+        return;
+      }
 
-    if (timing === 'delayed') {
-      const timer = setTimeout(() => post(child, targetOrigin, `After ${delayMs}ms`), delayMs);
+      if (timing === 'delayed') {
+        const timer = setTimeout(() => {
+          pendingRef.current = null;
+          post(child, targetOrigin, `After ${delayMs}ms`, envelope);
+        }, delayMs);
+        timersRef.current.push(timer);
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        append(
+          `No ${PROMOTE_READY_TYPE} within ${READY_WAIT_MS / 1000}s. Either the page did not load, ` +
+            'or this origin is not in its allowlist so the signal could not be addressed here.'
+        );
+      }, READY_WAIT_MS);
       timersRef.current.push(timer);
+    },
+    [append, delayMs, originMode, post, timing]
+  );
+
+  const handleSyntheticLaunch = useCallback(() => {
+    launch(
+      buildSimulatorEnvelope(shape, { token, partnerName, partnerEmail }),
+      mode,
+      'Using the synthetic token.'
+    );
+  }, [launch, mode, partnerEmail, partnerName, shape, token]);
+
+  const handleRealTokenLaunch = useCallback(() => {
+    const input = realTokenInputRef.current;
+    const realToken = input?.value.trim() ?? '';
+
+    if (!realToken) {
+      append('No real token was pasted. Nothing was opened.');
       return;
     }
 
-    const timer = setTimeout(() => {
-      append(
-        `No ${PROMOTE_READY_TYPE} within ${READY_WAIT_MS / 1000}s. Either the page did not load, ` +
-          'or this origin is not in its allowlist so the signal could not be addressed here.'
-      );
-    }, READY_WAIT_MS);
-    timersRef.current.push(timer);
-  }, [append, delayMs, mode, originMode, post, timing]);
+    // Always a well-formed envelope and always probe mode: this path exists to
+    // settle Contract C, and probe is the mode that never issues a session.
+    launch(
+      buildSimulatorEnvelope('valid', {
+        token: realToken,
+        partnerName,
+        partnerEmail,
+      }),
+      'probe',
+      `Using the pasted token · ${formatTokenFingerprint(describeToken(realToken))}`
+    );
+
+    // Cleared as soon as it has been handed over, so it does not sit in the page.
+    if (input) input.value = '';
+  }, [append, launch, partnerEmail, partnerName]);
 
   return (
     <Container maxWidth="md" sx={{ py: 6 }}>
@@ -178,13 +240,49 @@ export default function AtlasSimulatorClient() {
         Atlas Console simulator
       </Typography>
       <Alert severity="warning" sx={{ mb: 3 }}>
-        Development only. This route answers 404 in production. The token below is synthetic:
-        the session exchange will fail against the real Atlas, which is the point — it proves
-        our half of the handshake independently of Crazy Cake.
+        Development only. This route answers 404 in production.
       </Alert>
+
+      <Card sx={{ mb: 3, borderColor: 'warning.main', borderWidth: 2, borderStyle: 'solid' }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Real token (settles Contract C)
+          </Typography>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <AlertTitle>This field takes a real production credential</AlertTitle>
+            A JWT copied out of a live <code>dashboard.pijamafilms.com</code> session is a
+            credential, even though it expires in 24 hours. It is posted through the same
+            <code> postMessage</code> path Console uses — never injected into the page directly,
+            because a shortcut past our own listener would prove nothing. It is not stored, not
+            logged, not put in the URL, and the field is cleared the moment it is used.
+          </Alert>
+          <TextField
+            inputRef={realTokenInputRef}
+            label="Paste a real Atlas JWT"
+            type="password"
+            fullWidth
+            autoComplete="off"
+            spellCheck={false}
+            slotProps={{ htmlInput: { 'data-lpignore': 'true' } }}
+            helperText="Runs in probe mode only: no session cookie is ever issued from this path."
+          />
+          <Box sx={{ mt: 2 }}>
+            <Button variant="contained" color="warning" onClick={handleRealTokenLaunch}>
+              Open /auth in probe mode and post the real token
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Synthetic run
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            The token below is synthetic: the exchange will fail against the real Atlas, which is
+            the point — it proves our half of the handshake independently of Crazy Cake.
+          </Typography>
           <Stack spacing={3}>
             <TextField
               label="Token (synthetic)"
@@ -285,12 +383,16 @@ export default function AtlasSimulatorClient() {
                 <FormControlLabel value="valid" control={<Radio />} label="valid Contract B envelope" />
                 <FormControlLabel value="missing-token" control={<Radio />} label="missing token" />
                 <FormControlLabel value="missing-partner" control={<Radio />} label="missing partner" />
-                <FormControlLabel value="wrong-type" control={<Radio />} label="unexpected type" />
+                <FormControlLabel
+                  value="wrong-type"
+                  control={<Radio />}
+                  label="different event type — expect it to be ignored, not accepted"
+                />
               </RadioGroup>
             </FormControl>
 
             <Box>
-              <Button variant="contained" size="large" onClick={handleOpen}>
+              <Button variant="contained" size="large" onClick={handleSyntheticLaunch}>
                 Open /auth and post {ATLAS_MESSAGE_TYPE}
               </Button>
             </Box>

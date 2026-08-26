@@ -53,6 +53,7 @@ function renderClient(overrides: Partial<React.ComponentProps<typeof AtlasAuthCl
     <AtlasAuthClient
       allowedOrigins={[LAB, PROD]}
       allowSelfOrigin={false}
+      usingDefaultOrigins={false}
       mode="probe"
       timeoutMs={20_000}
       {...overrides}
@@ -154,7 +155,7 @@ describe('AtlasAuthClient — the token never reaches the DOM', () => {
     post(validEnvelope(), LAB);
     const { container } = renderClient();
 
-    await screen.findByText('Sign-in failed');
+    await screen.findByText('Sign-in did not complete');
 
     expect(container.innerHTML).not.toContain('SECRET-PAYLOAD-MUST-NEVER-RENDER');
   });
@@ -168,7 +169,9 @@ describe('AtlasAuthClient — origin rejection', () => {
     renderClient({ allowedOrigins: [PROD] });
 
     expect(await screen.findByText('Envelope rejected: origin not allowed')).toBeTruthy();
-    expect(screen.getByText('https://dashboard.pijamafilms.com.evil.io')).toBeTruthy();
+    // Shown in the banner, in the Origins card and on the event row: the origin
+    // that actually arrived is the single most useful fact on this screen.
+    expect(screen.getAllByText('https://dashboard.pijamafilms.com.evil.io').length).toBeGreaterThan(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -288,7 +291,7 @@ describe('AtlasAuthClient — Contract A results', () => {
     post(validEnvelope(), LAB);
     renderClient();
 
-    expect(await screen.findByText('Sign-in failed')).toBeTruthy();
+    expect(await screen.findByText('Sign-in did not complete')).toBeTruthy();
     expect(screen.getByText('allowlist')).toBeTruthy();
     expect(screen.getByText('partner not in allowlist')).toBeTruthy();
   });
@@ -364,5 +367,180 @@ describe('AtlasAuthClient — login redirect', () => {
 
     expect(await screen.findByText('Probe succeeded')).toBeTruthy();
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe('AtlasAuthClient — diagnostics are never gated on success', () => {
+  it('renders diagnostics that arrive inside an ok:false body', async () => {
+    // The only Atlas behaviour anyone has measured is a 302. If diagnostics only
+    // rendered on success, the run we know is coming would show nothing at all.
+    respondWith(502, {
+      ok: false,
+      stage: 'atlas_call',
+      message: 'Atlas answered 302',
+      diagnostics: {
+        atlasUrlTried: 'https://dashboard.pijamafilms.com/movies/by-partner',
+        atlasStatus: 302,
+        contractMatched: false,
+        responseShapeKeys: [],
+      },
+    });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    expect(await screen.findByText('Atlas diagnostics')).toBeTruthy();
+    expect(screen.getByText('302')).toBeTruthy();
+    expect(screen.getByText('https://dashboard.pijamafilms.com/movies/by-partner')).toBeTruthy();
+  });
+
+  it('renders diagnostics from a 4xx as readily as from a 200', async () => {
+    respondWith(403, {
+      ok: false,
+      stage: 'allowlist',
+      diagnostics: { atlasStatus: 200, responseShapeKeys: ['status', 'data'] },
+    });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    expect(await screen.findByText('Atlas diagnostics')).toBeTruthy();
+    expect(screen.getByText('status, data')).toBeTruthy();
+  });
+});
+
+describe('AtlasAuthClient — a rejected login escalates to a probe by itself', () => {
+  it('runs a probe automatically after a failed login', async () => {
+    // JP gets one window, once. A diagnosis behind a button he may not press is
+    // a diagnosis we do not get.
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockResolvedValueOnce({
+        status: 403,
+        ok: false,
+        json: () => Promise.resolve({ ok: false, stage: 'no_partner', message: 'no partner' }),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            diagnostics: { atlasStatus: 200, responseShapeKeys: ['status', 'data'] },
+          }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient({ mode: 'login' });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).mode).toBe('login');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).mode).toBe('probe');
+    expect(await screen.findByText('probe mode (run automatically)')).toBeTruthy();
+  });
+
+  it('does not escalate when the login succeeded', async () => {
+    const fetchMock = respondWith(200, { ok: true, redirectTo: '/films' });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient({ mode: 'login' });
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/films'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not escalate a probe into another probe', async () => {
+    const fetchMock = respondWith(502, { ok: false, stage: 'atlas_call' });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient({ mode: 'probe' });
+
+    await screen.findByText('Sign-in did not complete');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AtlasAuthClient — no_partner reads as a working SSO', () => {
+  it('reports it as information, not as a failure', async () => {
+    respondWith(403, { ok: false, stage: 'no_partner', message: 'account has no partner' });
+    installBridge();
+    post(validEnvelope(), PROD);
+    renderClient();
+
+    expect(
+      await screen.findByText('The SSO works — this account has no partner attached')
+    ).toBeTruthy();
+    expect(screen.queryByText('Sign-in did not complete')).toBeNull();
+    expect(screen.getAllByText(/The SSO works\./).length).toBeGreaterThan(0);
+  });
+
+  it('spells out a conclusion for every stage the contract defines', async () => {
+    for (const [stage, fragment] of [
+      ['input', /bug on our side/],
+      ['atlas_call', /could not be reached/],
+      ['contract', /does not match what Crazy Cake documented/],
+      ['disabled', /switched off by configuration/],
+      ['allowlist', /not on the list allowed to sign in/],
+      ['session', /issuing our own session cookie failed/],
+    ] as const) {
+      respondWith(502, { ok: false, stage });
+      installBridge();
+      post(validEnvelope(), PROD);
+      renderClient();
+
+      // Twice on purpose: once as the headline verdict, once in the detail rows.
+      expect((await screen.findAllByText(fragment)).length).toBeGreaterThan(0);
+      cleanup();
+      delete (window as unknown as Record<string, unknown>)[ATLAS_BRIDGE_GLOBAL];
+    }
+  });
+});
+
+describe('AtlasAuthClient — the relaxed-origin allowance is announced', () => {
+  it('warns that a green result here does not prove the real allowlist works', () => {
+    installBridge();
+    renderClient({ allowSelfOrigin: true });
+
+    expect(screen.getByText('Origin checking is relaxed in this window')).toBeTruthy();
+    expect(screen.getByText(/prove the real allowlist works/)).toBeTruthy();
+  });
+
+  it('says nothing when the allowance is off', () => {
+    installBridge();
+    renderClient({ allowSelfOrigin: false });
+
+    expect(screen.queryByText('Origin checking is relaxed in this window')).toBeNull();
+  });
+
+  it('warns when the built-in allowlist is standing in for a configured one', () => {
+    installBridge();
+    renderClient({ usingDefaultOrigins: true });
+
+    expect(screen.getByText('Using the built-in allowlist, not a configured one')).toBeTruthy();
+  });
+});
+
+describe('AtlasAuthClient — the received origin is prominent', () => {
+  it('shows both the origin that arrived and the ones that were allowed', async () => {
+    respondWith(200, { ok: true, diagnostics: {} });
+    installBridge([PROD]);
+    post(validEnvelope(), PROD);
+    renderClient({ allowedOrigins: [PROD] });
+
+    await screen.findByText('Probe succeeded');
+    expect(screen.getByText('Origin received')).toBeTruthy();
+    expect(screen.getByText('Origins allowed')).toBeTruthy();
+  });
+
+  it('names the rejected origin and the allowed list side by side', async () => {
+    installBridge([PROD]);
+    post(validEnvelope(), LAB);
+    renderClient({ allowedOrigins: [PROD] });
+
+    await screen.findByText('Envelope rejected: origin not allowed');
+    // Both facts on screen: what arrived, and what would have been accepted.
+    expect(screen.getAllByText(LAB).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(new RegExp(PROD)).length).toBeGreaterThan(0);
   });
 });
