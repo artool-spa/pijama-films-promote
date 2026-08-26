@@ -4,16 +4,23 @@ _Última actualización: 2026-08-26 · Actualizado por: T0_
 
 ## Estado actual
 
-Paso 2 completo: **integración verificada por T0**. Ambos dominios entregados y mergeados
-sin conflicto; 443/443 tests; smoke por el ensamblador real contra Atlas, sin fakes.
-Falta solo el click-through de JP con su token, que es lo único que cierra el Contrato C.
+**Proyecto cerrado en contenido.** Los dos dominios entregados, integrados y verificados por
+T0 con build autoritativo. Falta únicamente el click-through humano, que cierra el Contrato C.
 
-_Historia previa:_ Paso 1. **T1 nunca se cayó** — corrección importante, ver el log de hitos.
-Sigue siendo el dueño del dominio servidor y ya entregó código + 912 líneas de tests
-(`9b56405`, 50 casos, pusheado). **T1b pasa de relevo a auditor puro**, en worktree
-propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
+```
+rama feat/atlas-sso · commit 41438cf · next 16.3.1
+tsc --noEmit   exit 0
+eslint         0 errores (4 warnings preexistentes)
+vitest         504/504 · 39 archivos   (el repo tenía 263)
+yarn build     ✓ compiled · 37/37 páginas
+               ƒ /auth · ƒ /dev/atlas-simulator · ƒ /api/auth/atlas/session
+```
 
-**Burndown:** 0/2 dominios entregados · 0/3 contratos validados · Contrato C es el riesgo.
+30 archivos, 6.903 inserciones sobre `master`. Contrato D con sus dos capas presentes.
+`ATLAS_LOGIN_ENABLED="false"` y allowlist vacía commiteados: producción arranca cerrada.
+
+Mutación acumulada del proyecto: **T1** 64 propios + 6 externos · **T2** 109 con 107 muertos
+· **T1b** 23 + 6 · los supervivientes, todos identificados como equivalentes.
 
 ---
 
@@ -23,7 +30,7 @@ propio y sin escribir en la rama de T1. **T2 en vuelo** con `793a88f`.
 |--------|---------|--------|--------------|---------------|
 | T1 | Servidor Atlas | ✅ Cerrado | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
 | T1b | Auditor + guard/rate-limit | ✅ Cerrado | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
-| T2 | Página `/auth` + simulador | 🟡 Ronda final | 7 ítems de auditoría; los 4 mutantes vivos están en los dos `page.tsx` | — | `793a88f` entregado; escribiendo tests | — |
+| T2 | Página `/auth` + simulador | ✅ Cerrado | 7 ítems de auditoría; los 4 mutantes vivos están en los dos `page.tsx` | — | `793a88f` entregado; escribiendo tests | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
 
@@ -152,6 +159,44 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 ---
 
 ## Lecciones / gotchas (materia prima del cierre compound)
+
+- **Una orden no prueba obediencia, igual que una notificación no prueba muerte.** T0
+  mandó un stand down y trató el mensaje como si hubiera detenido el proceso; lanzó un
+  relevo en el mismo worktree y estuvo a un `git add -A` de que una mutación temporal en el
+  dominio de otro agente entrara pusheada dentro de un commit ajeno con mensaje impecable.
+  Es la **versión inversa** del error que T0 ya había diagnosticado en esta misma sesión
+  (tomar un "failed" como prueba de muerte). Las dos veces la respuesta era `ps -p <pid>`.
+  _(candidato: cuerpo de skill de T0 — alta prioridad)_
+- **Un árbol sucio no es evidencia de nada por sí solo.** Formulación del propio agente:
+  *"un agente que está trabajando tiene el árbol sucio por definición; eso no distingue
+  'trabajando' de 'abandonado'."* T0 concluyó tres veces "no cierra el loop" a partir de
+  instantáneas tomadas **durante** el turno del agente; la reconstrucción por timestamps
+  mostró commits cada 2–5 minutos y cada estado sucio commiteado en los 2 minutos
+  siguientes. **Lo que distingue es comparar dos lecturas separadas en el tiempo, o
+  preguntarle al agente — cuesta un tool call.** El diagnóstico previo de T0 ("faltó el
+  SHA") era incompleto: el SHA ayuda, pero el problema de fondo es que la señal no
+  discrimina.
+  _(candidato: cuerpo de skill de T0 — alta prioridad)_
+- **Atribuir una disciplina que no existe deja el riesgo sin mitigar.** T0 felicitó a un
+  agente por stagear rutas explícitas; el agente corrigió que usaba `git add -A` y que el
+  commit salió limpio solo porque su arnés de mutación restauraba el archivo de inmediato.
+  Su razón para insistir es la lección: *si el coordinador cree que la disciplina ya
+  existía, la regla nueva queda como formalización de algo presente en vez de un cambio de
+  comportamiento.* Verificar el mecanismo antes de dar crédito por él.
+  _(candidato: cuerpo de skill de T0)_
+- **Un mutante suelto que sobrevive puede significar redundancia deliberada, no un hueco —
+  y la mutación compuesta es lo que los distingue.** Apareció dos veces: los cuatro casos
+  de allowlist del servidor no morían con una sola compuerta mutada porque la otra los
+  atrapaba, y la propiedad "no queda token en el global" necesitaba romper el scrub **y**
+  el vaciado del buffer a la vez. Formulación del agente: *"un test que solo muere con un
+  mutante compuesto es un test que estaba defendiendo una conjunción sin que yo lo hubiera
+  notado."* Quien mida "un mutante, un test" lee redundancia y hueco como el mismo
+  resultado.
+  _(candidato: cuerpo de skill de domain-agent — alta prioridad)_
+- **Nunca `git add -A` ni `git commit -a` en un repo con agentes en paralelo.** Rutas
+  explícitas siempre. El modo de falla es silencioso: un archivo de otro dominio viajando
+  dentro de un commit cuyo mensaje habla de otra cosa.
+  _(candidato: cuerpo de skill de domain-agent)_
 
 - **Una medición de estado móvil caduca entre razonarla y despacharla, y T0 la trató como
   válida indefinidamente — dos veces.** Primero con "working tree limpio", después con el
