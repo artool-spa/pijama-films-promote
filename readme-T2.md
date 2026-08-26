@@ -1,6 +1,6 @@
 # readme-T2 — Página de aterrizaje del SSO Atlas
 
-_Última actualización: 2026-08-26 (rev. 5, sobre la base integrada) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 6) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -103,10 +103,10 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - [x] 5. El token completo no se renderiza, no se loguea, no va al DOM.
 - [x] 6. Simulador funciona en dev y no existe en producción — producción medida (`307`); dev
       desbloqueado por `PUBLIC_EXACT_ROUTES` de T1.
-- [x] 7. Tests con reporte de mutación: 104 mutantes, 102 muertos, 2 supervivientes y ambos
+- [x] 7. Tests con reporte de mutación: 109 mutantes, 107 muertos, 2 supervivientes y ambos
       equivalentes (uno era un mutante no-op mío; el otro lo neutraliza un closure obsoleto en el
-      propio código, y sus dos variantes no neutralizadas mueren). De los 126 tests, **109 los vi
-      ponerse rojos** y 17 nacieron verdes.
+      propio código, y sus dos variantes no neutralizadas mueren). De los 126 tests, **112 los vi
+      ponerse rojos** y 14 nacieron verdes.
 - [x] 8. `npx tsc --noEmit` y `eslint` limpios.
 - [x] 9. **El simulador resuelve el Contrato C localmente** ejercitando el camino real
       (`postMessage` → listener pre-paint → Contrato A → servidor → Atlas), sin fake en ninguna
@@ -195,6 +195,31 @@ vería—, y guardar la referencia mantiene vivo el payload entero mientras viva
 al pasar. Destruirlo en la lectura convertiría cualquier fallo entre leer y usar en un login roto
 intermitente, que es peor que la ventana que cierra. `scrub` toca **solo** el mensaje que recibe:
 los sobres que nadie leyó todavía sobreviven.
+
+### Reporte de mutación del scrub — 12 mutantes, 12 muertos
+
+Los 9 tests que defienden este mecanismo: **los 9 los vi ponerse rojos**, ninguno nació verde.
+
+| Test | Mutantes que lo matan |
+|---|---|
+| vacía el buffer al drenar | D04, D13 |
+| borra el token del mensaje que recibe | D02, D10, D11, D13 |
+| **no** toca los sobres que nadie leyó | D03 |
+| nunca muta `event.data` | D01 |
+| el intercambio sigue funcionando | D12 |
+| no queda token en el global del bridge | D12, D13 |
+| conserva el token hasta usarlo, y limpia después | D02, D05, D10, D11, D12, D13 |
+| el botón de re-run reenvía el token completo | D06, D12 |
+| el botón queda deshabilitado sin token | D14 |
+
+Tres nacieron verdes en la primera pasada y los cerré con mutantes dirigidos: **D12** (la vista
+scrubbea *antes* de validar — el desorden realista), **D13** (scrub no-op *más* un drenado que no
+vacía: esa propiedad necesita los dos mecanismos, así que ningún mutante suelto la mataba) y **D14**
+(el botón habilitado sin token).
+
+El más instructivo fue **D06**: mover el scrub una línea antes no rompía nada, porque el intercambio
+usa la copia de Zod — pero el botón de re-run habría posteado un token vacío. Pantalla que funciona
+produciendo un diagnóstico inútil. Ese botón no tenía ningún test.
 
 Alcance honesto: la ventana real ya estaba acotada porque `subscribe()` vacía el buffer al drenar
 (ahora hay un test que lo fija). Lo que agrega esto es no retener `event.data` y no dejar el token
@@ -290,6 +315,23 @@ va a un atributo del DOM. Lo único que sale a pantalla es `describeToken()`: pr
 largo, y los primeros 6 caracteres (`eyJhbG` en un JWT — el header, que no es secreto).
 
 ---
+
+## Regla de staging — nunca `git add -A` en este repo
+
+Rutas explícitas, siempre:
+
+```bash
+git add src/app/auth src/app/dev readme-T2.md
+```
+
+**Por qué, con el caso real.** Mi arnés de mutación parchea un archivo, corre la suite y lo revierte.
+Si el arnés muere entre el parche y la reversión —o si otro proceso está trabajando en el mismo
+worktree, que pasó— queda una mutación en el árbol. Un `git add -A` la barre hacia adentro del commit
+siguiente, con un mensaje impecable sobre otra cosa. Estuvo a un `git add -A` de que un stage falso
+en `src/lib/atlas/types.ts`, que es dominio ajeno, entrara pusheado.
+
+No me salvó la disciplina de staging: **usé `git add -A`**. Me salvó que el arnés alcanzó a revertir.
+Eso es suerte, no diseño. De ahí la regla.
 
 ## Cómo Levantar Este Dominio Localmente
 
