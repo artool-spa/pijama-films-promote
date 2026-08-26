@@ -4,8 +4,9 @@ _Última actualización: 2026-08-26 · Actualizado por: T0_
 
 ## Estado actual
 
-Paso 0 completo: rama base `feat/atlas-sso` creada y pusheada, worktree de coordinación
-propio, spec y contratos escritos. Perfil de stack en curso. Equipo por lanzar.
+Paso 1 en curso: **T1 y T2 lanzados en paralelo**, cada uno en su worktree desde
+`feat/atlas-sso`. Paso 0 cerrado (perfil de stack en PR #13 de `artool-devs`, docs de
+coordinación pusheados en `coordination/pijama-sso`).
 
 **Burndown:** 0/2 dominios entregados · 0/3 contratos validados · Contrato C es el riesgo.
 
@@ -15,8 +16,8 @@ propio, spec y contratos escritos. Perfil de stack en curso. Equipo por lanzar.
 
 | Agente | Dominio | Estado | Tarea actual | Bloqueado por |
 |--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas (cliente + endpoint de intercambio) | ⚪ Pendiente | Por lanzar | — |
-| T2 | Página de aterrizaje `/auth` + simulador | ⚪ Pendiente | Por lanzar | — |
+| T1 | Servidor Atlas (cliente + endpoint de intercambio) | 🟡 En progreso | Cliente Atlas + `POST /api/auth/atlas/session` | — |
+| T2 | Página de aterrizaje `/auth` + simulador | 🟡 En progreso | Página `/auth` + simulador local | — |
 
 _Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
 
@@ -68,8 +69,11 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 
 ## Próximas Asignaciones
 
-1. Lanzar T1 y T2 en paralelo, cada uno en su worktree desde `feat/atlas-sso`.
-2. Al primer reporte, verificar contra el árbol y no contra el mensaje.
+1. Al primer reporte de cada agente: verificar **contra el árbol**, no contra el mensaje
+   (pedir SHA, revisar en worktree propio).
+2. Build autoritativo de T0 en el HEAD real cuando ambos entreguen: `tsc` + `lint` + `test`.
+   No declarar verde por suma de reportes.
+3. Coordinar el click-through de JP con la cuenta del lab.
 
 ---
 
@@ -101,6 +105,9 @@ Sin solapamientos. `src/lib/pijama/**` es zona prohibida para ambos.
 - 2026-08-26: JP resolvió las tres decisiones de arranque. Plan aprobado.
 - 2026-08-26: rama `feat/atlas-sso` creada desde `master` y pusheada.
 - 2026-08-26: worktree de coordinación en `/Users/jpudev2/Proyectos/pijama-t0`.
+- 2026-08-26: perfil `artool-pijama-promote` entregado como PR #13 a `artool-spa/artool-devs`.
+- 2026-08-26: T1 y T2 lanzados en paralelo. Contrato A fijado por T0 e inyectado idéntico
+  en ambos spawn prompts, así que ninguno espera al otro.
 
 ---
 
