@@ -213,18 +213,49 @@ describe('AtlasAuthClient — timeout', () => {
   });
 
   it('does not time out once an envelope has been accepted', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     respondWith(200, { ok: true, diagnostics: {} });
     installBridge();
     post(validEnvelope(), LAB);
+    // Deadline deliberately shorter than the test itself, on real timers: the
+    // timer genuinely fires, and the assertion is that it changes nothing.
+    renderClient({ timeoutMs: 50 });
+
+    await screen.findByText('Probe succeeded');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    expect(screen.queryByText(/No postMessage arrived/)).toBeNull();
+    expect(screen.getByText('Probe succeeded')).toBeTruthy();
+  });
+
+  it('says something different when messages arrived but none was an envelope', async () => {
+    // "Console posted the wrong thing" and "Console never posted" are different
+    // findings, and the panel has to be able to tell them apart.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    installBridge();
+    post({ type: 'SOMETHING_ELSE' }, LAB);
     renderClient({ timeoutMs: 5_000 });
 
     await act(async () => {
-      await Promise.resolve();
       vi.advanceTimersByTime(5_000);
     });
 
-    expect(screen.queryByText('No postMessage arrived within 5 seconds')).toBeNull();
+    expect(screen.getByText(/Messages did arrive, but none of them was an ATLAS_AUTH/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing was posted to this window at all/)).toBeNull();
+  });
+});
+
+describe('AtlasAuthClient — unrelated messages', () => {
+  it('marks a non-envelope message from an allowed origin as ignored', async () => {
+    const fetchMock = respondWith(200, { ok: true, diagnostics: {} });
+    installBridge();
+    post({ type: 'SOMETHING_ELSE' }, LAB);
+    renderClient();
+
+    expect(await screen.findByText('Ignored: unrelated message type')).toBeTruthy();
+    expect(screen.getByText('SOMETHING_ELSE')).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

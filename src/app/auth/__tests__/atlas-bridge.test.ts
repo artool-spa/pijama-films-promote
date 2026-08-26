@@ -43,6 +43,11 @@ describe('isValidOriginLiteral', () => {
     expect(isValidOriginLiteral('https://user:pass@dashboard.pijamafilms.com')).toBe(false);
     expect(isValidOriginLiteral('javascript://dashboard.pijamafilms.com')).toBe(false);
     expect(isValidOriginLiteral('file:///etc/passwd')).toBe(false);
+    // These are the ones the exact-origin check alone would let through:
+    // `new URL('ws://host').origin` is `ws://host`, so it matches itself.
+    expect(isValidOriginLiteral('ws://dashboard.pijamafilms.com')).toBe(false);
+    expect(isValidOriginLiteral('wss://dashboard.pijamafilms.com')).toBe(false);
+    expect(isValidOriginLiteral('ftp://dashboard.pijamafilms.com')).toBe(false);
   });
 });
 
