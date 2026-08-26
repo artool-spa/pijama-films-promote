@@ -1,6 +1,6 @@
 # readme-T1 — Dominio Servidor Atlas
 
-_Última actualización: 2026-08-26 (rev. 2: F1/F2/F3 + stages no_partner/disabled + política de status del probe) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
+_Última actualización: 2026-08-26 (rev. 3: + rate limit, guard de producción del simulador, no_partner 422) · Proyecto: SSO Atlas Console → promote.pijamafilms.com_
 
 ---
 
@@ -24,8 +24,8 @@ _Última actualización: 2026-08-26 (rev. 2: F1/F2/F3 + stages no_partner/disabl
   (ramificada de `feat/atlas-sso`) · Worktree: `/Users/jpudev2/Proyectos/pijama-t1`
 - **Deploy activo:** ninguno. Nada desplegado; App Hosting despliega desde la rama
   conectada y esta rama no lo es.
-- **Suite de tests:** 100 tests propios en `src/lib/atlas/__tests__/` ✅ verdes.
-  Suite completa del repo: 363 ✅. `npx tsc --noEmit` limpio, `lint` sin errores
+- **Suite de tests:** 115 tests propios en `src/lib/atlas/__tests__/` ✅ verdes.
+  Suite completa del repo: 378 ✅. `npx tsc --noEmit` limpio, `lint` sin errores
   (4 warnings preexistentes de React hooks, ninguno en mis archivos).
 - **Recursos de datos activos:** ninguno propio. El login hace upsert en `partners` vía
   `getOrCreatePartner`; el modo `probe` no escribe nada.
@@ -43,7 +43,7 @@ _Última actualización: 2026-08-26 (rev. 2: F1/F2/F3 + stages no_partner/disabl
 ### Taxonomía de `stage` (7 stages, fijada por T0)
 
 ```
-'input' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session'
+'input' | 'rate_limited' | 'atlas_call' | 'contract' | 'no_partner' | 'disabled' | 'allowlist' | 'session'
 ```
 
 Los tres stages de autorización están separados a propósito, porque tienen **tres
@@ -52,9 +52,10 @@ siguientes-pasos distintos**:
 | stage | HTTP | Significa | Qué hace el que lo lee |
 |---|---|---|---|
 | `input` | 400 | El body no pasó Zod | Arreglar al caller |
+| `rate_limited` | 429 | El caller pasó su presupuesto por ventana | Esperar el `Retry-After` |
 | `atlas_call` | 502 | Atlas inalcanzable (probe) · Atlas no respondió 2xx (login) | Revisar `ATLAS_API_BASE_URL`, red, DNS |
 | `contract` | 502 | Atlas respondió 2xx pero la forma no calza | **Hallazgo para Crazy Cake** |
-| `no_partner` | 403 | Atlas autenticó bien, pero la cuenta no tiene partner asociado | **Pedirle a JP una cuenta de productor**, no es contrato roto |
+| `no_partner` | 422 | Atlas autenticó bien, pero la cuenta no tiene partner asociado | **Pedirle a JP una cuenta de productor**, no es contrato roto |
 | `disabled` | 403 | `ATLAS_LOGIN_ENABLED` no es `'true'` | Encender la env var |
 | `allowlist` | 403 | El `partnerId` no está en la lista | Agregar el id a la lista |
 | `session` | 500 | Falló el upsert del partner o la cookie | Mirar Firestore / logs |
@@ -100,7 +101,7 @@ usable.
 - [x] 4. El token no aparece en logs, respuestas ni mensajes de error. Solo largo y prefijo.
 - [x] 5. El JWT se trata como opaco: no se decodifica en ninguna parte del código.
 - [x] 6. Se reporta la forma cruda (`atlasStatus`, `responseShapeKeys`, `bodyKind`).
-- [x] 7. Tests con reporte de mutación (52 mutaciones propias, 0 sobrevivientes).
+- [x] 7. Tests con reporte de mutación (64 mutaciones propias, 0 sobrevivientes).
 - [x] 8. `tsc --noEmit` y lint limpios.
 - [x] 9. F1 — el token no escapa por `redirectedTo` (corte en `?` **y** `#`, más redacción
       de lo que siga con forma de JWT).
@@ -110,6 +111,10 @@ usable.
       la razón equivocada.
 - [x] 12. `stage:'no_partner'`, `stage:'disabled'`, y `/dev/atlas-simulator` en el
       matcher exacto de `PUBLIC_ROUTES`.
+- [x] 13. Rate limit del endpoint (`stage:'rate_limited'`, 429 + `Retry-After`), patrón de
+      la casa de `src/lib/meta/preview-cache.ts`.
+- [x] 14. El simulador queda fuera de producción por el guard de `NODE_ENV` en el
+      middleware — la primera de las dos capas del contrato de dos dueños.
 
 ---
 
@@ -127,10 +132,12 @@ usable.
 
 ## Decisiones Abiertas
 
-- **`probe` es un endpoint público sin rate limit.** Cualquiera puede pedirle que haga una
-  llamada saliente a un host fijo (no hay SSRF: la URL viene de env, no del request). El
-  riesgo es abuso/ruido, no filtración. Si molesta, la contención barata es gatearlo tras
-  una env var como `login`, pero eso cambia el Contrato A → decide T0.
+- **Resuelto por T0:** el endpoint público lleva rate limit (20 req/min por IP) en vez de
+  quedar gateado tras otra env var — tiene que estar vivo en producción para la prueba de
+  JP. Queda una pregunta abierta: el límite es **por instancia**, y App Hosting puede
+  correr hasta 2 contenedores (`maxInstances: 2`), así que el techo real es 40/min. Para
+  un amortiguador de ruido alcanza; si alguna vez tiene que ser una garantía, hace falta
+  un contador compartido.
 - **`movies` y `status:'ok'` son requeridos por el schema.** Un 2xx sin la key `movies`
   cuenta como mismatch y bloquea el login. Es deliberado y fail-closed: una divergencia se
   reporta, no se absorbe. Si el Atlas real omite `movies`, es hallazgo para JP.
@@ -163,13 +170,15 @@ usable.
 ```
 pijama-films-promote/
 ├── src/lib/atlas/config.ts                      ← env vars, allowlist fail-closed, base URL
+├── src/lib/atlas/rate-limit.ts                  ← ventana fija por IP; amortiguador de ruido, NO control de acceso
 ├── src/lib/atlas/client.ts                      ← fetch a Atlas: redirect manual, timeout, redacción del token
 ├── src/lib/atlas/types.ts                       ← schemas Zod del Contrato C + tipos del Contrato A
 ├── src/lib/atlas/index.ts                       ← superficie pública del módulo
 ├── src/lib/atlas/__tests__/config.test.ts       ← 21 tests
 ├── src/lib/atlas/__tests__/client.test.ts       ← 15 tests (stub en la red, no en el módulo)
 ├── src/lib/atlas/__tests__/session-route.test.ts← 51 tests del endpoint
-├── src/lib/atlas/__tests__/middleware-public-routes.test.ts ← 8 tests: las 3 rutas que el SSO necesita abiertas
+├── src/lib/atlas/__tests__/middleware-public-routes.test.ts ← 11 tests: rutas abiertas + el simulador fuera de producción
+├── src/lib/atlas/__tests__/rate-limit.test.ts   ← 8 tests
 ├── src/app/api/auth/atlas/session/route.ts      ← Contrato A: probe y login
 ├── src/middleware.ts                            ← 1 línea: '/api/auth/atlas/' en PUBLIC_ROUTES
 ├── apphosting.yaml                              ← 4 env vars nuevas
@@ -194,6 +203,15 @@ pijama-films-promote/
 4. **`PUBLIC_EXACT_ROUTES` existe aparte de `PUBLIC_ROUTES`.** La segunda se matchea con
    `startsWith`; poner `'/dev/'` ahí publicaría toda ruta futura bajo `/dev/`. Si T2
    agrega un sub-path al simulador, necesita su propia entrada — a propósito.
+5. **"El simulador es inalcanzable en producción" tiene dos capas y dos dueños.** La mía
+   es el guard de `NODE_ENV` en `isPublicExactRoute`; la de T2 es el `notFound()` en
+   `src/app/dev/atlas-simulator/page.tsx`. **Ninguna se saca asumiendo que la otra
+   aguanta.** Hay test de las dos direcciones: público en dev, no público en producción.
+6. **El rate limit es un amortiguador de ruido, no una frontera de seguridad.** La
+   contención real del login es la allowlist fail-closed. `x-forwarded-for` es
+   trivialmente falsificable por el cliente: por eso se usa para limitar y **nunca** para
+   autorizar. Las requests no atribuibles comparten un solo bucket a propósito — si cada
+   una tuviera el suyo, omitir la cabecera sería la forma de saltarse el límite.
 
 ---
 
@@ -205,7 +223,7 @@ cd /Users/jpudev2/Proyectos/pijama-t1
 # node_modules es un symlink al del repo principal (mismo lockfile, y está gitignoreado).
 # Si no existe: ln -s /Users/jpudev2/Proyectos/pijama-films-promote/node_modules node_modules
 
-npx vitest run src/lib/atlas/__tests__/    # 100 tests del dominio
+npx vitest run src/lib/atlas/__tests__/    # 115 tests del dominio
 npx tsc --noEmit
 npx yarn@1.22.22 lint                      # yarn/corepack pueden no estar en el PATH
 
