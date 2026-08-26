@@ -1,7 +1,6 @@
 # Runbook — la prueba del SSO, paso a paso
 
-_Escrito por T0 para JP · 2026-08-26 · **borrador**: T2 aún está cerrando su ronda final.
-No lo ejecutes hasta que confirme que la rama está lista._
+_Escrito por T0 para JP · 2026-08-26 · **en firme**: verificado sobre `41438cf`, 504/504.
 
 ---
 
