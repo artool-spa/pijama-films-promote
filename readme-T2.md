@@ -84,7 +84,8 @@ un error sin `stage` se muestra como *"MISSING — Contract A requires a stage o
 - [x] 6. Simulador funciona en dev y no existe en producción — **la mitad de producción está
       medida (`307`); la mitad de dev queda bloqueada por el middleware** hasta que entre `'/dev/'`
       en `PUBLIC_ROUTES`.
-- [x] 7. Tests con reporte de mutación (39 mutantes, 38 muertos, 1 inválido).
+- [x] 7. Tests con reporte de mutación: 41 mutantes, 40 muertos, 1 inválido (mutante no-op).
+      De los 65 tests, **53 los vi ponerse rojos** y 12 nacieron verdes.
 - [x] 8. `npx tsc --noEmit` y `eslint` limpios.
 
 ---
