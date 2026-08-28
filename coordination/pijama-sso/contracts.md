@@ -381,3 +381,27 @@ ahora no tenemos uno.
 **El 302 de nuestro probe nunca significó "token rechazado".** Así lo leía la tabla del
 runbook, y estaba mal: un token rechazado por esta ruta produce JSON, no un redirect. El
 redirect es la puerta, no la ruta. Corregido.
+
+### La cookie no es un JWT: es una sesión de servidor
+
+`console-production` mide 82 caracteres y empieza con `s%3A3sq-v1h…` — o sea `s:` tras
+decodificar, la marca de cookie firmada de **`express-session`** (`s:<sessionID>.<HMAC>`).
+Es un identificador **opaco**, no un token portador.
+
+**Esto cierra la pregunta de dónde está el JWT: no existe en el cliente.** Console mantiene la
+sesión en el servidor y el navegador solo carga el puntero firmado. No hay nada en el cliente
+que se pueda leer y postear como `token`.
+
+**Consecuencia sobre el Contrato B, ahora sin ambigüedad:** el `postMessage` documentado
+—`{ type:'ATLAS_AUTH', token, partner }`— **no puede armarse desde el JS de Console leyendo
+storage**, porque no hay token que leer. Para que el contrato funcione, Console tiene que
+**emitir** un JWT desde su servidor en el momento del handoff. O ese emisor existe y no está
+documentado, o no se construyó.
+
+**Test descartado.** Se había propuesto probar `Authorization: Bearer <valor de la cookie>` en
+incógnito. Es inútil: una sesión de express no es un JWT y `/movies/by-partner` valida JWTs, así
+que fallaría por una razón que no enseña nada. No se corrió.
+
+**Queda una sola medición nuestra antes de escalar:** buscar `ATLAS_AUTH` en el bundle de
+Console. Separa "falta configurar" de "falta que lo escriban", y decide de quién es el próximo
+paso.
