@@ -180,6 +180,21 @@ describe('the pasted-token run', () => {
     expect(openedUrls).toEqual(['/auth?mode=login', '/auth?mode=probe']);
   });
 
+  /**
+   * The name of this test is a claim about fidelity, and it used to be false.
+   *
+   * It asserted a payload carrying `partner: { name, email }` — a shape the real
+   * Console has never sent. Measured 2026-08-28 from the deployed bundle,
+   * `openMarketingPortal` posts `{ type, token }` and nothing else. So the one run
+   * that carries a real production credential, and whose result gets read as the
+   * answer to "does the SSO work", was rehearsing an envelope production does not
+   * produce — while its own name promised the opposite.
+   *
+   * Nothing broke because of it (`partner` is display-only and both shapes
+   * validate), which is exactly why it survived: a lie with no symptom. The payload
+   * is now pinned field by field, including the *absence* of `partner`, so the name
+   * and the bytes cannot drift apart again without this going red.
+   */
   it('delivers the token through postMessage, the same path Console uses', () => {
     openSimulator();
     pasteRealToken();
@@ -187,11 +202,11 @@ describe('the pasted-token run', () => {
     sendReady();
 
     expect(posted).toHaveLength(1);
-    expect(posted[0].data).toEqual({
-      type: 'ATLAS_AUTH',
-      token: REAL_TOKEN,
-      partner: { name: 'Simulated Partner', email: 'partner@example.test' },
-    });
+    expect(posted[0].data).toEqual({ type: 'ATLAS_AUTH', token: REAL_TOKEN });
+    // Asserted separately from toEqual: the key must be absent, not present-and-
+    // empty. `{ partner: undefined }` would satisfy the comparison above and would
+    // still not be what Console sends.
+    expect(Object.keys(posted[0].data as object).sort()).toEqual(['token', 'type']);
     expect(posted[0].targetOrigin).toBe(window.location.origin);
   });
 

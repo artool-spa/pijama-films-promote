@@ -312,16 +312,23 @@ export default function AtlasSimulatorClient() {
       return;
     }
 
-    // Always a well-formed envelope and always probe mode: this path exists to
-    // settle Contract C, and probe is the mode that never issues a session.
+    // Always probe mode: this path exists to settle Contract C, and probe is the
+    // mode that never issues a session.
     //
-    // Deliberately the documented shape and not `console-shape`, even though the
-    // latter is what Console really posts: switching it is a behaviour change to
-    // the real-token path, whose assertion lives in `real-token.test.tsx`, and that
-    // decision is not this change's to make. Harmless either way — `partner` is
-    // display-only and both shapes validate — so it is left as a recommendation.
+    // And always `console-shape`, because this is the one run that carries a *real*
+    // token. Whatever it produces gets read as the answer to "does the SSO work",
+    // so the envelope has to be the one production really sends — `{ type, token }`,
+    // measured 2026-08-28 from Console's deployed bundle — and not the documented
+    // shape, which has never been observed in the wild.
+    //
+    // It posted the documented shape until now. Nothing failed because of it:
+    // `partner` is display-only and both shapes validate, so Contract C came out
+    // the same. What was wrong was narrower and worse — the test covering this path
+    // is named "the same path Console uses", so the rehearsal *claimed* a fidelity
+    // its payload did not have. A run that says it reproduces production and does
+    // not is a trap precisely when its result is trusted most.
     launch(
-      buildSimulatorEnvelope('documented-shape', {
+      buildSimulatorEnvelope('console-shape', {
         token: realToken,
         partnerName,
         partnerEmail,
