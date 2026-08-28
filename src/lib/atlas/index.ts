@@ -16,7 +16,7 @@ export {
   isPartnerAllowed,
 } from './config';
 
-export { describeToken, fetchPartnerMovies } from './client';
+export { describeToken, fetchPartnerMovies, headerSafetyProblem } from './client';
 
 export {
   callerKey,

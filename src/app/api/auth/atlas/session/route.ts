@@ -9,6 +9,7 @@ import {
   fetchPartnerMovies,
   getAtlasAllowedPartnerIds,
   getAtlasMoviesUrl,
+  headerSafetyProblem,
   isAtlasLoginEnabled,
   isPartnerAllowed,
   callerKey,
@@ -103,6 +104,32 @@ export async function POST(req: NextRequest) {
     'Atlas session exchange requested'
   );
 
+  // A token that cannot go in an HTTP header is rejected HERE, as input, before
+  // anything is sent and before the login pre-flight below.
+  //
+  // REGRESSION, measured 2026-08-28: a user pasted a JavaScript fragment with
+  // newlines into the token field. `fetch` threw
+  // `Headers.append: "Bearer <the whole pasted value>" is an invalid header
+  // value`, the catch in the client turned that into a transport failure, and
+  // this route answered `502 stage:'atlas_call'` - which /auth renders as
+  // "Atlas could not be reached at all". We blamed the third party whose SSO
+  // this project exists to evaluate for a hole in our own validation, and
+  // echoed the pasted value back in the message while doing it.
+  //
+  // The check is physical only - see `headerSafetyProblem`. The token stays
+  // opaque: its validity is Atlas' answer to give, never our inference from its
+  // shape.
+  const headerProblem = headerSafetyProblem(token);
+
+  if (headerProblem) {
+    log.warn(
+      { mode, tokenLength: fingerprint.length, tokenPrefix: fingerprint.prefix },
+      'Atlas session rejected at input: the token cannot travel in an HTTP header'
+    );
+
+    return errorResponse(400, 'input', headerProblem);
+  }
+
   // --------------------------------------------------------------------------
   // stage: allowlist (pre-flight)
   //
@@ -142,6 +169,16 @@ export async function POST(req: NextRequest) {
   // The upstream call. What counts as failure from here on depends on the mode.
   // --------------------------------------------------------------------------
   const call = await fetchPartnerMovies(token);
+
+  // Structural guarantee, not a second validator: `stage: 'atlas_call'` must
+  // never carry a fault of ours. The client refuses a header-unsafe token on
+  // its own (it owns the header), and if it ever did so for a token the check
+  // above let through, that is still `input` - the request was never made, so
+  // nothing is known about Atlas. Unreachable while both checks share
+  // `headerSafetyProblem`; cheap insurance if one of them moves.
+  if (call.inputError) {
+    return errorResponse(400, 'input', call.inputError);
+  }
 
   const shape = AtlasMoviesResponseSchema.safeParse(call.json);
   // A contract only counts as matched when Atlas actually answered 2xx: a

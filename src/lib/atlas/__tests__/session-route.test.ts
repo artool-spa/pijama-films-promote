@@ -780,3 +780,158 @@ describe('stage rate_limited', () => {
     ).toBe(callsBefore);
   });
 });
+
+// ============================================================================
+// stage: input - a token that cannot travel in an HTTP header
+//
+// REGRESSION, measured 2026-08-28. A user pasted a JavaScript fragment into the
+// token field. The response was:
+//
+//   502 { ok:false, stage:'atlas_call', message:'Atlas produced no HTTP
+//         response: TypeError: Headers.append: "Bearer const r = await
+//         fetch(...)\nconsole.log(r)" is an invalid header value.' }
+//
+// Two defects in one envelope: the stage blamed the third party for our own
+// input error (and the /auth page, which derives its conclusion from the stage,
+// told the user "Atlas could not be reached at all"), and the pasted value came
+// back in full inside the message - a live token would have leaked into the
+// response and the logs.
+// ============================================================================
+
+const ctrl = String.fromCharCode;
+const PASTED_SCRIPT = 'const r = await fetch(...)\nconsole.log(r)\n';
+
+describe('stage input - header safety', () => {
+  it.each([
+    ['the pasted script that produced the 502', PASTED_SCRIPT],
+    ['a line feed', 'abc' + ctrl(10) + 'def'],
+    ['a carriage return', 'abc' + ctrl(13) + 'def'],
+    ['a tab', 'abc' + ctrl(9) + 'def'],
+    ['a NUL', 'abc' + ctrl(0) + 'def'],
+    ['an internal space', 'abc def'],
+    ['a non-ASCII accent', 'abc' + ctrl(233) + 'def'],
+    ['an emoji', 'abc\u{1F3AC}def'],
+  ])('rejects a token containing %s at stage input, without calling Atlas', async (_case, token) => {
+    const res = await POST(request({ token, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(
+      body.stage,
+      'the value never left this process, so nothing at all is known about Atlas. ' +
+        'Reporting atlas_call here made /auth tell the user "Atlas could not be ' +
+        'reached", which is us blaming the third party for our own validation hole'
+    ).toBe('input');
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('names what is wrong with the value and says nothing about Atlas', async () => {
+    const res = await POST(request({ token: PASTED_SCRIPT, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(body.message).toContain('HTTP header');
+    // The pasted script trips on the space in "const r" before it reaches the
+    // newline: the message names the FIRST offending character, by class and
+    // index, which is what makes it actionable.
+    expect(body.message).toContain('a space at index 5');
+    expect(
+      body.message.toLowerCase(),
+      'a message that mentions the third party for a fault of ours is how a ' +
+        'non-existent bug gets reported to the counterparty'
+    ).not.toContain('atlas');
+  });
+
+  it('names a control character when that is the first thing wrong', async () => {
+    const res = await POST(request({ token: 'abc' + ctrl(10) + 'def', mode: 'probe' }));
+    const body = await res.json();
+
+    expect(body.message).toContain('control character');
+    expect(
+      body.message,
+      'a raw newline pasted into the message would be a control character in the ' +
+        'HTTP response body itself'
+    ).not.toContain(ctrl(10));
+  });
+
+  it('masks the rejected value instead of echoing it back', async () => {
+    const res = await POST(request({ token: PASTED_SCRIPT, mode: 'probe' }));
+    const raw = JSON.stringify(await res.json());
+
+    expect(
+      raw,
+      'the 502 this replaces returned the pasted fragment in full. If that paste had ' +
+        'been a real token, it left in the HTTP response and in the logs'
+    ).not.toContain('console.log');
+    expect(raw).not.toContain(PASTED_SCRIPT);
+    expect(raw, 'length and a 6-char prefix are the fingerprint used everywhere else').toContain(
+      String(PASTED_SCRIPT.length)
+    );
+  });
+
+  it('keeps the rejected value out of the logs too', async () => {
+    await POST(request({ token: PASTED_SCRIPT, mode: 'probe' }));
+
+    expect(JSON.stringify(logged)).not.toContain('console.log');
+  });
+
+  it('reports input before the login pre-flight, in login mode too', async () => {
+    process.env.ATLAS_LOGIN_ENABLED = 'false';
+
+    const res = await POST(request({ token: PASTED_SCRIPT, mode: 'login' }));
+    const body = await res.json();
+
+    expect(
+      body.stage,
+      'a malformed request is malformed whatever the environment flags say; answering ' +
+        '"disabled" would send the operator to fix a setting that is not the problem'
+    ).toBe('input');
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // THE CONTROL. If these go red, the validation stopped being about headers and
+  // started being an opinion about what a token should look like - the exact
+  // assumption that has already cost this project once.
+  // --------------------------------------------------------------------------
+  it('still sends an opaque one-line token that is not a JWT, and reports what Atlas said', async () => {
+    fetchMock.mockResolvedValue(measuredRedirect());
+
+    const res = await POST(request({ token: 'basura-sin-saltos', mode: 'probe' }));
+    const body = await res.json();
+
+    expect(
+      res.status,
+      'D1: a probe that got any HTTP response out of Atlas returns 200 - the ' +
+        'diagnostics are the product, they do not get buried in an error envelope'
+    ).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.diagnostics.atlasStatus).toBe(302);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      (fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization,
+      'the token is opaque. Whether "basura-sin-saltos" is a valid credential is ' +
+        'Atlas\' answer to give, not ours to guess from its shape'
+    ).toBe('Bearer basura-sin-saltos');
+  });
+
+  it('passes a real three-segment JWT through untouched', async () => {
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+
+    expect(res.status).toBe(200);
+    expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${TOKEN}`
+    );
+  });
+
+  it.each([
+    ['a base64url token with padding', 'AAAA.BBBB.CCCC=='],
+    ['an opaque uuid-style token', '9f8e7d6c-5b4a-3210-fedc-ba9876543210'],
+    ['a very long single-line token', 'a'.repeat(4096)],
+  ])('still forwards %s', async (_case, token) => {
+    const res = await POST(request({ token, mode: 'probe' }));
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
