@@ -446,3 +446,52 @@ ya tenía sesión. Si ahí existe una cuenta de productora de prueba, la Parte A
 esperar a nadie. Para eso hay que apuntar `ATLAS_API_BASE_URL` al lab: el origen del lab ya está
 en la allowlist de `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS`, pero el base URL del servidor apunta a
 producción.
+
+## Contrato C — CONFIRMADO 2026-08-28, y el bloqueo queda aislado
+
+Con una cuenta de **productora** (`jpundurraga`, distinta de la admin de `pparga`), token real
+emitido por `/partners/external-token` (`status: ok`, con `token`, `expiresIn` y `partner`):
+
+**Desde el navegador, cookie + Bearer juntos → `200`:**
+
+```json
+{"status":"ok","data":{"partner":{
+   "name":"José Pedro Undurraga","email":"jpundurraga@artool.cl",
+   "muviUuid":"b006…","partnerId":"6984…"},
+  "movies":[]}}
+```
+
+**La forma documentada, exacta.** Los cuatro campos del partner. `movies` vacío porque esa
+productora no tiene catálogo — propiedad de la cuenta, no del contrato.
+
+**Desde nuestro servidor, mismo token válido, solo Bearer → `atlasStatus: 302`.**
+
+### El bloqueo, aislado sin ambigüedad
+
+Las dos mediciones difieren en **una sola variable**: la cookie de sesión. Con ella la ruta
+corre y cumple el contrato; sin ella hay 302 a `/auth/auth/logout` antes de que la ruta se
+ejecute. Y ya sabíamos que el 302 no depende del token: seis combinaciones de cabeceras con
+token falso daban lo mismo.
+
+**Conclusión: la puerta de sesión ignora el `Authorization` por completo.** Un token válido
+recibe el mismo trato que uno inválido. La llamada server-to-server que la propia documentación
+de Crazy Cake prescribe es imposible tal como está desplegado — y el mensaje de error de la
+ruta (`MISSING_TOKEN: Authorization header with Bearer token is required`) describe un mecanismo
+que su propia puerta vuelve inalcanzable.
+
+Queda descartado que el token sea el problema: es el mismo token en las dos pruebas.
+
+### Dos arreglos posibles, y el segundo es mejor para los dos
+
+**(a)** Que Crazy Cake exceptúe `/movies/by-partner` de la puerta de sesión, para que el
+`Bearer` sirva desde fuera del navegador.
+
+**(b)** Que nos den la clave de verificación del JWT (o un endpoint JWKS). Entonces validamos
+el token nosotros y **no necesitamos ese endpoint en absoluto**: el `partner` que devuelve
+—incluido `muviUuid`, que es la llave hacia el catálogo— probablemente ya viaja en los claims
+del propio token. Menos ida y vuelta, ninguna dependencia server-to-server, y es como funciona
+un SSO normalmente.
+
+**Pendiente para elegir entre las dos:** ver si los claims del JWT traen `partnerId` y
+`muviUuid`. Si los traen, (b) es estrictamente mejor y convierte el pedido en algo más simple
+de conceder que un cambio en su capa de autenticación.
