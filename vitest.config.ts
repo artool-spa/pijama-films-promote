@@ -19,6 +19,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '#stripe': path.resolve(__dirname, './src/lib/stripe/index.ts'),
+      // src/models/film.ts imports from '#muvi'; tests that drive it need the
+      // same subpath alias tsconfig.json defines for the app build.
+      '#muvi': path.resolve(__dirname, './src/lib/muvi/index.ts'),
     },
   },
 });
