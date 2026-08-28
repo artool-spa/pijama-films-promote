@@ -6,6 +6,7 @@ import {
   defaultAllowedOrigins,
   STAGE_CONCLUSION,
   atlasAuthEnvelopeSchema,
+  describeStage,
   describeToken,
   formatTokenFingerprint,
   isOriginAllowed,
@@ -230,7 +231,7 @@ describe('atlasAuthEnvelopeSchema (Contract B)', () => {
 });
 
 describe('the stage taxonomy', () => {
-  it('is the eight stages the server domain defines, in its order', () => {
+  it('is the nine stages the server domain defines, in its order', () => {
     // The *type* is now imported from the server domain, so a stage added there
     // fails this build. What the type cannot catch is this runtime array being
     // short — it validates fine as a subset — so the list is pinned here and to
@@ -238,6 +239,7 @@ describe('the stage taxonomy', () => {
     expect([...ATLAS_ERROR_STAGES]).toEqual([
       'input',
       'rate_limited',
+      'config',
       'atlas_call',
       'contract',
       'no_partner',
@@ -252,6 +254,30 @@ describe('the stage taxonomy', () => {
     // list with no conclusion renders blank, and a conclusion with no stage is a
     // rename nobody finished.
     expect(Object.keys(STAGE_CONCLUSION).sort()).toEqual([...ATLAS_ERROR_STAGES].sort());
+  });
+
+  /**
+   * `config` and `atlas_call` are one keystroke apart in the route and worlds
+   * apart on screen. An unset ATLAS_API_BASE_URL used to arrive as `atlas_call`,
+   * so this panel told the reader "Atlas could not be reached at all" about a
+   * variable of ours - and someone nearly wrote to Crazy Cake about it.
+   */
+  it('blames the deployment, not Atlas, for a configuration failure', () => {
+    const said = stageConclusion('config') ?? '';
+
+    expect(said).toMatch(/configur/i);
+    expect(said).toContain('ATLAS_API_BASE_URL');
+    expect(
+      said,
+      'nothing was sent, so this stage may not say anything about the token or ' +
+        'about whether the integration works'
+    ).not.toMatch(/could not be reached|Atlas answered|token was/i);
+  });
+
+  it('keeps atlas_call meaning what it now exclusively means', () => {
+    expect(stageConclusion('atlas_call')).toMatch(/could not be reached/i);
+    expect(describeStage('config', 'x').known).toBe(true);
+    expect(describeStage('config', 'x').label).toBe('config');
   });
 
   it('says something for every one of them', () => {
@@ -287,9 +313,10 @@ describe('parseSessionResponse (Contract A)', () => {
     expect(parsed?.redirectTo).toBe('/films');
   });
 
-  it('marks all seven documented stages as contractual', () => {
+  it('marks all documented stages as contractual', () => {
     for (const stage of [
       'input',
+      'config',
       'atlas_call',
       'contract',
       'no_partner',

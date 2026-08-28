@@ -330,14 +330,18 @@ describe('stage atlas_call', () => {
     expect(body.diagnostics.atlasStatus).toBe(0);
   });
 
-  it('reports a missing ATLAS_API_BASE_URL as atlas_call, not as a crash', async () => {
-    delete process.env.ATLAS_API_BASE_URL;
+  it('keeps atlas_call for a transport failure, which is the only thing it now means', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed: ECONNREFUSED'));
 
-    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
     const body = await res.json();
 
+    expect(
+      body.stage,
+      'a refused connection IS an absence of an HTTP response from Atlas. Narrowing ' +
+        'the stage must not empty it: this is the case it exists for'
+    ).toBe('atlas_call');
     expect(res.status).toBe(502);
-    expect(body.stage).toBe('atlas_call');
   });
 });
 
@@ -933,5 +937,91 @@ describe('stage input - header safety', () => {
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// stage: config - our own deployment is not configured
+//
+// This used to be `atlas_call`, which /auth renders as "Atlas could not be
+// reached at all". An unset ATLAS_API_BASE_URL means we never had an address to
+// call: nothing was sent, so nothing is known about Atlas. The old envelope
+// sent whoever read it to write to Crazy Cake about a variable of ours - and
+// that mail was nearly sent on 2026-08-28.
+//
+// Same class of defect as the header-unsafe token: our fault, filed under the
+// third party. Configuration rather than input does not change who it accuses.
+// ============================================================================
+
+describe('stage config', () => {
+  it.each(['probe', 'login'])(
+    'reports an unset ATLAS_API_BASE_URL as config in %s mode, not as an Atlas failure',
+    async (mode) => {
+      delete process.env.ATLAS_API_BASE_URL;
+
+      const res = await POST(request({ token: TOKEN, mode }));
+      const body = await res.json();
+
+      expect(
+        body.stage,
+        'we never had an address to call. Reporting atlas_call states that Atlas ' +
+          'failed to answer, which is a claim about a third party we did not contact'
+      ).toBe('config');
+      expect(body.ok).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('answers 500: the request was fine and no gateway was involved', async () => {
+    delete process.env.ATLAS_API_BASE_URL;
+
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+
+    expect(
+      res.status,
+      '400 would blame the caller for a well-formed request; 502 claims an upstream ' +
+        'exchange that never happened. The deployment is what is broken'
+    ).toBe(500);
+  });
+
+  it('names the variable to set', async () => {
+    delete process.env.ATLAS_API_BASE_URL;
+
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(body.message).toContain('ATLAS_API_BASE_URL');
+  });
+
+  it('does not claim anything about reachability', async () => {
+    delete process.env.ATLAS_API_BASE_URL;
+
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(body.message).not.toMatch(/could not be reached|no HTTP response|did not answer/i);
+  });
+
+  it('attaches no diagnostics, because there is nothing to diagnose', async () => {
+    delete process.env.ATLAS_API_BASE_URL;
+
+    const res = await POST(request({ token: TOKEN, mode: 'probe' }));
+    const body = await res.json();
+
+    expect(
+      body.diagnostics,
+      'a diagnostics block with atlasStatus 0 makes /auth print "the request to Atlas ' +
+        'never completed - DNS, timeout or a refused connection", which is the same ' +
+        'false accusation coming back through describeAtlasOutcome'
+    ).toBeUndefined();
+  });
+
+  it('still mints no session', async () => {
+    delete process.env.ATLAS_API_BASE_URL;
+
+    await POST(request({ token: TOKEN, mode: 'login' }));
+
+    expect(setSessionCookie).not.toHaveBeenCalled();
+    expect(getOrCreatePartner).not.toHaveBeenCalled();
   });
 });

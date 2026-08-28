@@ -170,14 +170,39 @@ export async function POST(req: NextRequest) {
   // --------------------------------------------------------------------------
   const call = await fetchPartnerMovies(token);
 
-  // Structural guarantee, not a second validator: `stage: 'atlas_call'` must
-  // never carry a fault of ours. The client refuses a header-unsafe token on
-  // its own (it owns the header), and if it ever did so for a token the check
-  // above let through, that is still `input` - the request was never made, so
-  // nothing is known about Atlas. Unreachable while both checks share
-  // `headerSafetyProblem`; cheap insurance if one of them moves.
+  // --------------------------------------------------------------------------
+  // The request was never made. Two causes, both ours, neither of them Atlas.
+  //
+  // `stage: 'atlas_call'` asserts that Atlas failed to answer. Reaching it with
+  // a fault of our own is how this project would end up reporting a bug to
+  // Crazy Cake that does not exist - it nearly did, twice: once for a pasted
+  // token that could not travel in a header, once for an unset base URL.
+  //
+  // Neither carries diagnostics. A diagnostics block with `atlasStatus: 0`
+  // makes /auth print "the request to Atlas never completed - DNS, timeout or a
+  // refused connection", which is the same accusation arriving by another door.
+  // --------------------------------------------------------------------------
+
+  // Structural guarantee, not a second validator: the client refuses a
+  // header-unsafe token on its own (it owns the header), and if it ever did so
+  // for a token the check above let through, that is still `input`. Unreachable
+  // while both share `headerSafetyProblem`; cheap insurance if one of them moves.
   if (call.inputError) {
     return errorResponse(400, 'input', call.inputError);
+  }
+
+  // 500, not 400 or 502: the request was well-formed, so blaming the caller is
+  // wrong, and no gateway exchange took place, so 502 describes something that
+  // never happened. What is broken is this deployment.
+  if (call.configError) {
+    log.error({ mode }, 'Atlas session rejected at config: no Atlas address is configured');
+
+    return errorResponse(
+      500,
+      'config',
+      `${call.configError}, so no request was attempted. Set ATLAS_API_BASE_URL. ` +
+        'Nothing was sent, so this says nothing about the token.'
+    );
   }
 
   const shape = AtlasMoviesResponseSchema.safeParse(call.json);
@@ -196,8 +221,14 @@ export async function POST(req: NextRequest) {
   // would read as "it failed" when it had in fact measured something.
   //
   // `stage: 'atlas_call'` in probe mode therefore means one thing only: Atlas
-  // produced no HTTP response at all (DNS, timeout, refused connection, or no
-  // base URL configured).
+  // produced no HTTP response at all - DNS, timeout, a refused connection.
+  //
+  // It used to include "or no base URL configured". That was written before we
+  // knew `stage` is the only thing separating "our fault" from "theirs" in the
+  // /auth panel: an unset ATLAS_API_BASE_URL rendered there as "Atlas could not
+  // be reached at all", and on 2026-08-28 a mail to Crazy Cake about it was
+  // nearly sent. It is `stage: 'config'` now, handled above. `atlas_call` means
+  // Atlas, and only Atlas.
   // --------------------------------------------------------------------------
   if (mode === 'probe') {
     if (call.status === 0) {

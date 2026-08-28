@@ -231,7 +231,20 @@ describe('fetchPartnerMovies - what it reports back', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result.status).toBe(0);
-    expect(result.networkError).toMatch(/ATLAS_API_BASE_URL/);
+    // Was `networkError` until 2026-08-28. A transport failure is a statement
+    // about Atlas; an unset variable is a statement about this deployment, and
+    // the route turns the two into different stages.
+    expect(result.configError).toMatch(/ATLAS_API_BASE_URL/);
+    expect(result.networkError).toBeNull();
+  });
+
+  it('keeps a real transport failure in networkError, not in configError', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed: ENOTFOUND'));
+
+    const result = await fetchPartnerMovies(TOKEN);
+
+    expect(result.networkError).toContain('ENOTFOUND');
+    expect(result.configError).toBeNull();
   });
 });
 

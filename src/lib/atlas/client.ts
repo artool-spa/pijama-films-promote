@@ -48,6 +48,12 @@ export interface AtlasCallResult {
   /** Transport-level failure description, when there was one. */
   networkError: string | null;
   /**
+   * Set when the call was never attempted because this deployment has no Atlas
+   * address configured. Like `inputError` and unlike `networkError`: the
+   * request does not exist, so nothing is known about the upstream.
+   */
+  configError: string | null;
+  /**
    * Set when the call was never attempted because the token we were handed
    * cannot travel in an HTTP header. Distinct from `networkError` on purpose:
    * this is our own input problem, and nothing whatsoever is known about the
@@ -207,6 +213,7 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
       redirectedTo: null,
       networkError: null,
       inputError,
+      configError: null,
     };
   }
 
@@ -224,8 +231,11 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
       bodyKind: 'none',
       responseShapeKeys: [],
       redirectedTo: null,
-      networkError: 'ATLAS_API_BASE_URL is not configured',
+      // NOT `networkError`: a transport failure says Atlas did not answer, and
+      // we never had an address to ask. See `configError` above.
+      networkError: null,
       inputError: null,
+      configError: 'ATLAS_API_BASE_URL is not configured on this deployment',
     };
   }
 
@@ -262,6 +272,7 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
       redirectedTo: null,
       networkError,
       inputError: null,
+      configError: null,
     };
   }
 
@@ -312,5 +323,6 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
     redirectedTo,
     networkError: null,
     inputError: null,
+    configError: null,
   };
 }

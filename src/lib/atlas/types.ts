@@ -95,6 +95,13 @@ export type AtlasSessionRequest = z.infer<typeof AtlasSessionRequestSchema>;
  *   - `disabled`: the environment kill switch is off. Fix: set ATLAS_LOGIN_ENABLED.
  *   - `allowlist`: this partner is simply not on the list. Fix: add the id.
  *
+ * `config` is the same argument applied to ourselves. An unset
+ * ATLAS_API_BASE_URL used to arrive as `atlas_call`, which `/auth` renders as
+ * "Atlas could not be reached at all" - a claim about a third party we never
+ * contacted, made because a variable of ours was missing. Nothing was sent, so
+ * nothing about Atlas or the token is knowable; the fix is in our deployment,
+ * not upstream, and the reader has to be sent to the right place.
+ *
  * `rate_limited` is an addition to the taxonomy T0 defined. The endpoint is
  * unauthenticated and now carries a limiter, and the contract's own hard rule
  * is that EVERY error carries a stage - so returning the house
@@ -104,6 +111,7 @@ export type AtlasSessionRequest = z.infer<typeof AtlasSessionRequestSchema>;
 export type AtlasSessionStage =
   | 'input'
   | 'rate_limited'
+  | 'config'
   | 'atlas_call'
   | 'contract'
   | 'no_partner'

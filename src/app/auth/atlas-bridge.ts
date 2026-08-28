@@ -254,6 +254,7 @@ export type AtlasErrorStage = AtlasSessionStage;
 export const ATLAS_ERROR_STAGES: readonly AtlasErrorStage[] = [
   'input',
   'rate_limited',
+  'config',
   'atlas_call',
   'contract',
   'no_partner',
@@ -271,6 +272,8 @@ export const STAGE_CONCLUSION: Record<AtlasErrorStage, string> = {
   input: 'Our own request was malformed. This is a bug on our side, not a problem with the integration.',
   rate_limited:
     'Too many attempts in a short window — wait a minute and try again. The integration is fine; this is our own limiter.',
+  config:
+    'This deployment is missing its own configuration (ATLAS_API_BASE_URL), so nothing was sent anywhere. Set the variable and try again — this result says nothing about the token or about the integration.',
   atlas_call: 'Atlas could not be reached at all. Nothing can be concluded about the token or the account.',
   contract:
     'Atlas answered, so the token was delivered, but the response does not match what Crazy Cake documented.',
