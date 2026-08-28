@@ -341,8 +341,14 @@ describe('AtlasAuthClient — Contract A results', () => {
     post(validEnvelope(), LAB);
     renderClient();
 
-    expect(await screen.findByText('Probe succeeded')).toBeTruthy();
-    expect(screen.getByText('302')).toBeTruthy();
+    // This asserted 'Probe succeeded' until 2026-08-28, and that assertion was the
+    // bug: the fixture is the production run JP measured — ok:true, 302,
+    // contractMatched:false — so the suite was pinning the false green in place.
+    // The diagnostics assertions below were always right and are what this test is
+    // actually for; only the verdict was wrong.
+    expect(await screen.findByText('Atlas answered, but not with the contract')).toBeTruthy();
+    expect(screen.queryByText('Probe succeeded')).toBeNull();
+    expect(screen.getAllByText('302').length).toBeGreaterThan(0);
     expect(screen.getByText('error')).toBeTruthy();
     expect(screen.getByText('https://dashboard-lab.pijamafilms.com/movies/by-partner')).toBeTruthy();
   });
@@ -470,6 +476,161 @@ describe('AtlasAuthClient — Contract A results', () => {
     renderClient();
 
     expect(await screen.findByText(/Could not reach \/api\/auth\/atlas\/session/)).toBeTruthy();
+  });
+});
+
+/**
+ * The banner is the one line a reader takes away, so what it claims has to be the
+ * thing that was actually established.
+ *
+ * Contract D1 makes the probe answer `ok: true` whenever Atlas produced any HTTP
+ * response at all, so the diagnostics are never buried inside an error. That is
+ * correct and stays. But `ok` means "Atlas answered", not "the contract held", and
+ * the banner used to read the first as the second — printing "the contract was
+ * exercised end to end" over a run whose own diagnostics row said
+ * `Contract C matched: no`. Measured against production with a real token on
+ * 2026-08-28: green banner, `atlasStatus: 302`, contract not matched.
+ *
+ * The green now follows `contractMatched`, not `ok`.
+ */
+describe('AtlasAuthClient — the banner claims only what was established', () => {
+  function bannerSeverity(container: HTMLElement): string | null {
+    const alert = container.querySelector('[class*="MuiAlert-standard"]');
+    const match = alert?.className.match(/MuiAlert-standard(\w+)/);
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  it('warns instead of congratulating when Atlas answered but the contract did not hold', async () => {
+    respondWith(200, {
+      ok: true,
+      diagnostics: { atlasStatus: 302, contractMatched: false },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    await waitFor(() => expect(bannerSeverity(container)).toBe('warning'));
+
+    // The specific false claim that started this: never over a contract that did
+    // not match.
+    expect(screen.queryByText(/exercised end to end/)).toBeNull();
+    expect(screen.queryByText('Probe succeeded')).toBeNull();
+  });
+
+  it('puts the Atlas status in the banner itself, not only in the table below', async () => {
+    respondWith(200, {
+      ok: true,
+      diagnostics: { atlasStatus: 302, contractMatched: false },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    await waitFor(() => expect(bannerSeverity(container)).toBe('warning'));
+
+    // A reader who never scrolls to the diagnostics still learns what happened.
+    const alert = container.querySelector('[class*="MuiAlert-standardWarning"]');
+    expect(alert?.textContent).toContain('302');
+  });
+
+  it('says a 302 means the request was redirected and the token never judged', async () => {
+    respondWith(200, {
+      ok: true,
+      diagnostics: { atlasStatus: 302, contractMatched: false },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    await waitFor(() => expect(bannerSeverity(container)).toBe('warning'));
+    const text = container.querySelector('[class*="MuiAlert-standardWarning"]')?.textContent ?? '';
+
+    expect(text).toMatch(/redirect/i);
+    expect(text).toMatch(/never (reached|evaluated|judged)|not (been )?(evaluated|judged)/i);
+
+    // The whole point of the wording: a redirect happens *before* the token is
+    // looked at, so nothing at all is known about the token or the account. A
+    // banner that blames either would send the reader to debug the wrong thing —
+    // and could have us tell Crazy Cake their token is bad when we never used it.
+    expect(text).not.toMatch(/token was rejected|invalid token|token is invalid/i);
+    expect(text).not.toMatch(/account (is|was) (not )?(allowed|rejected)/i);
+  });
+
+  it('still says end to end when the contract really did hold', async () => {
+    respondWith(200, {
+      ok: true,
+      diagnostics: { atlasStatus: 200, contractMatched: true },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    expect(await screen.findByText('Probe succeeded')).toBeTruthy();
+    expect(bannerSeverity(container)).toBe('success');
+    expect(screen.getByText(/exercised end to end/)).toBeTruthy();
+  });
+
+  /**
+   * `contractMatched: undefined` is not `false`. Stages that fail before Atlas is
+   * ever called (`input`, `config`, `disabled`) carry no diagnostics at all, and
+   * absence of evidence must not be rendered as evidence of a mismatch — that
+   * would swap one false banner for another.
+   */
+  it('does not fall into the warning when there are no diagnostics to judge', async () => {
+    respondWith(200, { ok: true });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    expect(await screen.findByText('Probe succeeded')).toBeTruthy();
+    expect(bannerSeverity(container)).toBe('success');
+  });
+
+  it('does not fall into the warning when diagnostics arrive without a verdict', async () => {
+    respondWith(200, { ok: true, diagnostics: { atlasStatus: 200 } });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    expect(await screen.findByText('Probe succeeded')).toBeTruthy();
+    expect(bannerSeverity(container)).toBe('success');
+  });
+
+  it('describes a non-redirect mismatch without claiming a redirect happened', async () => {
+    respondWith(200, {
+      ok: true,
+      diagnostics: { atlasStatus: 200, contractMatched: false, responseShapeKeys: ['error'] },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    await waitFor(() => expect(bannerSeverity(container)).toBe('warning'));
+    const text = container.querySelector('[class*="MuiAlert-standardWarning"]')?.textContent ?? '';
+
+    expect(text).toContain('200');
+    expect(text).not.toMatch(/redirect/i);
+  });
+
+  /**
+   * `no_partner` outranks everything: it is the one outcome that really does mean
+   * the SSO works. It must not be demoted to a warning by a contract flag.
+   */
+  it('keeps no_partner winning even when the contract flag says no', async () => {
+    respondWith(403, {
+      ok: false,
+      stage: 'no_partner',
+      message: 'account has no partner',
+      diagnostics: { atlasStatus: 200, contractMatched: false },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    expect(
+      await screen.findByText('The SSO works — this account has no partner attached')
+    ).toBeTruthy();
+    expect(bannerSeverity(container)).toBe('info');
   });
 });
 

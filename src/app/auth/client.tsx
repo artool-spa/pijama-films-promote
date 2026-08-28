@@ -794,6 +794,30 @@ function StatusBanner({
   }
 }
 
+/**
+ * The banner line for "Atlas answered, but the body was not Contract C".
+ *
+ * Carries the HTTP status itself rather than pointing at the table below, because
+ * the banner is what a reader takes away and a status is the first thing they need.
+ *
+ * The 3xx wording is the careful one. A redirect happens *before* the endpoint runs,
+ * so the token was never looked at — which means nothing whatsoever is known about
+ * the token or the account. Saying "the token was rejected" here would send someone
+ * to debug a credential that was never used, and worse, could have us tell Crazy
+ * Cake their token is bad on the strength of a request that never arrived.
+ */
+function describeContractMiss(atlasStatus: number | undefined): string {
+  if (atlasStatus === undefined) {
+    return 'Atlas answered, but the response was not Contract C, and the server reported no HTTP status for that call. Nothing here says the sign-in works — check the diagnostics below before concluding anything.';
+  }
+
+  if (atlasStatus >= 300 && atlasStatus < 400) {
+    return `Atlas replied HTTP ${atlasStatus} — a redirect — so the request was sent away before it reached the endpoint and the token was never evaluated. This says nothing about the token or the account: neither was examined. Look first at whether ATLAS_API_BASE_URL points at the right host and whether the call carries the credentials Atlas expects.`;
+  }
+
+  return `Atlas replied HTTP ${atlasStatus}, but the body is not Contract C, so the handshake was not completed. Compare the response keys in the diagnostics below with what Crazy Cake documented before concluding the sign-in works.`;
+}
+
 function SettledBanner({
   attempts,
   requestedMode,
@@ -821,6 +845,34 @@ function SettledBanner({
   }
 
   if (primary?.response?.ok) {
+    const diagnostics = primary.response.diagnostics;
+
+    // `ok` and `contractMatched` are different claims, and conflating them is the
+    // defect this branch exists to prevent.
+    //
+    // Contract D1 makes the probe answer `ok: true` whenever Atlas produced any
+    // HTTP response, so diagnostics are never buried inside an error. That is
+    // deliberate and correct. But it means `ok` says only "Atlas answered" — and
+    // the banner used to print "the contract was exercised end to end" on the
+    // strength of it, directly above a diagnostics row reading
+    // `Contract C matched: no`. Measured against production with a real token on
+    // 2026-08-28: a green banner over a 302 that never reached the endpoint.
+    //
+    // A green here gets reported onward as "the SSO works". It has to mean that.
+    //
+    // Explicitly `=== false`, never falsy: `undefined` means the server sent no
+    // verdict at all (the stages that fail before Atlas is called carry no
+    // diagnostics), and absence of evidence must not be rendered as evidence of a
+    // mismatch. That would just swap one false banner for another.
+    if (diagnostics?.contractMatched === false) {
+      return (
+        <Alert severity="warning">
+          <AlertTitle>Atlas answered, but not with the contract</AlertTitle>
+          {describeContractMiss(diagnostics.atlasStatus)}
+        </Alert>
+      );
+    }
+
     return (
       <Alert severity="success">
         <AlertTitle>{requestedMode === 'login' ? 'Signed in' : 'Probe succeeded'}</AlertTitle>
