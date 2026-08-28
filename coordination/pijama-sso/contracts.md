@@ -338,3 +338,46 @@ Esto **no invalida el Contrato C ni nuestra mitad.** El endpoint `/api/auth/atla
 quedó verificado en local contra el host real de Atlas (302 con token falso, `stage` correcto
 en los tres estados, token ausente de los logs). Lo que falta es un token real, y el camino
 para obtenerlo cambió.
+
+## Contrato C — el endpoint existe, y hay una puerta delante
+
+**2026-08-28.** JP abrió `https://dashboard.pijamafilms.com/movies/by-partner` en la barra de
+direcciones, con su sesión activa:
+
+```json
+{"status":"error","error":"MISSING_TOKEN",
+ "message":"Authorization header with Bearer token is required"}
+```
+
+**Confirmado, y es la primera confirmación real del Contrato C:** el path es correcto, el base
+URL es correcto, responde la *aplicación* de Atlas en su propio formato, y el mecanismo
+documentado (`Authorization: Bearer`) es el que el endpoint declara querer.
+
+**Pero desde nuestro servidor, las seis combinaciones dan 302 a `/auth/auth/logout`:**
+
+| Petición desde el servidor | Resultado |
+|---|---|
+| sin cabeceras | 302 |
+| `Accept: application/json` | 302 |
+| `Accept: text/html` | 302 |
+| `Authorization: Bearer <falso>` | 302 |
+| `Bearer <falso>` + `Accept: json` | 302 |
+| User-Agent de Chrome | 302 |
+
+La única variable que separa el JSON del 302 es la cookie de sesión **`console-production`**,
+que es `httpOnly` (confirmado: no aparece entre las once cookies que lee `document.cookie`,
+sí aparece en Cookie-Editor, que tiene permiso de extensión).
+
+### El nudo, dicho con precisión
+
+Hay una puerta de sesión por cookie **delante** de la ruta, y la ruta pide `Bearer` **detrás**.
+Nuestro servidor no tiene ni puede tener esa cookie. Así que la llamada server-to-server que
+la propia documentación de Crazy Cake prescribe **es 302 antes de que la ruta corra**.
+
+**Lo que todavía no está medido**, y es la bisagra: si la puerta *rechaza* un Bearer falso con
+302, o si *ignora* el Bearer por completo. Un token válido distingue los dos casos, y hasta
+ahora no tenemos uno.
+
+**El 302 de nuestro probe nunca significó "token rechazado".** Así lo leía la tabla del
+runbook, y estaba mal: un token rechazado por esta ruta produce JSON, no un redirect. El
+redirect es la puerta, no la ruta. Corregido.
