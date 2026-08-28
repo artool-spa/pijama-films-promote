@@ -536,3 +536,54 @@ capture tiene un día de acceso a la cuenta de esa productora.
    —verificamos local, sin ida y vuelta ni secreto compartido— y lo más trabajoso para ellos.
 
 Cualquiera de los tres desbloquea. El 1 es el que se concede en una tarde.
+
+## Re-auditoría del diagnóstico completo — 2026-08-29, a pedido de JP
+
+Pregunta: *"¿no será un problema nuestro? Es muy costoso pedir ayuda que no necesito."*
+Se re-midió todo contra el ambiente que Mathias entregó (**testing**, no producción), porque
+todas las mediciones previas del endpoint habían sido contra producción.
+
+### Hallazgo 1 (targetOrigin) — confirmado en LOS DOS ambientes, y no tiene workaround nuestro
+
+El bundle del lab (no minificado) tiene el mismo código que producción:
+
+```js
+portalWindow.postMessage({ type: 'ATLAS_AUTH', token: jwt }, window.location.origin);
+// comentario original: "Wait for portal to load and send JWT via postMessage"
+```
+
+¿Puede arreglarlo el receptor? **No, por diseño del navegador**: el `targetOrigin` lo declara
+el emisor y se compara contra el origen de la ventana destino *al momento de la entrega*. El
+receptor no puede "aceptar igual" un mensaje que el navegador nunca entrega. Detalle adicional:
+si a los 1000 ms nuestro documento aún no cargó, la ventana está en `about:blank` —que hereda
+el origen del opener— y el mensaje sí se entregaría… a una página sin listener. En ningún caso
+llega a nuestra app.
+
+### Hallazgo 2 (puerta de sesión) — confirmado también en el lab, sin salida unilateral
+
+```
+OPTIONS lab/movies/by-partner + Origin promote  → 302, cero access-control-*
+GET     lab/movies/by-partner + Bearer falso    → 302 a /auth/auth/logout
+```
+
+Idéntico a producción. Alternativas nuestras evaluadas y descartadas:
+
+- **Fetch desde el navegador con `credentials:'include'`**: exigiría `Access-Control-Allow-Origin`
+  específico + `Allow-Credentials: true` (no envían ninguna) y la cookie es de otro sitio
+  (SameSite la retiene). Doble bloqueo.
+- **Usar los claims del JWT sin llamar a Atlas**: es HS256 y no tenemos (ni queremos) la clave;
+  claims sin verificar = bypass de autenticación. Descartado antes, sigue descartado.
+- **Nuestro servidor con la cookie del usuario**: es httpOnly y de otro dominio. Imposible.
+
+### Lo que la re-auditoría SÍ cambió (errores nuestros, ya corregidos en el correo)
+
+1. El reclamo del campo `partner`: la guía de enero nunca lo prometió — lo inventó nuestro
+   Contrato B. El correo ya no lo reclama.
+2. "La llamada server-to-server que describe la documentación": la guía describe un fetch de
+   navegador. Corregido; el hallazgo de CORS se agregó como cuarto camino cerrado.
+
+### Conclusión
+
+**Los dos bloqueos son de Crazy Cake, verificados en el ambiente que ellos declararon listo.**
+No existe combinación de cambios de nuestro lado que destrabe ninguno de los dos. El correo
+está justificado y sus tres pedidos son necesarios.
