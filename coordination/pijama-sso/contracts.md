@@ -294,3 +294,47 @@ Diverge de `artool-utils` en:
 | 3 | El caso "lab sin películas" lo determina el agente y reporta la evidencia | 2026-08-26 |
 | 4 | Fuera de alcance: filtrado de películas por partner en `getFilms()` | 2026-08-26 |
 | 5 | PRs #45 y #46 quedan fuera de este proyecto | 2026-08-26 |
+
+---
+
+## Contrato B — hallazgo del 2026-08-28: el token no es alcanzable desde JS
+
+Medido en `dashboard.pijamafilms.com` con sesión activa de JP, enumerando los cuatro
+almacenamientos del cliente:
+
+| Almacenamiento | Contenido |
+|---|---|
+| `localStorage` | una clave: `theme` |
+| `sessionStorage` | **vacío** |
+| `IndexedDB` | **vacío** (`indexedDB.databases()` → `[]`) |
+| cookies legibles por JS | once, **todas de analítica**: `_ga`, `_ga_186C2B5YVT`, `_ga_HTN668K0KR`, `_gcl_au`, `_fbp`, `_tt_enable_cookie`, `_ttp`, `ttcsid`, `ttcsid_D83M6M3C77U6NFPBOD0G`, `__stripe_mid`, `__stripe_sid` |
+
+**Ninguna con prefijo `eyJ`.** La sesión de Console no vive en un lugar que JavaScript pueda
+leer — lo esperable es una cookie `httpOnly`, pendiente de confirmar en el panel de cookies.
+
+### Consecuencias, y son dos distintas
+
+**1 · El paso A2 del runbook es imposible como está escrito.** Decía "saca el JWT del storage
+de la pestaña". No hay JWT que sacar. Ese paso se escribió sobre un supuesto que nunca se
+midió — el error es de T0, no del runbook de Crazy Cake.
+
+**2 · El Contrato B, tal como está documentado, no puede ejecutarse desde el cliente.** Si el
+JS de Console no puede leer el token, no puede postear `{ type:'ATLAS_AUTH', token, partner }`.
+Quedan dos posibilidades y son muy diferentes entre sí:
+
+- **(a)** Console pide el token a un endpoint propio al momento de abrir la ventana (diseño
+  sano: token de corta vida y propósito único). Entonces el contrato funciona y lo que falta
+  es saber cómo se emite.
+- **(b)** El emisor nunca se implementó del lado de Console, y el documento describe una
+  intención. Entonces no hay integración que probar todavía.
+
+**No se puede elegir entre (a) y (b) desde afuera.** Se resuelve buscando `ATLAS_AUTH` en el
+bundle de Console, que JP tiene cargado en su navegador. Sin sesión, `dashboard.pijamafilms.com`
+devuelve 302 a todo, incluidos los assets, así que no es medible desde el servidor.
+
+### Nota
+
+Esto **no invalida el Contrato C ni nuestra mitad.** El endpoint `/api/auth/atlas/session`
+quedó verificado en local contra el host real de Atlas (302 con token falso, `stage` correcto
+en los tres estados, token ausente de los logs). Lo que falta es un token real, y el camino
+para obtenerlo cambió.
