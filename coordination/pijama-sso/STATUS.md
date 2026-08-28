@@ -12,9 +12,9 @@ _Última actualización: **2026-08-28** · Actualizado por: T0_
 **Nuestra mitad está completa. El proyecto está bloqueado, y el bloqueo es de Crazy Cake.**
 
 ```
-rama feat/atlas-sso · commit 3ff2ba2 · next 16.3.1
+rama feat/atlas-sso · commit ad97dd6 · next 16.3.1
 tsc --noEmit   exit 0
-vitest         567/567 · 40 archivos
+vitest         584/584 · 40 archivos
 ```
 
 Verificado por T0 en worktree propio sobre la integración, no por suma de reportes de agentes.
@@ -54,6 +54,7 @@ intermedios y no hay que leerlas como pendientes.
 | T1 · T1b · T2 | servidor Atlas, auditoría, página `/auth` + simulador | ✅ cerrados, mergeados |
 | FX-envelope | `partner` opcional, simulador, fidelidad del ensayo | ✅ cerrado, `fc4b7e1` |
 | FX-stage | `stage: input` por header-safety, `stage: config` | ✅ cerrado, `3a8f42d` + `3ff2ba2` |
+| FX-envelope (rondas 4–5) | banner falso verde, y los dos overclaims de `describeAtlasOutcome` | ✅ cerrado, `ad97dd6` |
 
 ---
 
@@ -550,3 +551,72 @@ demostró que era redundancia y no hueco. Un reporte sin sobrevivientes es sospe
   una cuenta de productor en el dashboard — un pedido concreto, no genérico.
 - **Fuera de este alcance, sigue siendo bloqueante del Go Live:** `getFilms()` no filtra por
   partner. La allowlist es la única contención.
+
+---
+
+## 2026-08-28 · Rondas 4 y 5: seis defectos de la misma familia, y dos lecciones nuevas
+
+`feat/atlas-sso` en **`ad97dd6`**, **584/584**. El día cerró con seis correcciones y todas eran
+la misma cosa: **una etiqueta afirmando algo que el sistema no hace.**
+
+1. `CLAUDE.md` afirmaba un auto-rollout que T0 no verificó (y que sí existía — ver #52/#53).
+2. El simulador declaraba "modo de falla" la única forma de envelope que producción manda.
+3. El `stage` culpaba a Atlas por un token que no podía viajar en una cabecera.
+4. Un base URL ausente se reportaba como "no se pudo contactar a Atlas".
+5. Un test llamado *"the same path Console uses"* posteaba un payload que Console no usa.
+6. El banner verde decía *"the contract was exercised end to end"* con `atlasStatus: 302`.
+
+El 6 se midió con el token real de producción de JP, y estaba **clavado en un test existente**
+cuyo fixture era literalmente esa corrida. El defecto no solo existía: estaba protegido.
+
+### Lección nueva 1 — una afirmación infundada no se vuelve aceptable por ser tranquilizadora
+
+Los cinco primeros exageraban hacia el éxito o hacia culpar al tercero, así que se sentían como
+errores. El sexto arrastró uno mío: dicté que el banner dijera *"the token was never evaluated"*
+ante un 302. **FX-envelope lo rechazó y tenía razón.** Un 302 establece que no hubo body de
+Contract C; no establece por qué. Su middleware podría leer el Bearer y rechazarlo, o redirigir
+cualquier request sin cookie antes de mirarlo — desde afuera son indistinguibles.
+
+Mi redacción caía del lado cómodo, y eso no la salva. El chequeo que la atrapó no fue de tono
+sino de epistemología: **¿esto es observable desde acá?** Las mutaciones del test clavan las dos
+direcciones del overclaim, la acusatoria y la exculpatoria.
+
+Auditando la misma función apareció el espejo ya presente en el repo: ante un 2xx que no calza,
+decía *"so the token was accepted"*. `describeAtlasOutcome` **no tenía ningún test directo**, y
+eso explica por qué sobrevivió: nadie lo miraba.
+
+### Lección nueva 2 — particionar por archivo crea costuras, y los defectos viven ahí
+
+FX-envelope reportó que FX-stage había "esquivado" esa función. Verifiqué la línea antes de
+repetirlo, y la atribución había que corregirla: **el que la rodeó fui yo.** Le prohibí a
+FX-stage tocar `src/app/auth/**` porque el otro agente estaba editando esos archivos. FX-stage
+hizo lo correcto para un scope acotado —contuvo el defecto en su territorio y dejó constancia
+señalizada en el mensaje de una aserción (`session-route.test.ts:1012`)— y esa constancia fue
+justamente el rastro que el otro agente siguió dos rondas después.
+
+**El residuo fue mi mapa de archivos, no reticencia de nadie.** Repartir bien los archivos evita
+choques de merge y a cambio crea costuras: el agente que encuentra un defecto al otro lado no
+tiene permiso para arreglarlo. **Barrer las costuras es trabajo del coordinador**, y no sale
+gratis por haber particionado bien.
+
+### Lección de método — los tests por string dejan pasar contradicciones entre strings
+
+El banner nuevo decía que no se puede concluir nada sobre el token, y cuatro filas más abajo el
+helper decía *"either the token was rejected"*. Cada string tenía su test; la contradicción no
+la tenía nadie. El test que la cierra afirma una propiedad de **pantalla completa**:
+
+> Para una misma corrida, ninguna parte de la página renderizada le asigna una causa al token
+> ni a la cuenta.
+
+Table-driven sobre `[301, 302, 307, 200]`, contra seis patrones causales en las dos direcciones,
+y exigiendo que el status **sí** aparezca — para que "no afirma nada" no degenere en "no muestra
+nada". Si una pantalla completa afirma algo, hay que testear la pantalla completa.
+
+### Hallazgo lateral — el A record sigue apuntando a la VM heredada
+
+`promote.pijamafilms.com` resuelve a `64.176.6.210` (Vultr), la IP que Pablo entregó el 19 de
+enero. El tráfico entra por un **nginx/1.31.3** y se reenvía a App Hosting (`envoy`). Medido:
+**450 ms por el proxy contra 77 ms directo**, casi 6×. El `CLAUDE.md` dice que el deployment es
+App Hosting y no menciona esa VM. Es un punto único de falla sin monitoreo en el camino de todos
+los usuarios, y probablemente determina qué IP ve MUVI —que valida por IP— así que conviene
+saberlo antes de que alguien la apague. **No tocado; escalado a JP.**
