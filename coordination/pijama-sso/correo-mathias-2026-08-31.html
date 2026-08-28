@@ -1,0 +1,286 @@
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;max-width:680px">
+
+<p>Hola Mathias y equipo Crazy Cake,</p>
+
+<p>Necesito su ayuda. Finalmente tenemos operativo el back de marketing para hacer la promoción,
+pero nos faltan algunos detalles. Pablo Parga ya hizo entrega de este proyecto y ahora lo estoy
+viendo yo directamente.</p>
+
+<p>Estamos probando la integración del SSO y salieron algunas cosas a flote que impiden que
+funcione. Además migré el proyecto a <strong>Firebase App Hosting</strong> y necesito actualizar
+el DNS — por mientras opera con un proxy.</p>
+
+<p><strong>En resumen, necesito tres cosas:</strong></p>
+
+<ol>
+  <li>Un fix de una línea en <code>openMarketingPortal()</code>.</li>
+  <li>Que <code>/movies/by-partner</code> se pueda validar desde un servidor.</li>
+  <li>Cambiar los registros de DNS para el hosting nuevo.</li>
+</ol>
+
+<p>Les dejo acá abajo un informe detallado que saqué, hecho con IA, para que se lo pasen a su IA.</p>
+
+<p>Gracias por la ayuda, quedo atento a cualquier cosa.</p>
+
+<p>José Pedro Undurraga</p>
+
+<hr style="border:0;border-top:1px solid #d0d7de;margin:28px 0">
+<h3 style="font-size:15px;margin:26px 0 8px">1 · El <code>postMessage</code> se dirige al origen equivocado</h3>
+
+<p>Este es el bloqueador principal. En <code>openMarketingPortal()</code>
+(<code>/resources/entry.js?v=d4c06ad</code>):</p>
+
+<pre style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:6px;padding:12px;font-size:13px;overflow-x:auto"><code>const win = window.open(this.marketingUrl, "MarketingPortal", "width=1200,height=800");
+setTimeout(() =&gt; {
+  win.postMessage({ type: "ATLAS_AUTH", token }, <strong>window.location.origin</strong>);
+}, 1000);</code></pre>
+
+<p>El segundo argumento de <code>postMessage</code> es el <code>targetOrigin</code>: el origen al
+que el navegador tiene permitido entregar el mensaje. Ahí va
+<code>window.location.origin</code>, que es el origen de Console
+(<code>https://dashboard.pijamafilms.com</code>). Como la ventana destino está en
+<code>promote.pijamafilms.com</code>, los orígenes no coinciden y <strong>el navegador descarta
+el mensaje en silencio</strong>: no llega nunca, y no aparece error visible en la UI.</p>
+
+<p>Debería ser el origen derivado de la URL del portal. Es un cambio de una línea. Lo
+verificamos <strong>en los dos ambientes</strong> — el bundle de producción y el de testing
+tienen el mismo código.</p>
+
+<p>Dos observaciones menores del mismo bloque, por si les sirven:</p>
+
+<ul>
+  <li>El <code>setTimeout</code> de 1000 ms es disparo único, sin reintento. Nuestra página
+  registra su listener antes del primer paint y bufferea lo que llegue, así que por nuestro lado
+  aguanta; pero si la ventana destino tardara más en cargar, el mensaje se pierde sin segunda
+  oportunidad. Nosotros posteamos un <code>PROMOTE_READY</code> al <code>window.opener</code>
+  por si en algún momento quieren esperar esa señal en vez de un timeout fijo.</li>
+  <li>El payload es <code>{ type, token }</code>, igual que en la guía que nos pasaron.
+  <strong>Nada que cambiar acá</strong>; lo mencionamos solo porque nuestra implementación
+  inicial esperaba además un campo <code>partner</code> y ya la corregimos. La identidad del
+  partner preferimos tomarla de la respuesta de su servidor y no del mensaje del cliente.</li>
+</ul>
+
+<h3 style="font-size:15px;margin:26px 0 8px">2 · <code>/movies/by-partner</code> no es alcanzable, ni desde el navegador ni desde un servidor</h3>
+
+<p>Primero lo bueno: <strong>el endpoint existe y responde exactamente la forma documentada</strong>,
+con los cuatro campos del partner. Lo confirmamos con un token real emitido por
+<code>/partners/external-token</code>. El contrato está bien y no hay que cambiarlo.</p>
+
+<p>El problema es cómo llegar a él. La guía del 8 de enero propone llamarlo <strong>desde el
+navegador</strong>, con <code>fetch</code> desde el portal. Ese camino está cerrado porque la
+llamada es cross-origin y el endpoint no devuelve cabeceras CORS — el preflight se va en
+redirect. Lo medimos <strong>en testing y en producción</strong>, con el mismo resultado:</p>
+
+<pre style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:6px;padding:12px;font-size:13px;overflow-x:auto"><code>OPTIONS /movies/by-partner
+Origin: https://promote.pijamafilms.com
+Access-Control-Request-Headers: authorization
+
+→ HTTP 302 · location: /auth/auth/logout
+   (ninguna cabecera access-control-*)</code></pre>
+
+<p>Sin <code>Access-Control-Allow-Origin</code>, el navegador bloquea la respuesta aunque el
+servidor conteste bien. Por eso lo intentamos <strong>desde nuestro servidor</strong>, que además
+evita exponer el token al cliente. Ahí el resultado depende de la cookie de sesión, y esa es la
+parte que bloquea:</p>
+
+<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0">
+  <thead>
+    <tr style="background:#f6f8fa">
+      <th align="left" style="border:1px solid #e1e4e8">Desde dónde</th>
+      <th align="left" style="border:1px solid #e1e4e8">Cabeceras</th>
+      <th align="left" style="border:1px solid #e1e4e8">Resultado</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #e1e4e8">Navegador con sesión</td>
+      <td style="border:1px solid #e1e4e8">cookie <code>console-production</code> + <code>Authorization: Bearer</code></td>
+      <td style="border:1px solid #e1e4e8"><strong>200</strong> · <code>{status:'ok', data:{partner:{…}, movies:[…]}}</code></td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8">Nuestro servidor</td>
+      <td style="border:1px solid #e1e4e8">solo <code>Authorization: Bearer</code> — <em>el mismo token</em></td>
+      <td style="border:1px solid #e1e4e8"><strong>302</strong> → <code>/auth/auth/logout</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Probamos seis combinaciones de cabeceras desde el servidor (con y sin <code>Bearer</code>,
+variando <code>Accept</code> y <code>User-Agent</code>) y todas dan el mismo 302. La única
+variable que cambia el resultado es la cookie.</p>
+
+<p>O sea hay una capa de sesión delante de la ruta, y la ruta pide <code>Bearer</code> detrás.
+Un servidor no tiene ni puede tener esa cookie. El mensaje de error de la propia ruta
+—<code>MISSING_TOKEN: Authorization header with Bearer token is required</code>— describe un
+mecanismo que esa capa vuelve inalcanzable desde afuera del navegador.</p>
+
+<p><strong>Los dos caminos posibles están cerrados, cada uno por un motivo distinto:</strong> el
+del navegador por falta de CORS, el del servidor por la capa de sesión. Por eso necesitamos que
+abran uno de los dos.</p>
+
+<p><strong>Cualquiera de estas tres opciones nos desbloquea</strong>, y las ordeno de menor a
+mayor esfuerzo para ustedes:</p>
+
+<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0">
+  <thead>
+    <tr style="background:#f6f8fa">
+      <th align="left" style="border:1px solid #e1e4e8">Opción</th>
+      <th align="left" style="border:1px solid #e1e4e8">Qué implica</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #e1e4e8"><strong>A</strong> — exceptuar
+      <code>/movies/by-partner</code> de la capa de sesión</td>
+      <td style="border:1px solid #e1e4e8">La más rápida. Nosotros llamamos con
+      <code>Bearer</code> desde el servidor, ustedes validan el token con su propia clave. No se
+      comparte ningún secreto y el token nunca toca el navegador.</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8"><strong>B</strong> — un endpoint de verificación sin
+      cookie, tipo <code>POST /partners/verify-token</code></td>
+      <td style="border:1px solid #e1e4e8">Más limpio que exponer una ruta de datos: acotado a
+      este propósito y devuelve solo la identidad del partner.</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8"><strong>C</strong> — firmar el token del handoff con
+      <code>RS256</code>/<code>ES256</code> y publicar un JWKS</td>
+      <td style="border:1px solid #e1e4e8">Lo mejor a largo plazo: verificamos localmente, sin
+      ida y vuelta ni dependencia entre servidores. También la de más trabajo.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Una cuarta opción sería <strong>agregar cabeceras CORS</strong> para habilitar el camino del
+navegador tal como está en la guía. Funciona, pero la preferimos menos: obliga a que el token
+viva en el cliente, y desde el servidor podemos mantenerlo fuera del navegador por completo.
+Si para ustedes es mucho más simple, igual nos sirve — díganlo y adaptamos nuestro lado.</p>
+
+<p style="background:#fff8e6;border-left:3px solid #e0a800;padding:10px 14px;margin:16px 0">
+<strong>Para que quede explícito: no les estamos pidiendo su clave de firma.</strong> El token
+viene con <code>alg: HS256</code>, que es simétrico — la clave que verifica es la misma que
+firma, así que quien la tenga puede emitir tokens para cualquier partner. Nos parece que no
+corresponde que salga de su infraestructura, y preferimos cualquiera de las tres opciones de
+arriba antes que tenerla nosotros.</p>
+
+<h3 style="font-size:15px;margin:26px 0 8px">3 · Tema aparte: cambiamos de hosting y necesitamos actualizar el DNS</h3>
+
+<p>Esto no tiene relación con el SSO, pero necesitamos coordinarlo con ustedes porque el DNS de
+<code>pijamafilms.com</code> está en su Route 53.</p>
+
+<p>El 19 de enero les pasamos la IP <code>64.176.6.210</code> y ustedes crearon el A record
+apuntando ahí. <strong>Desde entonces migramos la plataforma a Firebase App Hosting</strong>, y
+para no interrumpir el servicio dejamos esa máquina funcionando como <strong>proxy inverso
+provisorio</strong>: recibe el tráfico del dominio y lo reenvía a la infraestructura nueva.
+Funciona, pero es un intermediario que ya no cumple ninguna función salvo mantener válido el
+registro viejo. Medido desde acá:</p>
+
+<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0">
+  <thead>
+    <tr style="background:#f6f8fa">
+      <th align="left" style="border:1px solid #e1e4e8">Camino</th>
+      <th align="left" style="border:1px solid #e1e4e8">Servidor que responde</th>
+      <th align="left" style="border:1px solid #e1e4e8">Latencia</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #e1e4e8">Por el dominio actual</td>
+      <td style="border:1px solid #e1e4e8"><code>nginx/1.31.3</code> (la máquina de enero)</td>
+      <td style="border:1px solid #e1e4e8">≈ 450 ms</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8">Directo a App Hosting</td>
+      <td style="border:1px solid #e1e4e8"><code>envoy</code></td>
+      <td style="border:1px solid #e1e4e8">≈ 77 ms</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Ya registramos el dominio en App Hosting, así que <strong>tenemos los registros exactos</strong>
+y se los dejamos abajo. La transición se puede hacer <strong>en dos etapas y sin ningún
+corte</strong>, y la primera no toca el tráfico:</p>
+
+<p style="margin:18px 0 6px"><strong>Etapa 1 — se puede aplicar cuando quieran, sin impacto.</strong>
+Solo agrega registros nuevos; el A record sigue como está y el tráfico sigue pasando por el
+proxy. Esto verifica la propiedad del dominio y emite el certificado.</p>
+
+<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:12px;margin:8px 0">
+  <thead>
+    <tr style="background:#f6f8fa">
+      <th align="left" style="border:1px solid #e1e4e8">Acción</th>
+      <th align="left" style="border:1px solid #e1e4e8">Tipo</th>
+      <th align="left" style="border:1px solid #e1e4e8">Nombre</th>
+      <th align="left" style="border:1px solid #e1e4e8">Valor</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #e1e4e8">AGREGAR</td>
+      <td style="border:1px solid #e1e4e8">TXT</td>
+      <td style="border:1px solid #e1e4e8"><code>promote.pijamafilms.com</code></td>
+      <td style="border:1px solid #e1e4e8;word-break:break-all"><code>fah-claim=002-02-198b7569-ffc4-4fa3-82f1-0e9360663173</code></td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8">AGREGAR</td>
+      <td style="border:1px solid #e1e4e8">CNAME</td>
+      <td style="border:1px solid #e1e4e8;word-break:break-all"><code>_acme-challenge_kxvtiox5aof6c5rr.promote.pijamafilms.com.</code></td>
+      <td style="border:1px solid #e1e4e8;word-break:break-all"><code>8dfbdf5f-5c3e-4515-ac81-e54ed3739426.1.authorize.certificatemanager.goog.</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="margin:18px 0 6px"><strong>Etapa 2 — el corte, cuando nos confirmen que la etapa 1
+propagó.</strong> Un solo cambio. El TTL actual del registro es de 300 segundos, así que la
+propagación es de unos 5 minutos.</p>
+
+<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:12px;margin:8px 0">
+  <thead>
+    <tr style="background:#f6f8fa">
+      <th align="left" style="border:1px solid #e1e4e8">Acción</th>
+      <th align="left" style="border:1px solid #e1e4e8">Tipo</th>
+      <th align="left" style="border:1px solid #e1e4e8">Nombre</th>
+      <th align="left" style="border:1px solid #e1e4e8">Valor</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #e1e4e8">AGREGAR</td>
+      <td style="border:1px solid #e1e4e8">A</td>
+      <td style="border:1px solid #e1e4e8"><code>promote.pijamafilms.com</code></td>
+      <td style="border:1px solid #e1e4e8"><code>35.219.200.9</code></td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e1e4e8">QUITAR</td>
+      <td style="border:1px solid #e1e4e8">A</td>
+      <td style="border:1px solid #e1e4e8"><code>promote.pijamafilms.com</code></td>
+      <td style="border:1px solid #e1e4e8"><code>64.176.6.210</code> <span style="color:#666">(la de enero)</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Mientras la etapa 1 esté aplicada y la 2 no, el sitio sigue funcionando normalmente por el
+proxy — no se abre ninguna ventana de riesgo. Y el proxy lo dejamos arriba hasta que verifiquemos que el
+tráfico entra directo, así que si algo sale mal el rollback es volver a poner el A record
+anterior y toma los mismos 5 minutos.</p>
+
+<p>Lo único que necesitamos saber es <strong>quién aplica los cambios de su lado</strong>, y si
+prefieren alguna ventana para la etapa 2.</p>
+
+<h3 style="font-size:15px;margin:26px 0 8px">Resumen de lo que necesitamos</h3>
+
+<ol>
+  <li>El fix del <code>targetOrigin</code> en <code>openMarketingPortal()</code>.</li>
+  <li>Cuál de las tres opciones (A, B o C) prefieren para que podamos validar el token desde
+  nuestro servidor.</li>
+  <li>Quién aplica los registros de DNS de su lado, y si prefieren una ventana para la etapa 2.</li>
+</ol>
+
+<p>De nuestro lado ya está todo listo y probado: recibimos el <code>postMessage</code>,
+aceptamos el envelope tal como Console lo emite hoy, e intercambiamos el token contra su API.
+En cuanto entre el punto 1 podemos probar el flujo completo el mismo día.</p>
+
+<p>Si les sirve, podemos hacer una llamada corta y lo vemos en pantalla juntos — creo que con
+los dos puntos identificados esto se cierra rápido.</p>
+
+</div>

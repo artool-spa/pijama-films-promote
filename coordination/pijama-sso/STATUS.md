@@ -650,3 +650,21 @@ Razones registradas para cuando esto se vuelva a discutir:
 
 El correo a Mathias queda **sin** el párrafo sobre el redirect y **sin** el punto del token de
 24 horas, ambos por decisión de JP.
+
+---
+
+## 2026-08-29 · Cierre de la sesión
+
+- **Correo a Crazy Cake programado** para el lunes 2026-08-31 temprano, enviado por JP desde
+  su Gmail. Copia archivada en `correo-mathias-2026-08-31.html`. Pide: el fix del
+  `targetOrigin`, una de las tres opciones para validar el token desde el servidor, y los
+  registros de DNS de la transición (etapas 1 y 2).
+- **Documentación en el repo:** `docs/atlas-sso-integration.md` + corrección del `CLAUDE.md`
+  (merge a master despliega de inmediato; rotar un secreto no despliega; el proxy de Vultr
+  existe y no hay que apagar esa VM antes del cutover). Commit `ed522bd` en `feat/atlas-sso`.
+- **Compound al plugin:** PR #15 en `artool-spa/artool-devs` — 13 deltas, con la destilación
+  de `verificacion.md` (1464→897) y `tests.md` (1146→900) que sus presupuestos exigían.
+- **Pendientes al retomar:** respuesta de Mathias · decisión de merge de `feat/atlas-sso`
+  (recordar: mergear = desplegar) · PRs #45/#46 y el `whsec_` de Pablo · scoping por partner
+  en `getFilms()` (bloqueante del Go Live, proyecto aparte) · aplicar etapas 1 y 2 del DNS
+  cuando Crazy Cake confirme.
