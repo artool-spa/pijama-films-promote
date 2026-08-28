@@ -546,14 +546,22 @@ describe('AtlasAuthClient — the banner claims only what was established', () =
     const text = container.querySelector('[class*="MuiAlert-standardWarning"]')?.textContent ?? '';
 
     expect(text).toMatch(/redirect/i);
-    expect(text).toMatch(/never (reached|evaluated|judged)|not (been )?(evaluated|judged)/i);
+    expect(text).toMatch(/never reached|did not reach/i);
+    expect(text).toMatch(/nothing can be concluded/i);
 
-    // The whole point of the wording: a redirect happens *before* the token is
-    // looked at, so nothing at all is known about the token or the account. A
-    // banner that blames either would send the reader to debug the wrong thing —
-    // and could have us tell Crazy Cake their token is bad when we never used it.
+    // Pinned in both directions, because this wording can fail two opposite ways.
+    //
+    // Blaming the token would send the reader to debug a credential that may never
+    // have been used — and could have us tell Crazy Cake their token is bad on the
+    // strength of a request that never arrived.
     expect(text).not.toMatch(/token was rejected|invalid token|token is invalid/i);
     expect(text).not.toMatch(/account (is|was) (not )?(allowed|rejected)/i);
+    // And exonerating it is the same overclaim mirrored: we cannot see whether Atlas
+    // read the token before redirecting, so asserting it did not is a claim about
+    // their internals, not an observation. An unknown stated as a fact does not
+    // become acceptable by landing on the reassuring side.
+    expect(text).not.toMatch(/token was never (evaluated|examined|read|judged)/i);
+    expect(text).not.toMatch(/neither was examined/i);
   });
 
   it('still says end to end when the contract really did hold', async () => {

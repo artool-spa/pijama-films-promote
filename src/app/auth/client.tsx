@@ -800,11 +800,21 @@ function StatusBanner({
  * Carries the HTTP status itself rather than pointing at the table below, because
  * the banner is what a reader takes away and a status is the first thing they need.
  *
- * The 3xx wording is the careful one. A redirect happens *before* the endpoint runs,
- * so the token was never looked at — which means nothing whatsoever is known about
- * the token or the account. Saying "the token was rejected" here would send someone
- * to debug a credential that was never used, and worse, could have us tell Crazy
- * Cake their token is bad on the strength of a request that never arrived.
+ * The 3xx wording is the careful one, and it is careful in *both* directions.
+ *
+ * What a redirect establishes is narrow: no Contract C body was produced, so the
+ * call never reached the endpoint that answers one. What it does **not** establish
+ * is why. Atlas's middleware might have read the Bearer, rejected it and redirected;
+ * or it might redirect anything without a session cookie long before the token is
+ * looked at. From our side those are indistinguishable.
+ *
+ * So this says neither "the token was rejected" nor "the token was never evaluated".
+ * The first would send someone to debug a credential that may never have been used —
+ * and could have us tell Crazy Cake their token is bad on the strength of a request
+ * that never arrived. The second is the same overclaim mirrored: an assertion about
+ * Atlas's internals we cannot see. Stating an unknown as a fact is precisely the
+ * defect this banner was rewritten to stop, and it does not get a pass for landing
+ * on the reassuring side.
  */
 function describeContractMiss(atlasStatus: number | undefined): string {
   if (atlasStatus === undefined) {
@@ -812,7 +822,7 @@ function describeContractMiss(atlasStatus: number | undefined): string {
   }
 
   if (atlasStatus >= 300 && atlasStatus < 400) {
-    return `Atlas replied HTTP ${atlasStatus} — a redirect — so the request was sent away before it reached the endpoint and the token was never evaluated. This says nothing about the token or the account: neither was examined. Look first at whether ATLAS_API_BASE_URL points at the right host and whether the call carries the credentials Atlas expects.`;
+    return `Atlas replied HTTP ${atlasStatus} — a redirect — so no Contract C response was produced and the call never reached the endpoint that answers one. Nothing can be concluded about the token or the account from this: whether Atlas examined the token before redirecting is not visible from our side. Check first whether ATLAS_API_BASE_URL points at the right host and whether the call carries the credentials Atlas expects.`;
   }
 
   return `Atlas replied HTTP ${atlasStatus}, but the body is not Contract C, so the handshake was not completed. Compare the response keys in the diagnostics below with what Crazy Cake documented before concluding the sign-in works.`;
