@@ -9,20 +9,21 @@ _Última actualización: 2026-08-28 · Proyecto: pijama-films-promote_
 - **Agente:** FX-envelope (domain agent, reporta a T0)
 - **Dominio:** el esquema Zod del envelope `ATLAS_AUTH` y cómo el panel de diagnóstico lo muestra.
 - **Scope:** `src/app/auth/atlas-bridge.ts`, `src/app/auth/client.tsx` y sus dos test files.
+- **Scope ampliado (2026-08-28, por T0):** `src/app/dev/atlas-simulator/client.tsx` y su
+  `__tests__/client.test.ts`. Ver "El simulador" más abajo.
 - **No cubre:** `src/lib/atlas/**` y `src/app/api/auth/atlas/session/route.ts` — el servidor no
-  depende del `partner` del envelope y no se tocó. Tampoco `src/app/dev/atlas-simulator/**`
-  (ver "Decisiones abiertas": el fix lo rompe y está en manos de T0).
+  depende del `partner` del envelope y no se tocó. Tampoco
+  `src/app/dev/atlas-simulator/__tests__/real-token.test.tsx` — ver "Recomendación abierta".
 
 ---
 
 ## Estado Actual
 
 - **Repo:** `artool-spa/pijama-films-promote` · Branch: `fix/atlas-envelope-partner-optional`
-  (base `feat/atlas-sso` @ `5e3a6a3`) · Commit: `a96fd84`, pusheado.
+  (base `feat/atlas-sso` @ `5e3a6a3`) · Commits: `a96fd84`, `33d06c2`, `0637979`, pusheados.
 - **Deploy activo:** no aplica — este fix se cierra con tests, sin dev server. El worktree no tiene `.env`.
-- **Suite de tests:** 515 tests / 40 archivos · 514 verdes, **1 rojo esperado y adjudicado**
-  (`src/app/dev/atlas-simulator/__tests__/client.test.ts`, fuera de mi scope — ver abajo).
-  Base antes de tocar nada: 507 tests / 40 archivos.
+- **Suite de tests:** **517 tests / 40 archivos · 517 verdes, 40/40 archivos.**
+  Base antes de tocar nada: 507 tests / 40 archivos. Neto +10.
 - **`npx tsc --noEmit`:** limpio.
 
 ---
@@ -102,7 +103,8 @@ opcional.
 
 ## Disciplina de tests: procedencia de cada número
 
-Base: **507 tests / 40 archivos**. Ahora: **515 tests**. Neto +8.
+Base: **507 tests / 40 archivos**. Ahora: **517 tests**. Neto +10 (+8 en `src/app/auth/`,
++2 en el simulador).
 
 ### Vistos fallar antes del fix (4) — estos son los que prueban algo
 
@@ -131,6 +133,19 @@ romper. Su valor lo demuestran las mutaciones, no su color inicial.
 - `still shows the identity when a partner does come with the envelope` (client)
 - `rejects a partner that is present but malformed, instead of rendering nonsense` (client)
 
+### Cambió de polaridad — 1 (no cuenta como "visto fallar")
+
+`buildSimulatorEnvelope` · `produces the shape Console really sends, and the page accepts it`
+(antes `missing-partner` dentro del bucle de rechazados). Falló con el código viejo, pero eso
+**no** es evidencia: fallar era su comportamiento correcto antes del fix. Lo que lo valida es la
+corrida en las dos direcciones, documentada en "El simulador" más abajo.
+
+### Nacidos verdes en el simulador — 2
+
+`still produces the documented shape, and the page still accepts it` y
+`reproduces a present-but-malformed partner, which the page must reject`. Guardas de regresión;
+su valor lo demuestran M5, M7 y la polaridad dirección B.
+
 ### Una aserción eliminada
 
 `atlas-bridge.test.ts` tenía `safeParse({ ...valid, partner: undefined }).success === false`.
@@ -147,14 +162,28 @@ Las dos que pidió T0, más dos propias. **Las cuatro murieron.**
 |---|---|---|---|
 | 1 | `partner` requerido otra vez | ☠️ **muerta** | 4 tests: los dos de DoD 1 en bridge + los dos de client |
 | 2 | `partner: z.any()` | ☠️ **muerta** | 3 tests: `malformed` y `null partner` en bridge + `renders nonsense` en client |
-| 3 | colapsar `not-sent`/`not-read` en un `'not provided'` mudo | ☠️ **muerta** | 1 test: `says the partner was not sent` |
-| 4 | agregar `.nullable()` junto al `.optional()` | ☠️ **muerta** | 1 test: `still rejects a null partner` |
+| 3 | colapsar `not-sent`/`not-read` en un `'not provided'` mudo *(propia)* | ☠️ **muerta** | 1 test: `says the partner was not sent` |
+| 4 | agregar `.nullable()` junto al `.optional()` *(propia)* | ☠️ **muerta** | 1 test: `still rejects a null partner` |
+| 5 | devolver `console-shape` al grupo de rechazados *(pedida por T0)* | ☠️ **muerta** | 1 test: `produces envelopes the page rejects` |
+| 6 | sacar `malformed-partner` del bucle de rechazados *(propia)* | 🟡 **SOBREVIVIÓ** | ninguno — ver abajo |
+| 7 | hacer que `malformed-partner` emita un partner bien formado *(propia)* | ☠️ **muerta** | 2 tests, incl. el dedicado |
 
-Ninguna mutación quedó sin matar, así que no hay invariante declarada sin test que la proteja.
-Las mutaciones 3 y 4 las agregué porque las dos de T0 solo cubren el esquema: 3 verifica que el
-DoD 5 (el panel distingue en pantalla) esté realmente protegido y no sea solo texto que escribí,
-y 4 verifica que la distinción `undefined` vs `null` sea una invariante testeada y no un
-accidente de cómo escribí el esquema.
+**M6 sobrevivió, y lo reporto en vez de taparlo.** Sacar `'malformed-partner'` del bucle de
+rechazados no pone rojo nada: los 6 tests siguen verdes. La causa **no** es un hueco de
+cobertura, y lo verifiqué en vez de asumirlo — corrí M6 y M7 **juntas** (entrada del bucle
+eliminada *y* la forma vuelta bien formada) y el test dedicado
+`reproduces a present-but-malformed partner, which the page must reject` se puso rojo igual. O
+sea la invariante está cubierta por ese test dedicado, y la entrada en el bucle es **redundante**
+con él. M7 prueba que el test dedicado es el que carga el peso.
+
+Conclusión honesta: M6 sobrevive porque es una aserción duplicada, no porque la invariante esté
+sin proteger. Dejé las dos igual — la del bucle documenta la intención al lado de sus hermanas,
+y el costo de una aserción redundante es cero.
+
+Las mutaciones 3, 4, 6 y 7 las agregué yo: las de T0 cubrían el esquema y el rename, y quería
+verificar que el DoD 5 (el panel distingue en pantalla) esté realmente protegido y no sea solo
+texto que escribí, que la distinción `undefined` vs `null` sea invariante testeada y no
+accidente, y que la forma malformada del simulador siga siendo realmente malformada.
 
 ---
 
@@ -165,36 +194,90 @@ accidente de cómo escribí el esquema.
 - [x] 3. `partner` presente pero malformado se rechaza (8 formas cubiertas).
 - [x] 4. Sigue rechazándose `type` distinto, `token` ausente y `token` vacío.
 - [x] 5. El panel distingue "no enviado" de "enviado" — y además de "no leído".
-- [x] 6. `tsc --noEmit` limpio. Suite en 514/515: **falta el 1 rojo del simulador**, que es una
-      decisión de T0, no un pendiente mío. Ver abajo.
+- [x] 6. `tsc --noEmit` limpio y suite **verde entera: 517/517 en 40/40 archivos** (base 507, +10).
 - [x] 7. Comentario de contrato en `atlas-bridge.ts:9` corregido.
 - [x] 8. Este archivo.
 
 ---
 
-## Decisiones abiertas — lo único que bloquea el verde completo
+## El simulador — segunda ronda (scope ampliado por T0)
 
-**`src/app/dev/atlas-simulator/` clasifica como "roto" el envelope que Console manda de verdad.**
+`src/app/dev/atlas-simulator/` tenía una forma llamada `'missing-partner'` que posteaba
+`{ type, token }` y vivía en el grupo de **rechazados**, con un test afirmando
+`success === false`. Eso es el envelope que Console manda de verdad: **el único tool
+construido para reproducir el handoff real clasificaba el handoff real como modo de falla**, y
+su test preservaba esa creencia falsa dentro de la suite. T0 lo resolvió así (opción 1) y me
+amplió el scope a esos dos archivos.
 
-```
-client.tsx:80-81           case 'missing-partner': return { type: ATLAS_MESSAGE_TYPE, token };
-__tests__/client.test.ts:26-30
-    for (const shape of ['missing-token', 'wrong-type', 'missing-partner'] as const) {
-      expect(atlasAuthEnvelopeSchema.safeParse(...).success).toBe(false);
-```
+### Nombres: qué es, no qué le falta
 
-Ese `{ type, token }` es la forma **real** de producción, no un modo de falla. El test ahora
-falla (`expected true to be false`) y **tiene razón en fallar**: describe la creencia vieja.
-Los dos archivos están fuera de mi lista asignada, así que no los toqué y escalé a T0.
+| forma | payload | etiqueta en la UI |
+|---|---|---|
+| `console-shape` **(default)** | `{ type, token }` | "what Console sends in production (measured 2026-08-28)" |
+| `documented-shape` | `{ type, token, partner }` | "as Crazy Cake documented it — valid, but never observed in production" |
+| `missing-token` | `{ type, partner }` | rechazado |
+| `malformed-partner` **(nueva)** | `{ type, token, partner: '<string pelado>' }` | "expect it to be rejected: optional is not anything goes" |
+| `wrong-type` | `{ type: 'ATLAS_AUTH_V2', … }` | rechazado |
 
-Propuesta enviada a T0 (mínima, sin inventar features):
+Tres decisiones que vale explicar:
 
-1. Renombrar la forma `'missing-partner'` → `'console-shape'`, moverla al grupo de formas
-   **válidas**, y etiquetarla en la UI del simulador como "lo que Console manda de verdad".
-2. Ajustar su test: sale del bucle de rechazados, entra como caso aceptado.
+1. **`console-shape`, no `no-partner`** (criterio de T0): `no-partner` describe lo que le falta;
+   `console-shape` dice lo que es. Importa porque ahora conviven dos formas válidas y hay que
+   poder elegir entre ellas a propósito.
+2. **`'valid'` pasó a `'documented-shape'`.** Esto no me lo pidieron; lo hice aplicando el mismo
+   criterio y lo marco para que T0 lo pueda vetar barato. Razón: ahora hay **dos** formas
+   válidas, así que el nombre `valid` reclamaba una exclusividad que no tiene — y esa
+   exclusividad implícita es justo lo que hizo que la forma documentada pareciera *la* esperada.
+   Es el error que acabamos de pagar.
+3. **`malformed-partner` es nueva, y es requisito de T0.** Al sacar `missing-partner` del grupo
+   de rechazados, ese grupo quedaba sin **ningún** caso de partner — o sea la invariante
+   "opcional no es cualquier cosa" dejaba de ser reproducible justo en la página donde alguien
+   va a mirar el manejo de partner. Usa un string pelado en vez del objeto: el error que un
+   productor haría de verdad, y el que un esquema laxo renderizaría como identidad inventada.
 
-Costo de dejarlo como está: el simulador queda incapaz de reproducir el handoff de producción,
-que es su razón de existir, y quien lo use vería "rechazado" para la forma correcta.
+Las etiquetas dicen "measured" y "never observed" a propósito, no por cosmética: es lo que evita
+que en tres meses alguien vuelva a tratar la forma documentada como la esperada.
+
+### Polaridad, corrida en las dos direcciones
+
+El test renombrado **cambia de signo**, así que no cuenta como "visto fallar" por haber fallado
+con el código viejo — fallar era su comportamiento correcto antes. Lo corrí en ambas direcciones,
+como pidió T0:
+
+- **Dirección A** — devolver `console-shape` al grupo de rechazados (mutación M5 de T0):
+  ☠️ rojo en `produces envelopes the page rejects, one per failure mode`.
+- **Dirección B** — hacer que el builder emita para `console-shape` la forma vieja con `partner`:
+  ☠️ rojo en `produces the shape Console really sends, and the page accepts it`.
+
+O sea la afirmación nueva está clavada por los dos lados: no basta con que el nombre cambie, el
+payload tiene que ser realmente `{ type, token }` y el esquema tiene que realmente aceptarlo.
+
+Y sigue habiendo rechazo con partner malformado, verificado aparte (M7 abajo).
+
+### Un accidente de proceso que vale registrar
+
+Durante la primera pasada de mutación usé `git checkout -- <test>` para restaurar, con los
+cambios del simulador **sin commitear**. Eso me borró las ediciones del test y las dos
+mutaciones siguientes corrieron contra el archivo viejo — se notó porque el output mostraba
+nombres de test que ya no existían y un conteo de 4 en vez de 6. Rehice el archivo, commiteé
+**antes** de mutar, y volví a correr todo. Las cifras de abajo son las de la corrida válida.
+Moraleja concreta: commitear antes de mutar no es prolijidad, es lo que hace que el reporte de
+mutación sea medible.
+
+---
+
+## Recomendación abierta (no la ejecuté)
+
+`handleRealTokenLaunch` (el único run que puede zanjar Contract C, con un token real pegado a
+mano) postea `documented-shape`, o sea **no** reproduce la forma que Console manda. Cambiarlo a
+`console-shape` sería más fiel, y el test que lo cubre se llama literalmente *"delivers the token
+through postMessage, the same path Console uses"* — su nombre ya afirma la fidelidad que el
+payload no tiene.
+
+**No lo cambié.** Era un extra mío, no parte del brief, y su aserción vive en un tercer archivo
+(`__tests__/real-token.test.tsx`) fuera del scope que T0 amplió. Lo dejé anotado en el código y
+escalado, en vez de ampliarme el scope solo. Es inofensivo hoy: `partner` es display-only y las
+dos formas validan, así que no afecta el resultado de Contract C — solo la fidelidad del ensayo.
 
 ---
 
