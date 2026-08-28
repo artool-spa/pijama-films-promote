@@ -405,3 +405,44 @@ que fallaría por una razón que no enseña nada. No se corrió.
 **Queda una sola medición nuestra antes de escalar:** buscar `ATLAS_AUTH` en el bundle de
 Console. Separa "falta configurar" de "falta que lo escriban", y decide de quién es el próximo
 paso.
+
+### El emisor del token rechaza a una cuenta admin — medido 2026-08-28
+
+JP corrió, con sesión viva en `dashboard.pijamafilms.com` (la página de usuarios renderizando,
+693 registrados):
+
+```js
+const res = await fetch('/partners/external-token', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+// HTTP 200 | url final: https://dashboard.pijamafilms.com/partners/external-token
+// claves: ['status','error'] | status: error | error: UNAUTHORIZED
+```
+
+**HTTP 200 y sin redirect**, o sea pasó la puerta de sesión: el rechazo viene de **dentro** de la
+ruta. Es una decisión de **autorización**, no de autenticación. Distinguirlo importa porque
+apuntan a arreglos distintos y a personas distintas.
+
+**Lectura, coherente con el nombre del endpoint y con dónde vive el botón.** En el bundle,
+`openMarketingPortal` es un método del componente de edición de película (convive con
+`this.movie`, `reloadAssets`, `isDraft`, `isAdmin`), y `/partners/external-token` no toma
+parámetros: emite un token **para el partner del usuario logueado**. La cuenta de JP administra
+toda la plataforma en vez de pertenecer a una productora, así que no hay partner del cual
+emitir. El rechazo es correcto, no un bug.
+
+**Corolario que conviene mandarle a Crazy Cake:** con una cuenta admin, el botón de portal de
+marketing **también falla dentro de su propia UI**. `$aid.request` devuelve el envelope de error
+y `openMarketingPortal` lanza `"No se pudo obtener el token de autenticación"`, que termina en su
+alert de `MARKETING_PORTAL_ERROR`. O sea el handoff nunca fue ejercitado desde una cuenta admin,
+y probablemente tampoco desde una de productora — porque si lo hubiera sido, el bug del
+`targetOrigin` habría aparecido de inmediato.
+
+### Consecuencia para la Parte A
+
+**No se puede correr con la cuenta de JP.** Hace falta una cuenta de **productora** (partner) en
+el dashboard. Eso es un pedido concreto, con evidencia, en vez de "no nos funciona".
+
+**Pista fuerte antes de pedirlo:** el correo de enero decía *"testing ya tiene todo para
+funcionar con ustedes"*, y el entorno de testing es **`dashboard-lab.pijamafilms.com`**, donde JP
+ya tenía sesión. Si ahí existe una cuenta de productora de prueba, la Parte A se corre sin
+esperar a nadie. Para eso hay que apuntar `ATLAS_API_BASE_URL` al lab: el origen del lab ya está
+en la allowlist de `NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS`, pero el base URL del servidor apunta a
+producción.
