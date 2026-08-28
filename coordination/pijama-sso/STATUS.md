@@ -620,3 +620,33 @@ enero. El tráfico entra por un **nginx/1.31.3** y se reenvía a App Hosting (`e
 App Hosting y no menciona esa VM. Es un punto único de falla sin monitoreo en el camino de todos
 los usuarios, y probablemente determina qué IP ve MUVI —que valida por IP— así que conviene
 saberlo antes de que alguien la apague. **No tocado; escalado a JP.**
+
+### Decisión resuelta · 2026-08-28 — se mantiene el `postMessage`, no se propone el redirect
+
+JP preguntó si el `postMessage` sigue siendo válido en caso de que el acceso a
+`promote.pijamafilms.com` fuera un link dentro de Console. **Respuesta: solo funciona con
+`window.open()` conservando la referencia** —que es lo que su código hace hoy—. Con un link
+plano el handoff no se degrada, desaparece: Console se queda sin handle al que postear, y desde
+Chrome 88 / Firefox 79 `target="_blank"` implica `rel="noopener"`, así que la ventana nueva
+tendría `window.opener === null`.
+
+Se evaluó proponerles el flujo estándar por redirect (`/auth?code=…` de un solo uso, canjeado
+server-to-server). Elimina la clase entera del bug del `targetOrigin`, la carrera del
+`setTimeout` de 1 s y la dependencia del popup. **Descartado por ahora, decisión de JP.**
+
+Razones registradas para cuando esto se vuelva a discutir:
+
+- El fix del `targetOrigin` es **una línea** del lado de ellos y desbloquea el mismo día;
+  abrir el rediseño ahora nos deja esperando otra vez, y ya van siete meses.
+- El redirect exige que el valor en la URL sea **de un solo uso y vida corta**. El token de hoy
+  vive 24 h y es reutilizable, así que ponerlo en una URL sería *peor* que el diseño actual
+  —historial, `Referer`, logs de acceso, analítica—. O sea el redirect arrastra un cambio en su
+  emisor de tokens, no es solo mover el transporte.
+- Tampoco nos desbloquea solo: seguiríamos necesitando un endpoint sin cookie para canjear
+  (la opción B del correo).
+- De nuestro lado: `src/app/auth/page.tsx` hoy solo lee `mode` y `origins`. Aceptar un código
+  sería trabajo nuevo, y el listener pre-paint, el buffer y la validación de orígenes dejarían
+  de tener sentido — aunque fueron lo que reveló los dos bugs, así que no fue trabajo perdido.
+
+El correo a Mathias queda **sin** el párrafo sobre el redirect y **sin** el punto del token de
+24 horas, ambos por decisión de JP.
