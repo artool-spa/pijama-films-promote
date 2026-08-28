@@ -495,3 +495,44 @@ un SSO normalmente.
 **Pendiente para elegir entre las dos:** ver si los claims del JWT traen `partnerId` y
 `muviUuid`. Si los traen, (b) es estrictamente mejor y convierte el pedido en algo más simple
 de conceder que un cambio en su capa de autenticación.
+
+### Los claims del JWT, y por qué NO hay que pedir la clave — 2026-08-28
+
+```
+header:  { alg: "HS256", typ: "JWT" }
+claims:  { partnerId, muviUuid, email, name, role: "partner", iat, exp }
+```
+
+`exp - iat` = **86.400 s = 24 horas**.
+
+**El token trae todo lo que la integración necesita** — `partnerId` es el ancla de autorización
+que ya usa nuestro código, y `muviUuid` es la llave hacia el catálogo de MUVI, que es de donde
+leemos las películas. `movies` de `/movies/by-partner` es, para nuestro caso, prescindible.
+
+**Pero `HS256` es simétrico, así que la opción (b) de arriba queda descartada tal como estaba
+escrita.** No existe una "clave pública" que pedir: la clave que verifica es la misma que
+firma. Quien la tenga puede **emitir** tokens para cualquier partner. Pedirla significaría
+poder impersonar a cualquier productora, y una filtración de nuestro lado compromete la
+autenticación completa de Crazy Cake. **No se pide.** Es exactamente el caso donde la opción
+conveniente es la insegura.
+
+**Y esto valida la decisión de diseño de tratar el token como opaco.** Con `HS256` y sin la
+clave no podemos verificar la firma; si hubiéramos decodificado los claims para autorizar
+—que es la lectura "obvia" ahora que sabemos que traen `partnerId`— cualquiera podría
+fabricar un JWT con el `partnerId` que quisiera y entraríamos. **Sería un bypass de
+autenticación completo.** La autoridad tiene que seguir siendo la respuesta de Atlas.
+
+**Observación de seguridad para pasarles:** un token portador de **24 horas** es largo para un
+handoff que se dispara al apretar un botón. Debería vivir minutos. Hoy, cualquiera que lo
+capture tiene un día de acceso a la cuenta de esa productora.
+
+### Los tres pedidos posibles, en orden de facilidad para ellos
+
+1. **Exceptuar `/movies/by-partner` de la puerta de sesión.** Mínimo, no comparte ningún
+   secreto: nosotros llamamos con `Bearer`, ellos validan con su propia clave. Desbloquea hoy.
+2. **Un endpoint de verificación sin cookie**, del tipo `POST /partners/verify-token` →
+   devuelve el partner. Más limpio que exponer una ruta de datos, y acotado a este propósito.
+3. **Migrar el token del handoff a `RS256`/`ES256` con JWKS.** Lo mejor a largo plazo
+   —verificamos local, sin ida y vuelta ni secreto compartido— y lo más trabajoso para ellos.
+
+Cualquiera de los tres desbloquea. El 1 es el que se concede en una tarde.
