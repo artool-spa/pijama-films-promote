@@ -408,3 +408,32 @@ escaló a JP en vez de buscarle la vuelta.
 
 Consecuencia escalada, no resuelta: con auto-rollout activo, mergear a `master` despliega. Eso
 cambia la naturaleza de tres merges pendientes (SSO, #45, #46).
+
+### CORRECCIÓN — el auto-deploy sí estaba configurado
+
+Lo escrito arriba está mal. JP objetó con la pestaña "Lanzamientos" y la medición le dio razón:
+
+```
+GET .../backends/pijama-promote/traffic
+"rolloutPolicy": { "codebaseBranch": "master" }      creado 2026-08-17, sin `disabled`
+```
+
+Mis dos evidencias eran no-hallazgos. El schema `Codebase` **no tiene** campo `branch` en
+ninguna versión de la API —su ausencia no significaba nada— y App Hosting no usa triggers de
+Cloud Build, así que la lista vacía era lo normal. Consulté el único recurso donde mi hipótesis
+podía parecer confirmada y leí un schema incompleto como configuración faltante.
+
+El historial lo prueba: nueve builds `AUTOMATICO (git push) rama=master`. El merge del #47 se
+desplegó solo a las 14:54; el rollout manual de las 15:20 fue redundante. El `CLAUDE.md`
+estaba correcto. Issue #52 cerrado como inválido.
+
+**El gap real, que mi diagnóstico falso tapaba** (issue #53): auto-rollout responde a pushes,
+no a Secret Manager, y Cloud Run fija la versión del secreto en build time. La clave live de
+Stripe (v3, creada 08-24 22:14) quedó inerte 3 días 16 horas porque nadie mergeó nada. Se
+activó de rebote con el merge del #47.
+
+**Lección, y es la que importa:** una explicación falsa que cierra el caso es peor que ninguna,
+porque detiene la búsqueda. "No había auto-rollout" explicaba Stripe de forma satisfactoria y
+por eso dejé de preguntar. La objeción del usuario contra la pantalla fue lo que lo destapó —
+cuando el usuario contradice una medición mía, la consulta correcta es al sistema, no a mi
+razonamiento.
