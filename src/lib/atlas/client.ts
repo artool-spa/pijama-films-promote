@@ -47,6 +47,13 @@ export interface AtlasCallResult {
   redirectedTo: string | null;
   /** Transport-level failure description, when there was one. */
   networkError: string | null;
+  /**
+   * Set when the call was never attempted because the token we were handed
+   * cannot travel in an HTTP header. Distinct from `networkError` on purpose:
+   * this is our own input problem, and nothing whatsoever is known about the
+   * upstream when it is set.
+   */
+  inputError: string | null;
 }
 
 /**
@@ -59,6 +66,78 @@ export interface AtlasCallResult {
  */
 export function describeToken(token: string): { length: number; prefix: string } {
   return { length: token.length, prefix: token.slice(0, 6) };
+}
+
+/**
+ * Characters a bearer token may contain if it is to survive being put in a
+ * header: printable ASCII with no space, i.e. 0x21..0x7E.
+ *
+ * ## Why we validate this ourselves instead of letting `fetch` do it
+ *
+ * MEASURED (node 26.7 / undici, 2026-08-28), varying only the Authorization
+ * value on a real `fetch`:
+ *
+ *   - LF, CR, NUL           -> TypeError: `Headers.append: "Bearer <the WHOLE
+ *                              value>" is an invalid header value.` The message
+ *                              quotes the credential, and this client turns a
+ *                              thrown error into `networkError`, which the route
+ *                              interpolates into the HTTP response. A user who
+ *                              pasted a real token would have had it echoed back
+ *                              and written to Cloud Logging.
+ *   - beyond U+00FF         -> TypeError: Cannot convert argument to a ByteString.
+ *   - TAB, SPACE, DEL, VT,
+ *     U+0080..U+00FF        -> ACCEPTED and actually sent upstream.
+ *
+ * So `fetch` is not a validator: it leaks on half of these and forwards the
+ * other half. Both are ours to prevent before the request exists.
+ *
+ * ## What this deliberately does NOT check
+ *
+ * The token stays opaque. No decoding, no three-segment JWT shape, no length
+ * floor: whether the credential is valid is Atlas' answer to give, and this
+ * project exists to find out what that answer is. The only judgement passed
+ * here is physical - can these bytes go in a header at all.
+ */
+const HEADER_UNSAFE = /[^\x21-\x7E]/u;
+
+/** Name the offending character by class. Never reproduces the character. */
+function classifyUnsafe(code: number): string {
+  if (code < 0x20 || code === 0x7f) return 'a control character';
+  if (code === 0x20) return 'a space';
+
+  return 'a non-ASCII character';
+}
+
+/** Escape anything unprintable so a raw control character cannot ride out inside the message. */
+function maskPrefix(prefix: string): string {
+  return prefix.replace(
+    /[^\x20-\x7E]/gu,
+    (c) => `\\u${(c.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`
+  );
+}
+
+/**
+ * `null` when the token can travel in an HTTP header; otherwise a message
+ * naming what is wrong with the value.
+ *
+ * The message describes the value by class, index and fingerprint (length plus
+ * a 6-char prefix, the same masking the rest of this module uses) - never by
+ * content, because the rejected value may well be a live credential. It also
+ * says nothing about Atlas: at this point nothing has been sent anywhere, so
+ * there is nothing to report about the upstream.
+ */
+export function headerSafetyProblem(token: string): string | null {
+  const index = token.search(HEADER_UNSAFE);
+
+  if (index === -1) return null;
+
+  const { length, prefix } = describeToken(token);
+
+  return (
+    'The token contains characters that cannot travel in an HTTP header: ' +
+    `${classifyUnsafe(token.charCodeAt(index))} at index ${index} ` +
+    `(token length ${length}, starts with "${maskPrefix(prefix)}").`
+  );
 }
 
 /** Top-level keys of a parsed JSON body. Arrays and scalars have none worth reporting. */
@@ -108,6 +187,29 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
   const url = getAtlasMoviesUrl();
   const fingerprint = describeToken(token);
 
+  // Before the URL check: a token we cannot put in a header is the caller's
+  // problem, and it stays true whether or not this environment is configured.
+  const inputError = headerSafetyProblem(token);
+
+  if (inputError) {
+    log.warn(
+      { tokenLength: fingerprint.length, tokenPrefix: fingerprint.prefix },
+      'Atlas call not attempted: the token cannot travel in an HTTP header'
+    );
+
+    return {
+      url: url ?? '',
+      status: 0,
+      ok: false,
+      json: null,
+      bodyKind: 'none',
+      responseShapeKeys: [],
+      redirectedTo: null,
+      networkError: null,
+      inputError,
+    };
+  }
+
   if (!url) {
     log.warn(
       { tokenLength: fingerprint.length },
@@ -123,6 +225,7 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
       responseShapeKeys: [],
       redirectedTo: null,
       networkError: 'ATLAS_API_BASE_URL is not configured',
+      inputError: null,
     };
   }
 
@@ -158,6 +261,7 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
       responseShapeKeys: [],
       redirectedTo: null,
       networkError,
+      inputError: null,
     };
   }
 
@@ -207,5 +311,6 @@ export async function fetchPartnerMovies(token: string): Promise<AtlasCallResult
     responseShapeKeys,
     redirectedTo,
     networkError: null,
+    inputError: null,
   };
 }
