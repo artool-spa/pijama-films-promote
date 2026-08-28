@@ -46,9 +46,23 @@ npm run user:provision -- <email> <name> <partnerId> --password-stdin  # passwor
 # Deployment (Firebase App Hosting)
 # Project pijama-promote-firebase, backend "pijama-promote" (us-central1).
 # App Hosting builds and releases from the connected GitHub branch: push, do not
-# deploy by hand. Configuration lives in apphosting.yaml; secret values live in
-# Secret Manager and are referenced there by name.
+# deploy by hand. MERGING TO master DEPLOYS TO PRODUCTION IMMEDIATELY — there is
+# no intermediate gate. Configuration lives in apphosting.yaml; secret values
+# live in Secret Manager and are referenced there by name.
 npx firebase-tools apphosting:secrets:set NAME --project=pijama-promote-firebase --data-file=- --force
+
+# ROTATING A SECRET DEPLOYS NOTHING (issue #53). Cloud Run revisions pin the
+# secret VERSION at build time, and auto-rollout reacts to git pushes, not to
+# Secret Manager. After setting a new secret version, trigger a rollout:
+#   npx firebase-tools apphosting:rollouts:create pijama-promote \
+#     --project=pijama-promote-firebase --git-commit <sha>
+# The live Stripe key sat inert for 3d16h in 2026-08 because nobody merged.
+
+# DNS (transitional): promote.pijamafilms.com still resolves to 64.176.6.210,
+# the legacy Vultr VM, which reverse-proxies to App Hosting (~450ms vs ~77ms
+# direct, and it strips some headers). Do NOT decommission that VM until the
+# A record cutover completes — plan and exact records in
+# coordination/pijama-sso/transicion-dns-proxy.md (branch coordination/pijama-sso).
 
 # Triggers (Cloud Functions) — the ONE exception to "do not deploy by hand".
 # functions/ is a second deployable: App Hosting does not build it, so it has to
@@ -290,3 +304,13 @@ See `docs/firestore-migration.md` for the layout and the reasoning behind it.
 ---
 
 **Remember**: Follow MVC strictly, validate all inputs, always take the most secure option (never handle production credentials locally), and keep UX simple for non-technical film producers. Detailed implementation guidelines are in the Claude Code skills.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
