@@ -166,15 +166,66 @@ describe('atlasAuthEnvelopeSchema (Contract B)', () => {
     partner: { name: 'Pijama', email: 'p@example.test' },
   };
 
-  it('accepts the documented envelope', () => {
+  it('accepts the envelope with a partner attached', () => {
     expect(atlasAuthEnvelopeSchema.safeParse(valid).success).toBe(true);
   });
 
-  it('rejects a missing token, an empty token, a missing partner and a wrong type', () => {
+  /**
+   * This is the envelope the *deployed* Atlas Console actually posts. Measured on
+   * 2026-08-28 from the public production bundle
+   * (`dashboard.pijamafilms.com/resources/entry.js?v=d4c06ad`), whose
+   * `openMarketingPortal` posts `{ type: 'ATLAS_AUTH', token }` and nothing else.
+   *
+   * Requiring `partner` rejected a *correct* handoff — the precise false negative
+   * this page exists to prevent — so it is optional, and its absence is a fact to
+   * display rather than an error.
+   */
+  it('accepts the envelope Atlas Console really sends, with no partner at all', () => {
+    const consoleShape = { type: 'ATLAS_AUTH', token: 'a-token' };
+
+    expect(atlasAuthEnvelopeSchema.safeParse(consoleShape).success).toBe(true);
+  });
+
+  it('reads an absent partner as undefined rather than inventing one', () => {
+    const parsed = atlasAuthEnvelopeSchema.safeParse({ type: 'ATLAS_AUTH', token: 'a-token' });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.partner).toBeUndefined();
+  });
+
+  /**
+   * Optional is not "anything goes". `partner` is untrusted postMessage data used
+   * only for the diagnostics panel, and a panel that renders `[object Object]` or
+   * `123 <undefined>` for a garbage partner is worse than one that says the
+   * envelope is malformed.
+   */
+  it('rejects a partner that is present but malformed', () => {
+    for (const partner of [
+      'texto',
+      123,
+      [],
+      true,
+      { name: 123, email: 'p@example.test' },
+      { name: 'Pijama', email: 456 },
+      { name: 'Pijama' },
+      { email: 'p@example.test' },
+    ]) {
+      expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, partner }).success).toBe(false);
+    }
+  });
+
+  it('still rejects a null partner: absent and explicitly empty are not the same claim', () => {
+    expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, partner: null }).success).toBe(false);
+  });
+
+  it('rejects a missing token, an empty token and a wrong type', () => {
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, token: undefined }).success).toBe(false);
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, token: '' }).success).toBe(false);
-    expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, partner: undefined }).success).toBe(false);
     expect(atlasAuthEnvelopeSchema.safeParse({ ...valid, type: 'ATLAS_AUTH_V2' }).success).toBe(false);
+    // Without a partner to lean on, the type and token checks are all that stand
+    // between us and an arbitrary cross-origin message.
+    expect(atlasAuthEnvelopeSchema.safeParse({ type: 'ATLAS_AUTH' }).success).toBe(false);
+    expect(atlasAuthEnvelopeSchema.safeParse({ token: 'a-token' }).success).toBe(false);
   });
 });
 

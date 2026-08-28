@@ -6,7 +6,22 @@
  * and the client view uses it to classify what arrived.
  *
  * Contract B (producer: Crazy Cake / Atlas Console, consumer: this page):
- *   { type: 'ATLAS_AUTH', token: string, partner: { name: string, email: string } }
+ *   { type: 'ATLAS_AUTH', token: string, partner?: { name: string, email: string } }
+ *
+ * `partner` is optional, and that is not a courtesy — it is what Console does.
+ * Measured on 2026-08-28 against the deployed production bundle
+ * (`dashboard.pijamafilms.com/resources/entry.js?v=d4c06ad`): `openMarketingPortal`
+ * fetches `/partners/external-token` and posts `{ type: 'ATLAS_AUTH', token }`,
+ * full stop. It never sends a partner. This file used to document and enforce it
+ * as required, so a perfectly good handoff failed validation and the panel
+ * reported a working SSO as a broken envelope.
+ *
+ * When it *is* present it is untrusted client data from a `postMessage`, so it is
+ * strictly informational: it labels a row in the diagnostics panel and nothing
+ * else. The authoritative partner identity comes from the server, in the
+ * `/movies/by-partner` response that `POST /api/auth/atlas/session` reads (see
+ * `AtlasDiagnostics.partner` below — a different field, from a source we trust).
+ * Nothing in the authorization path may ever read the envelope's copy.
  */
 import { z } from 'zod';
 // The type module, not the `@/lib/atlas` barrel: the barrel re-exports
@@ -68,13 +83,31 @@ export function defaultAllowedOrigins(nodeEnv: string | undefined): string[] {
     : [ATLAS_PRODUCTION_ORIGIN, ATLAS_LAB_ORIGIN];
 }
 
+/**
+ * `partner` is `.optional()` and deliberately *not* `.nullable()` or loosened to
+ * `z.unknown()`.
+ *
+ * Optional, because Console omits the key entirely (see the contract note above).
+ * Still strictly shaped when present, because "optional" must not become "any
+ * object shape is fine": a `partner` of `"texto"` or `{ name: 123 }` is a real
+ * contract violation worth reporting, and letting it through would put
+ * `123 <undefined>` on the diagnostics panel — a fabricated identity, which is
+ * exactly the kind of quiet nonsense this panel exists to expose.
+ *
+ * Not nullable, because `undefined` and `null` are different claims from the
+ * producer: "I did not send this" versus "I looked and there is none". The panel
+ * renders them differently, so the schema keeps them apart instead of flattening
+ * both into one silent blank.
+ */
 export const atlasAuthEnvelopeSchema = z.object({
   type: z.literal(ATLAS_MESSAGE_TYPE),
   token: z.string().min(1),
-  partner: z.object({
-    name: z.string(),
-    email: z.string(),
-  }),
+  partner: z
+    .object({
+      name: z.string(),
+      email: z.string(),
+    })
+    .optional(),
 });
 
 export type AtlasAuthEnvelope = z.infer<typeof atlasAuthEnvelopeSchema>;

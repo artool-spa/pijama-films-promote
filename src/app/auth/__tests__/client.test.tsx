@@ -200,6 +200,67 @@ describe('AtlasAuthClient — malformed envelope', () => {
   });
 });
 
+/**
+ * The envelope the deployed Atlas Console really posts: `{ type, token }`, with no
+ * `partner` key. Measured 2026-08-28 from the public production bundle.
+ */
+function consoleEnvelope(token = TOKEN) {
+  return { type: 'ATLAS_AUTH', token };
+}
+
+describe('AtlasAuthClient — the envelope Atlas Console actually sends', () => {
+  it('accepts it and exchanges the token even though no partner came with it', async () => {
+    const fetchMock = respondWith(200, { ok: true, diagnostics: { atlasStatus: 200 } });
+    installBridge();
+    post(consoleEnvelope(), LAB);
+    renderClient();
+
+    await screen.findByText('Accepted');
+
+    // The point of the whole fix: a correct handoff must not be reported as a
+    // Contract B mismatch, and the token must still reach Contract A.
+    expect(screen.queryByText('Envelope does not match Contract B')).toBeNull();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ token: TOKEN, mode: 'probe' });
+  });
+
+  it('says the partner was not sent, and does not dress it up as a fault', async () => {
+    respondWith(200, { ok: true, diagnostics: { atlasStatus: 200 } });
+    installBridge();
+    post(consoleEnvelope(), LAB);
+    renderClient();
+
+    await screen.findByText('Accepted');
+
+    // A mute blank or a bare "not provided" is what made a working handoff look
+    // broken. The row has to say that nothing was sent *and* that this is normal.
+    expect(screen.getByText(/not sent/)).toBeTruthy();
+    expect(screen.getByText(/Atlas Console does not send one/)).toBeTruthy();
+  });
+
+  it('still shows the identity when a partner does come with the envelope', async () => {
+    respondWith(200, { ok: true, diagnostics: { atlasStatus: 200 } });
+    installBridge();
+    post(validEnvelope(), LAB);
+    renderClient();
+
+    await screen.findByText('Accepted');
+
+    expect(screen.getByText('Pijama Films <producer@example.test>')).toBeTruthy();
+    expect(screen.queryByText(/not sent/)).toBeNull();
+  });
+
+  it('rejects a partner that is present but malformed, instead of rendering nonsense', async () => {
+    const fetchMock = respondWith(200, { ok: true, diagnostics: {} });
+    installBridge();
+    post({ type: 'ATLAS_AUTH', token: TOKEN, partner: { name: 123, email: null } }, LAB);
+    renderClient();
+
+    expect(await screen.findByText('Envelope does not match Contract B')).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('AtlasAuthClient — timeout', () => {
   it('distinguishes "nothing arrived" from a failure', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

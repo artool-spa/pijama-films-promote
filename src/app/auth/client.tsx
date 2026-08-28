@@ -67,6 +67,22 @@ type Phase =
 
 type Verdict = 'accepted' | 'rejected-origin' | 'malformed' | 'other-type';
 
+/**
+ * Three states, held apart on purpose.
+ *
+ * `partner` is optional in Contract B because the deployed Atlas Console never
+ * sends one (see `atlas-bridge.ts`). Collapsing "Console omitted it, which is
+ * normal" into the same blank as "we never got far enough to look" is precisely
+ * how a correct handoff came to read as a broken one on this panel — the failure
+ * this page exists to prevent. So each state says which it is.
+ */
+type PanelPartner =
+  | { kind: 'sent'; name: string; email: string }
+  /** The envelope validated and simply carried no partner. Expected, not a fault. */
+  | { kind: 'not-sent' }
+  /** The envelope was never validated, so there is nothing to report either way. */
+  | { kind: 'not-read' };
+
 interface PanelEvent {
   id: number;
   origin: string;
@@ -74,7 +90,7 @@ interface PanelEvent {
   buffered: boolean;
   verdict: Verdict;
   token: TokenFingerprint;
-  partner: { name: string; email: string } | null;
+  partner: PanelPartner;
   detail?: string;
 }
 
@@ -254,14 +270,16 @@ export default function AtlasAuthClient({
           buffered: message.buffered,
           verdict: 'other-type',
           token: describeToken(null),
-          partner: null,
+          partner: { kind: 'not-read' },
           detail: `Ignored: expected type "${ATLAS_MESSAGE_TYPE}".`,
         });
         return;
       }
 
       // The raw payload is only ever inspected here; nothing from it besides the
-      // fingerprint and the partner identity moves into state.
+      // fingerprint and the partner identity moves into state. And the partner
+      // identity is display-only: what goes to Contract A below is the token and
+      // the mode, never the envelope's partner. Atlas itself names the account.
       const rawToken = (message.payload as { token?: unknown } | null)?.token;
       const fingerprint = describeToken(rawToken);
 
@@ -272,7 +290,7 @@ export default function AtlasAuthClient({
           buffered: message.buffered,
           verdict: 'rejected-origin',
           token: fingerprint,
-          partner: null,
+          partner: { kind: 'not-read' },
           detail: `Allowed origins are: ${
             allowedOrigins.length > 0 ? allowedOrigins.join(', ') : '(none configured)'
           }. The envelope was discarded.`,
@@ -292,7 +310,7 @@ export default function AtlasAuthClient({
           buffered: message.buffered,
           verdict: 'malformed',
           token: fingerprint,
-          partner: null,
+          partner: { kind: 'not-read' },
           detail: `Does not match Contract B: ${parsed.error.issues
             .map((issue) => `${issue.path.join('.') || 'envelope'} ${issue.message}`)
             .join('; ')}`,
@@ -309,7 +327,9 @@ export default function AtlasAuthClient({
         buffered: message.buffered,
         verdict: 'accepted',
         token: describeToken(parsed.data.token),
-        partner: parsed.data.partner,
+        partner: parsed.data.partner
+          ? { kind: 'sent', ...parsed.data.partner }
+          : { kind: 'not-sent' },
       });
 
       if (handledRef.current) return;
@@ -554,6 +574,21 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   'other-type': 'Ignored: unrelated message type',
 };
 
+/**
+ * Says which of the three states this is, in words that do not imply a fault where
+ * there is none. "not provided" used to cover all three and read as a defect.
+ */
+function describePanelPartner(partner: PanelPartner): string {
+  switch (partner.kind) {
+    case 'sent':
+      return `${partner.name} <${partner.email}>`;
+    case 'not-sent':
+      return 'not sent — Atlas Console does not send one, and the envelope is valid without it. The account identity comes from Atlas itself, below.';
+    case 'not-read':
+      return 'not read — the envelope was rejected before its contents were validated.';
+  }
+}
+
 function EventRow({ event }: { event: PanelEvent }) {
   const color =
     event.verdict === 'accepted' ? 'success' : event.verdict === 'other-type' ? 'default' : 'error';
@@ -568,10 +603,7 @@ function EventRow({ event }: { event: PanelEvent }) {
         <Row label="Origin" value={event.origin || '(empty)'} emphasis />
         <Row label="Event type" value={event.type} />
         <Row label="Token" value={formatTokenFingerprint(event.token)} />
-        <Row
-          label="Partner"
-          value={event.partner ? `${event.partner.name} <${event.partner.email}>` : 'not provided'}
-        />
+        <Row label="Partner" value={describePanelPartner(event.partner)} />
         {event.detail && <Row label="Detail" value={event.detail} />}
       </Stack>
     </Box>
@@ -746,7 +778,8 @@ function StatusBanner({
         <Alert severity="error">
           <AlertTitle>Envelope does not match Contract B</AlertTitle>
           The message came from an allowed origin ({originReceived}) but its shape is not{' '}
-          {'{ type, token, partner }'}.
+          {'{ type, token }'} with an optional{' '}
+          {'partner: { name, email }'}.
         </Alert>
       );
     case 'exchanging':
