@@ -533,7 +533,7 @@ describe('AtlasAuthClient — the banner claims only what was established', () =
     expect(alert?.textContent).toContain('302');
   });
 
-  it('says a 302 means the request was redirected and the token never judged', async () => {
+  it('says a 302 never reached the endpoint, and blames neither the token nor the account', async () => {
     respondWith(200, {
       ok: true,
       diagnostics: { atlasStatus: 302, contractMatched: false },

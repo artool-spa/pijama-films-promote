@@ -332,3 +332,134 @@ sostiene, aplicada al ensayo.
 - La regla que no se puede relajar: el `partner` del envelope es dato de cliente y es
   **display-only**. Si algún día alguien lo lee para decidir un acceso, eso es un bug de
   seguridad, no una optimización.
+
+---
+
+# Ronda 4 — el banner verde afirmaba un contrato que no se cumplió
+
+_2026-08-28 · rama `fix/atlas-banner-contract-matched`, base `feat/atlas-sso` @ `3ff2ba2`_
+
+## Identidad de esta ronda
+
+- **Scope:** `src/app/auth/client.tsx` y `src/app/auth/__tests__/client.test.tsx`. Nada más.
+- **Vedado:** `src/lib/atlas/**` y `route.ts` (territorio de FX-stage). No los toqué; verificado
+  con `git diff --name-only 3ff2ba2..HEAD -- src/lib/atlas src/app/api/auth/atlas/session/route.ts`
+  → vacío. **No cambié Contract D1 ni el `ok`.**
+- **Suite:** base **567/567 en 40 archivos** → ahora **575/575 en 40 archivos**. Neto +8.
+
+## El defecto
+
+JP corrió el probe con un token real de producción. La pantalla decía dos cosas incompatibles:
+
+```
+Banner:  ✅ verde · "Probe succeeded"
+         "Atlas answered and the contract was exercised end to end."
+Fila:    "Contract C matched: no"
+Log:     atlasStatus: 302
+```
+
+`client.tsx:824` condicionaba el verde a `primary?.response?.ok`. **`ok: true` es correcto y no se
+tocó:** es Contract D1, que hace responder 200 siempre que Atlas produzca alguna respuesta HTTP
+para no enterrar los diagnósticos dentro de un error. El bug era de presentación: `ok` significa
+*"Atlas contestó"*, el banner lo leía como *"el contrato se cumplió"*, y la frase "exercised end
+to end" afirma la segunda. **El criterio del verde pasa a ser `contractMatched`.**
+
+Un verde acá se reporta hacia afuera como "el SSO funciona". Tiene que significar eso.
+
+### El tercer desenlace, que antes no existía
+
+| condición | severidad | qué afirma |
+|---|---|---|
+| `ok` **y** `contractMatched === true` | success | Atlas contestó con el contrato. Sigue diciendo "end to end". |
+| `ok` **y** `contractMatched === false` | **warning** | Atlas contestó, no con el contrato. Lleva el `atlasStatus` en el banner mismo. |
+| `ok` y `contractMatched === undefined` | success | No hay veredicto que juzgar — ver abajo. |
+| no `ok` | error | sin cambios |
+| `no_partner` | info | gana sobre todo lo anterior, sin cambios |
+
+Gateado en `=== false`, **nunca en falsy**. `undefined` significa que el servidor no mandó
+veredicto (los stages que fallan antes de llamar a Atlas no traen diagnostics), y ausencia de
+evidencia no puede renderizarse como evidencia de incumplimiento: eso sería cambiar un banner
+falso por otro. La mutación M3 confirma que el test lo protege.
+
+## El sub-hallazgo: mi propio texto sobreafirmaba, en la dirección opuesta
+
+Mi primer borrador del texto del 302 decía *"the token was never evaluated"* y *"neither was
+examined"*. **Eso es un overclaim y lo corregí.**
+
+Un 302 de Atlas establece algo estrecho: no se produjo un body de Contract C, o sea la llamada no
+llegó al endpoint que lo responde. **No establece por qué.** Su middleware podría leer el Bearer,
+rechazarlo y redirigir; o podría redirigir cualquier request sin cookie de sesión mucho antes de
+mirar el token. Desde nuestro lado son indistinguibles.
+
+Así que el texto final no dice ninguna de las dos:
+
+- *"the token was rejected"* mandaría a alguien a depurar una credencial que quizá nunca se usó —
+  y podría hacernos escribirle a Crazy Cake que su token está malo apoyados en un request que no
+  llegó.
+- *"the token was never evaluated"* es el mismo overclaim espejado: una afirmación sobre las
+  internas de Atlas que no vemos.
+
+**Afirmar un desconocido como hecho es exactamente el defecto que este banner se reescribió para
+frenar, y no se salva por caer del lado tranquilizador.** El test clava las dos direcciones
+(M7 y M8 lo prueban).
+
+## Procedencia de los tests
+
+Base 567 → 575. Neto +8.
+
+### Vistos fallar — 5
+
+Cuatro nuevos, corridos contra el banner sin arreglar. El rojo es literalmente el defecto:
+`expected 'success' to be 'warning'`.
+
+| test | rojo observado |
+|---|---|
+| `warns instead of congratulating when Atlas answered but the contract did not hold` | `expected 'success' to be 'warning'` |
+| `puts the Atlas status in the banner itself, not only in the table below` | idem |
+| `says a 302 never reached the endpoint, and blames neither the token nor the account` | idem |
+| `describes a non-redirect mismatch without claiming a redirect happened` | idem |
+
+Y el quinto es **un test que ya existía y afirmaba lo falso**:
+`renders probe diagnostics including the raw Atlas response keys` (`:328`). Su fixture es
+*exactamente* la corrida de producción de JP —`ok: true`, `atlasStatus: 302`,
+`contractMatched: false`— y aseveraba `'Probe succeeded'`. **La suite tenía el verde falso
+clavado.** Se puso rojo al aplicar el fix, y ese rojo es la prueba de que el defecto existía.
+Sus aserciones de diagnostics siempre fueron correctas y quedaron; solo el veredicto estaba mal.
+
+### Nacidos verdes — 4
+
+Guardas de regresión: `still says end to end when the contract really did hold` (DoD 1),
+`does not fall into the warning when there are no diagnostics to judge` y
+`...when diagnostics arrive without a verdict` (DoD 5), y
+`keeps no_partner winning even when the contract flag says no` (DoD 4). Su valor lo demuestran
+M1, M3 y M6.
+
+## Reporte de mutación: 8 corridas, 8 muertas
+
+| # | mutación | resultado | mata |
+|---|---|---|---|
+| 1 | volver la condición del verde a `ok` solo *(pedida por T0)* | ☠️ muerta | 5 tests |
+| 2 | hacer que el warning también diga "exercised end to end" *(T0)* | ☠️ muerta | 1 |
+| 3 | tratar `contractMatched: undefined` como `false` *(T0)* | ☠️ muerta | 8 tests |
+| 4 | quitar el `atlasStatus` del texto del banner *(propia, DoD 2)* | ☠️ muerta | 1 |
+| 5 | mandar los 3xx por la rama genérica *(propia, DoD 3)* | ☠️ muerta | 1 |
+| 6 | dejar que el warning gane sobre `no_partner` *(propia, DoD 4)* | ☠️ muerta | 2 |
+| 7 | restaurar el overclaim exculpatorio *(propia)* | ☠️ muerta | 1 |
+| 8 | restaurar el overclaim acusatorio *(propia)* | ☠️ muerta | 1 |
+
+Ningún sobreviviente. Cada punto del DoD tiene una mutación que prueba que su test carga peso.
+
+## Hallazgo fuera de scope — reportado, no tocado
+
+`describeAtlasOutcome` en `atlas-bridge.ts:355` (fuera de mi scope esta ronda) devuelve para un
+3xx:
+
+> "Atlas redirected instead of answering. That is exactly what an unauthenticated request looks
+> like there, so **either the token was rejected** or ATLAS_API_BASE_URL points at the wrong host."
+
+Eso se renderiza en la fila "What Atlas did" (`client.tsx:671`) en la **misma pantalla** que mi
+banner nuevo, que dice que no se puede concluir nada sobre el token. **Los dos textos se
+contradicen a cuatro filas de distancia** — la misma clase de defecto que motivó esta ronda, una
+fila más abajo. Verificado ejecutando el helper, no inferido.
+
+No lo toqué: `atlas-bridge.ts` no está en el scope que T0 me dio esta ronda. Queda para T0.
