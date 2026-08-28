@@ -463,3 +463,125 @@ contradicen a cuatro filas de distancia** — la misma clase de defecto que moti
 fila más abajo. Verificado ejecutando el helper, no inferido.
 
 No lo toqué: `atlas-bridge.ts` no está en el scope que T0 me dio esta ronda. Queda para T0.
+
+---
+
+# Ronda 5 — la fila del diagnóstico acusaba al token
+
+_2026-08-28 · misma rama `fix/atlas-banner-contract-matched` · scope ampliado por T0 a
+`src/app/auth/atlas-bridge.ts` + `__tests__/atlas-bridge.test.ts`_
+
+Cierre del hallazgo que reporté al final de la ronda 4 y que T0 aprobó atacar de inmediato.
+
+**Suite:** 575 → **584/584 en 40 archivos.** Neto +9. `tsc --noEmit` limpio.
+
+## El defecto
+
+`describeAtlasOutcome` devolvía, para cualquier 3xx:
+
+> "Atlas redirected instead of answering. That is exactly what an unauthenticated request looks
+> like there, so **either the token was rejected** or ATLAS_API_BASE_URL points at the wrong host."
+
+Eso se renderiza en la fila "What Atlas did" (`client.tsx:671`), **cuatro filas debajo** del banner
+nuevo que dice que no se puede concluir nada sobre el token. Una pantalla, dos afirmaciones
+incompatibles.
+
+Y la urgencia no era estética: **esa pantalla se screenshotea y se le manda a Crazy Cake.** Una
+frase ahí es una afirmación que le hacemos a la contraparte sobre su propio sistema.
+
+### El mismo defecto, espejado, en otra rama de la misma función
+
+Auditando el resto encontré que la rama de `contractMatched === false` (que solo corre para 2xx)
+abría con:
+
+> "Atlas answered normally, **so the token was accepted**, but the body does not match Contract C."
+
+Un 200 que trae un body de error no establece eso. Es el mismo overclaim apuntando al lado
+cómodo — el error que yo mismo había cometido en la ronda 4 y que T0 confirmó. **Una exoneración
+infundada no es mejor que una acusación infundada: es el mismo error con cara más simpática.**
+
+Las dos ramas ahora reportan qué volvió (el status, que no se produjo body de Contract C, qué
+revisar) y no asignan causa.
+
+## Por qué sobrevivió: cero cobertura
+
+`describeAtlasOutcome` **no tenía ni un test directo**. `grep` en todo `src/` daba solo el import y
+los dos usos de render. Por eso una acusación falsa vivió ahí sin que nadie la viera. Ahora tiene
+tests unitarios sobre todas sus ramas.
+
+Dato que corrobora que era un peligro conocido: **FX-stage tropezó con la misma función y la
+esquivó en vez de arreglarla.** En `src/lib/atlas/__tests__/session-route.test.ts:1015` hay una
+aserción cuyo mensaje dice que mandar `atlasStatus: 0` haría a `/auth` imprimir *"the request to
+Atlas never completed"*, y lo llama **"the same false accusation coming back through
+describeAtlasOutcome"**. O sea dos agentes distintos rodearon esta función; ninguno la había
+corregido.
+
+## El test de coherencia de pantalla (T0 lo pidió "si sale limpio" — salió)
+
+Cada frase de la pantalla era defendible por separado mientras la pantalla entera se contradecía.
+**Testear cada string es justo lo que permitió que eso sobreviviera:** las dos pasaban su propio
+check. Así que el test nuevo afirma la propiedad que importa de verdad:
+
+> Para una misma corrida, **ninguna parte de la página renderizada le asigna una causa al token
+> ni a la cuenta.**
+
+Es table-driven sobre `[301, 302, 307, 200]`, junta `container.textContent` completo y lo corre
+contra seis patrones causales en **las dos direcciones** (acusatorios y exculpatorios). Además
+verifica que el status **sí** esté en pantalla, para que "no afirma nada" nunca degenere en "no
+muestra nada": el lector conserva el único hecho que se midió.
+
+Se puede testear limpio y no hubo que forzar nada. Su valor quedó demostrado: M9 y M10 lo ponen
+rojo **además** del test unitario, o sea captura la contradicción a nivel página independientemente
+de qué string la causó.
+
+## Procedencia
+
+### Vistos fallar — 8
+
+- **3 unitarios** del helper, contra el helper sin arreglar: el 3xx acusando (2 tests) y el 2xx
+  exonerando (1). El rojo cita la frase textual.
+- **4 de coherencia de pantalla**, uno por status. Los tres 3xx caen por `/token was rejected/i` y
+  el 200 por `/token was accepted/i` — o sea el test detectó **solo** las dos ramas que estaban
+  mal, sin falsos positivos.
+- **1 test preexistente que clavaba la acusación falsa**:
+  `says what Atlas did when it redirected instead of answering` (`:449`) aseveraba literalmente
+  `/either the token was rejected or ATLAS_API_BASE_URL points at the wrong host/`. **Segunda vez
+  en dos rondas que un test protegía el defecto.** Su propósito real —que la fila explique el
+  redirect— sigue vigente; corregí solo la parte que nombraba una causa.
+
+### Nacidos verdes — 2
+
+`still says nothing can be concluded when the request never completed` y
+`returns null when there is nothing measured to describe`. Guardas de las ramas que ya estaban
+bien, para que la reescritura no las rompiera.
+
+### Un detalle que salió del arreglo
+
+La aserción de `ATLAS_API_BASE_URL` pasó a `getAllByText(...).length > 1`, y eso **es** el
+resultado buscado: el banner y la fila ahora le dan al lector el mismo consejo en vez de dos
+historias distintas. El plural en el test es la señal de que la pantalla quedó coherente.
+
+## Reporte de mutación — rondas 4 y 5: 11 corridas, 11 muertas
+
+Además de las 8 de la ronda 4:
+
+| # | mutación | resultado | mata |
+|---|---|---|---|
+| 9 | restaurar "either the token was rejected" en el helper *(obligatoria de T0)* | ☠️ muerta | **6 tests**: 2 unitarios, 3 de coherencia, 1 preexistente |
+| 10 | restaurar "so the token was accepted" en la rama 2xx *(propia)* | ☠️ muerta | 2: 1 unitario + 1 de coherencia |
+| 11 | quitar el status de la frase del redirect *(propia)* | ☠️ muerta | 1 |
+
+Ningún sobreviviente en las dos rondas. M9 y M10 mueren por **dos capas independientes** —el test
+unitario del string y el test de pantalla completa—, que era exactamente el punto de agregar la
+segunda.
+
+## Lo que aprendí y sirve para el compound
+
+**Una afirmación infundada no se vuelve aceptable por ser tranquilizadora.** Las cinco anteriores
+exageraban hacia el éxito o hacia culpar al tercero, así que se sentían como errores. La mía de la
+ronda 4 ("el token no fue evaluado") exageraba hacia "no se sabe nada malo", y por eso casi pasa
+—incluso venía sugerida en la instrucción—. El chequeo que la atrapó no fue de tono sino de
+epistemología: *¿esto es observable desde acá?* Si no lo es, no se afirma, ni a favor ni en contra.
+
+**Y el corolario de método:** los tests por string dejan pasar contradicciones entre strings. Si
+una pantalla completa afirma algo, hay que testear la pantalla completa.
