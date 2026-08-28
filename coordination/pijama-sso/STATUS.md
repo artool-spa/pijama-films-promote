@@ -1,41 +1,59 @@
 # STATUS — SSO Atlas Console → promote.pijamafilms.com
 
-_Última actualización: 2026-08-26 · Actualizado por: T0_
+_Última actualización: **2026-08-28** · Actualizado por: T0_
+
+> **Cómo leer este archivo.** Esta cabecera es el estado actual y es lo único que hay que leer
+> para saber dónde está el proyecto. Todo lo de abajo es **log histórico**: describe mundos que
+> ya se movieron y sus filas no son el estado de hoy. Si una fila de más abajo contradice esta
+> cabecera, la cabecera gana.
 
 ## Estado actual
 
-**Proyecto cerrado en contenido.** Los dos dominios entregados, integrados y verificados por
-T0 con build autoritativo. Falta únicamente el click-through humano, que cierra el Contrato C.
+**Nuestra mitad está completa. El proyecto está bloqueado, y el bloqueo es de Crazy Cake.**
 
 ```
-rama feat/atlas-sso · commit 41438cf · next 16.3.1
+rama feat/atlas-sso · commit 3ff2ba2 · next 16.3.1
 tsc --noEmit   exit 0
-eslint         0 errores (4 warnings preexistentes)
-vitest         504/504 · 39 archivos   (el repo tenía 263)
-yarn build     ✓ compiled · 37/37 páginas
-               ƒ /auth · ƒ /dev/atlas-simulator · ƒ /api/auth/atlas/session
+vitest         567/567 · 40 archivos
 ```
 
-30 archivos, 6.903 inserciones sobre `master`. Contrato D con sus dos capas presentes.
-`ATLAS_LOGIN_ENABLED="false"` y allowlist vacía commiteados: producción arranca cerrada.
+Verificado por T0 en worktree propio sobre la integración, no por suma de reportes de agentes.
+Cada fix además ejercitado **por HTTP contra un servidor corriendo**, porque los unit tests
+mockean `fetch` justo en la frontera que protegen.
 
-Mutación acumulada del proyecto: **T1** 64 propios + 6 externos · **T2** 109 con 107 muertos
-· **T1b** 23 + 6 · los supervivientes, todos identificados como equivalentes.
+`ATLAS_LOGIN_ENABLED="false"` y allowlist vacía: producción arranca cerrada. **Nada desplegado.**
 
----
+### Por qué está bloqueado
+
+| # | Hecho medido | Dueño |
+|---|---|---|
+| 1 | `openMarketingPortal` postea con `targetOrigin = window.location.origin` — el origen **propio** de Console, no el del portal destino. El navegador descarta el mensaje. **El handoff no puede funcionar.** | Crazy Cake |
+| 2 | `/partners/external-token` responde `{status:'error', error:'UNAUTHORIZED'}` a una cuenta admin. Hace falta una cuenta de **productora** para probar. | Crazy Cake / JP |
+| 3 | `/movies/by-partner` está detrás de una puerta de sesión por cookie: toda llamada server-to-server recibe 302, con y sin `Bearer`. | Crazy Cake |
+
+El punto 1 es la respuesta a la pregunta del proyecto, y es una línea de código. Explica por qué
+en enero pudieron decir de buena fe que *"testing ya tiene todo para funcionar"*: el código está
+escrito completo y no se probó de punta a punta ni una vez.
+
+### Siguiente acción, y de quién
+
+- **JP** — reconocimiento en el dashboard: ¿existe sección de partners/productoras y se puede
+  crear o asignar una desde el rol admin? Eso decide autoservicio vs. correo. Y el intento
+  simple: entrar con su propia cuenta y correr el snippet de `/partners/external-token`.
+- **T0** — armar el correo a Mathias con los tres puntos de arriba, **cuando JP lo pida**.
+- **Fuera de este alcance, sigue bloqueando el Go Live:** `getFilms()` no filtra por partner.
+  La allowlist es la única contención.
 
 ## Equipo
 
-| Agente | Dominio | Estado | Tarea actual | Bloqueado por |
-|--------|---------|--------|--------------|---------------|
-| T1 | Servidor Atlas | ✅ Cerrado | `cd37eab` + **114 líneas sin commitear**. F1 ✅ `no_partner` ✅ `disabled` ✅. Falta F2 (test middleware), F3, rate limit, commit | — |
-| T1b | Auditor + guard/rate-limit | ✅ Cerrado | Auditoría del servidor ✅ (3 hallazgos, 41→16/18 mutantes). Ahora audita el dominio de T2 | — |
-| T2 | Página `/auth` + simulador | ✅ Cerrado | 7 ítems de auditoría; los 4 mutantes vivos están en los dos `page.tsx` | — | `793a88f` entregado; escribiendo tests | — |
+Todos cerrados. Ninguno bloqueado. Las filas históricas del log de abajo describen estados
+intermedios y no hay que leerlas como pendientes.
 
-_Estados: ⚪ Pendiente · 🟡 En progreso · 🔴 Bloqueado · ✅ Listo_
-
-Sin dependencias bloqueantes entre ellos: T0 fijó el Contrato A por adelantado y los
-archivos son disjuntos.
+| Agente | Dominio | Estado |
+|---|---|---|
+| T1 · T1b · T2 | servidor Atlas, auditoría, página `/auth` + simulador | ✅ cerrados, mergeados |
+| FX-envelope | `partner` opcional, simulador, fidelidad del ensayo | ✅ cerrado, `fc4b7e1` |
+| FX-stage | `stage: input` por header-safety, `stage: config` | ✅ cerrado, `3a8f42d` + `3ff2ba2` |
 
 ---
 
