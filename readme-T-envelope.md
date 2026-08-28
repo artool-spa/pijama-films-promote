@@ -9,18 +9,22 @@ _Última actualización: 2026-08-28 · Proyecto: pijama-films-promote_
 - **Agente:** FX-envelope (domain agent, reporta a T0)
 - **Dominio:** el esquema Zod del envelope `ATLAS_AUTH` y cómo el panel de diagnóstico lo muestra.
 - **Scope:** `src/app/auth/atlas-bridge.ts`, `src/app/auth/client.tsx` y sus dos test files.
-- **Scope ampliado (2026-08-28, por T0):** `src/app/dev/atlas-simulator/client.tsx` y su
-  `__tests__/client.test.ts`. Ver "El simulador" más abajo.
-- **No cubre:** `src/lib/atlas/**` y `src/app/api/auth/atlas/session/route.ts` — el servidor no
-  depende del `partner` del envelope y no se tocó. Tampoco
-  `src/app/dev/atlas-simulator/__tests__/real-token.test.tsx` — ver "Recomendación abierta".
+- **Scope ampliado (2026-08-28, por T0, en dos rondas):** `src/app/dev/atlas-simulator/client.tsx`,
+  `__tests__/client.test.ts` y `__tests__/real-token.test.tsx`. Ver "El simulador" y
+  "La fidelidad del run con token real".
+- **No cubre:** `src/lib/atlas/**` y `src/app/api/auth/atlas/session/route.ts` — territorio de
+  **FX-stage**, agente activo. No los toqué y no los necesité: el `partner` del envelope nunca
+  cruza al servidor, así que los dos fixes no se solapan. Verificado, no afirmado:
+  `git diff --name-only 5e3a6a3..HEAD -- src/lib/atlas src/app/api/auth/atlas/session/route.ts`
+  sale vacío.
 
 ---
 
 ## Estado Actual
 
 - **Repo:** `artool-spa/pijama-films-promote` · Branch: `fix/atlas-envelope-partner-optional`
-  (base `feat/atlas-sso` @ `5e3a6a3`) · Commits: `a96fd84`, `33d06c2`, `0637979`, pusheados.
+  (base `feat/atlas-sso` @ `5e3a6a3`) · Commits: `a96fd84`, `33d06c2`, `0637979`, `ea38e7d`,
+  `e2eda15`, pusheados.
 - **Deploy activo:** no aplica — este fix se cierra con tests, sin dev server. El worktree no tiene `.env`.
 - **Suite de tests:** **517 tests / 40 archivos · 517 verdes, 40/40 archivos.**
   Base antes de tocar nada: 507 tests / 40 archivos. Neto +10.
@@ -167,6 +171,8 @@ Las dos que pidió T0, más dos propias. **Las cuatro murieron.**
 | 5 | devolver `console-shape` al grupo de rechazados *(pedida por T0)* | ☠️ **muerta** | 1 test: `produces envelopes the page rejects` |
 | 6 | sacar `malformed-partner` del bucle de rechazados *(propia)* | 🟡 **SOBREVIVIÓ** | ninguno — ver abajo |
 | 7 | hacer que `malformed-partner` emita un partner bien formado *(propia)* | ☠️ **muerta** | 2 tests, incl. el dedicado |
+| 8 | volver `handleRealTokenLaunch` a `documented-shape` *(obligatoria de T0)* | ☠️ **muerta** | 1 test: el de fidelidad |
+| 9 | postear `{ type, token, partner: undefined }` *(propia)* | ☠️ **muerta** | 1 test, y **solo** por la aserción de `Object.keys` |
 
 **M6 sobrevivió, y lo reporto en vez de taparlo.** Sacar `'malformed-partner'` del bucle de
 rechazados no pone rojo nada: los 6 tests siguen verdes. La causa **no** es un hueco de
@@ -261,23 +267,59 @@ cambios del simulador **sin commitear**. Eso me borró las ediciones del test y 
 mutaciones siguientes corrieron contra el archivo viejo — se notó porque el output mostraba
 nombres de test que ya no existían y un conteo de 4 en vez de 6. Rehice el archivo, commiteé
 **antes** de mutar, y volví a correr todo. Las cifras de abajo son las de la corrida válida.
-Moraleja concreta: commitear antes de mutar no es prolijidad, es lo que hace que el reporte de
-mutación sea medible.
+**Regla, dicha como regla:** *commitea antes de mutar; una corrida de mutación sobre un árbol
+sucio no mide el código que crees.* Y la señal por la que se detecta, que es lo que el próximo va
+a tener delante: **nombres de test que ya no existen en el output, y un conteo que no cuadra**
+(esperaba 6, salieron 4). En las rondas siguientes commiteé antes de cada tanda de mutación.
 
 ---
 
-## Recomendación abierta (no la ejecuté)
+## La fidelidad del run con token real (tercera ronda, aprobada por T0)
 
-`handleRealTokenLaunch` (el único run que puede zanjar Contract C, con un token real pegado a
-mano) postea `documented-shape`, o sea **no** reproduce la forma que Console manda. Cambiarlo a
-`console-shape` sería más fiel, y el test que lo cubre se llama literalmente *"delivers the token
-through postMessage, the same path Console uses"* — su nombre ya afirma la fidelidad que el
-payload no tiene.
+`handleRealTokenLaunch` posteaba `documented-shape` — `{ type, token, partner }` — mientras el
+test que lo cubre se llama *"delivers the token through postMessage, **the same path Console
+uses**"*. Console postea `{ type, token }` y nada más. O sea el **único run que carga una
+credencial de producción real**, y cuyo resultado se lee como la respuesta a "¿funciona el SSO?",
+ensayaba un envelope que producción no produce — mientras su propio nombre prometía lo contrario.
 
-**No lo cambié.** Era un extra mío, no parte del brief, y su aserción vive en un tercer archivo
-(`__tests__/real-token.test.tsx`) fuera del scope que T0 amplió. Lo dejé anotado en el código y
-escalado, en vez de ampliarme el scope solo. Es inofensivo hoy: `partner` es display-only y las
-dos formas validan, así que no afecta el resultado de Contract C — solo la fidelidad del ensayo.
+**No fallaba nada por eso**: `partner` es display-only y las dos formas validan, así que Contract
+C salía igual. Por eso sobrevivió — una mentira sin síntoma. El defecto no estaba en el código,
+estaba en el nombre, que es la misma clase de trampa que este repo pagó tres veces en un día
+(el `CLAUDE.md` afirmando un auto-rollout no verificado; el simulador declarando modo de falla la
+única forma real; el `stage` culpando a Atlas por un error nuestro de input).
+
+### Visto fallar, y el rojo *es* la evidencia del gap
+
+Cambié el código **primero** y corrí el test viejo contra el código corregido, a propósito. El
+diff del rojo es la prueba de que el gap existía:
+
+```
+× the pasted-token run > delivers the token through postMessage, the same path Console uses
+  → expected { type: 'ATLAS_AUTH', …(1) } to deeply equal { type: 'ATLAS_AUTH', …(2) }
+  - Expected
+  + Received
+  -   "partner": Object {
+  -     "email": "partner@example.test",
+  -     "name": "Simulated Partner",
+  -   },
+```
+
+El test *exigía* un `partner` que el Console real nunca manda. Recién después actualicé la
+aserción para clavar el payload campo por campo.
+
+### Por qué hay una aserción extra sobre `Object.keys`
+
+```ts
+expect(posted[0].data).toEqual({ type: 'ATLAS_AUTH', token: REAL_TOKEN });
+expect(Object.keys(posted[0].data as object).sort()).toEqual(['token', 'type']);
+```
+
+La segunda línea no es redundante, y lo verifiqué en vez de suponerlo: **`toEqual` de vitest
+ignora las propiedades `undefined`**. Corrí la mutación M9 (`{ type, token, partner: undefined }`)
+con la línea de `Object.keys` borrada y el test **pasó verde**. O sea sin ella, un payload con la
+clave `partner` presente-pero-vacía se cuela, y eso no es lo que Console manda. La clave tiene
+que estar **ausente**, no vacía — la misma distinción `undefined` vs `null` que el esquema
+sostiene, aplicada al ensayo.
 
 ---
 
