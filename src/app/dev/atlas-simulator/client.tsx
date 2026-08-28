@@ -52,7 +52,35 @@ import {
 const SYNTHETIC_TOKEN =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2ltdWxhdGVkLWF0bGFzLXBheWxvYWQtbm90LWEtcmVhbC10b2tlbg.simulated-signature-not-valid';
 
-export type EnvelopeShape = 'valid' | 'missing-token' | 'wrong-type' | 'missing-partner';
+/**
+ * Two of these are valid and three are not, and the naming says which is which by
+ * what it *is* rather than by what it lacks.
+ *
+ * There used to be a shape called `missing-partner` sitting in the rejected group.
+ * It posted `{ type, token }` — which is the envelope the deployed Atlas Console
+ * actually sends (measured 2026-08-28 from the production bundle). So the one tool
+ * built to reproduce the real handoff classified the real handoff as a failure
+ * mode, and its test asserted that as correct. Renaming it to `console-shape` and
+ * moving it to the valid group is the whole point: this page exists to exercise
+ * the production handshake without depending on Crazy Cake.
+ *
+ * `documented-shape` is not called `valid` any more for the same reason. Both of
+ * the first two are valid, so `valid` claimed an exclusivity it does not have —
+ * and that claim is what made the documented shape look like *the* expected one.
+ */
+export type EnvelopeShape =
+  /** What Console really posts. The default, because it is what production does. */
+  | 'console-shape'
+  /** What Crazy Cake's docs describe. Still accepted; never observed in the wild. */
+  | 'documented-shape'
+  | 'missing-token'
+  | 'wrong-type'
+  /**
+   * `partner` present but not an object. Keeps the "optional is not anything goes"
+   * invariant reproducible here: without it the rejected shapes contain no partner
+   * case at all, in the very page where someone goes to check partner handling.
+   */
+  | 'malformed-partner';
 export type PostTiming = 'on-ready' | 'immediate' | 'delayed';
 export type OriginMode = 'dev' | 'strict';
 export type SessionMode = 'probe' | 'login';
@@ -71,14 +99,18 @@ export function buildSimulatorEnvelope(
   const partner = { name: partnerName, email: partnerEmail };
 
   switch (shape) {
-    case 'valid':
+    case 'console-shape':
+      return { type: ATLAS_MESSAGE_TYPE, token };
+    case 'documented-shape':
       return { type: ATLAS_MESSAGE_TYPE, token, partner };
     case 'missing-token':
       return { type: ATLAS_MESSAGE_TYPE, partner };
     case 'wrong-type':
       return { type: 'ATLAS_AUTH_V2', token, partner };
-    case 'missing-partner':
-      return { type: ATLAS_MESSAGE_TYPE, token };
+    case 'malformed-partner':
+      // The bare name instead of the object: the mistake a producer would plausibly
+      // make, and the one a lax schema would render as an invented identity.
+      return { type: ATLAS_MESSAGE_TYPE, token, partner: partnerName };
   }
 }
 
@@ -154,7 +186,8 @@ export default function AtlasSimulatorClient() {
   const [originMode, setOriginMode] = useState<OriginMode>('dev');
   const [timing, setTiming] = useState<PostTiming>('on-ready');
   const [delayMs, setDelayMs] = useState(3000);
-  const [shape, setShape] = useState<EnvelopeShape>('valid');
+  // Defaults to what production actually sends, not to what the docs describe.
+  const [shape, setShape] = useState<EnvelopeShape>('console-shape');
   const [log, setLog] = useState<string[]>([]);
 
   /**
@@ -281,8 +314,14 @@ export default function AtlasSimulatorClient() {
 
     // Always a well-formed envelope and always probe mode: this path exists to
     // settle Contract C, and probe is the mode that never issues a session.
+    //
+    // Deliberately the documented shape and not `console-shape`, even though the
+    // latter is what Console really posts: switching it is a behaviour change to
+    // the real-token path, whose assertion lives in `real-token.test.tsx`, and that
+    // decision is not this change's to make. Harmless either way — `partner` is
+    // display-only and both shapes validate — so it is left as a recommendation.
     launch(
-      buildSimulatorEnvelope('valid', {
+      buildSimulatorEnvelope('documented-shape', {
         token: realToken,
         partnerName,
         partnerEmail,
@@ -441,9 +480,22 @@ export default function AtlasSimulatorClient() {
                 value={shape}
                 onChange={(event) => setShape(event.target.value as EnvelopeShape)}
               >
-                <FormControlLabel value="valid" control={<Radio />} label="valid Contract B envelope" />
+                <FormControlLabel
+                  value="console-shape"
+                  control={<Radio />}
+                  label="{ type, token } — what Console sends in production (measured 2026-08-28)"
+                />
+                <FormControlLabel
+                  value="documented-shape"
+                  control={<Radio />}
+                  label="with partner, as Crazy Cake documented it — valid, but never observed in production"
+                />
                 <FormControlLabel value="missing-token" control={<Radio />} label="missing token" />
-                <FormControlLabel value="missing-partner" control={<Radio />} label="missing partner" />
+                <FormControlLabel
+                  value="malformed-partner"
+                  control={<Radio />}
+                  label="partner present but not an object — expect it to be rejected: optional is not anything goes"
+                />
                 <FormControlLabel
                   value="wrong-type"
                   control={<Radio />}
