@@ -1,6 +1,8 @@
 # Runbook — la prueba del SSO, paso a paso
 
-_Escrito por T0 para JP · 2026-08-26 · **en firme**: verificado sobre `41438cf`, 504/504.
+_Escrito por T0 para JP · 2026-08-26 · **actualizado 2026-08-28**: verificado sobre `3a8f42d`,
+557/557. Los pasos marcados CORREGIDO se reescribieron porque la versión original estaba
+equivocada; se deja dicho cuál era el error en vez de borrarlo._
 
 ---
 
@@ -25,10 +27,14 @@ la B no sirve de nada todavía.
 
 ```bash
 cd /Users/jpudev2/Proyectos/pijama-films-promote
-git checkout feat/atlas-sso
-git merge origin/feat/atlas-sso-server origin/feat/atlas-sso-page
+git checkout feat/atlas-sso && git pull --ff-only
 npx yarn@1.22.22 dev
 ```
+
+Ya no hace falta mergear las ramas de T1 y T2: están en `feat/atlas-sso`, junto con el fix del
+largometraje (#47) y los dos fixes del 2026-08-28. **El merge de #47 no es opcional**: el dev
+local apunta a `FIREBASE_PROJECT_ID=pijama-promote-firebase`, o sea la Firestore de producción,
+y una rama sin ese fix vuelve a escribir los documentos `Video Principal` que se purgaron.
 
 Necesitas en tu `.env` (todas son configuración pública, ningún secreto nuevo):
 
@@ -41,14 +47,53 @@ ATLAS_LOGIN_ALLOWED_PARTNER_IDS=""
 
 Las dos últimas déjalas así: el login arranca cerrado a propósito.
 
-### A2. Sacar el token de tu sesión de Atlas
+### A2. Conseguir el token — CORREGIDO 2026-08-28
 
-Con tu sesión abierta en `https://dashboard.pijamafilms.com`, abre las DevTools del navegador
-y busca el JWT en el storage de esa pestaña (Application → Local Storage / Session Storage).
-Es un string que empieza con `eyJ`.
+**La versión anterior de este paso era imposible y el error fue de T0.** Decía "busca el JWT en
+el storage de la pestaña". No hay JWT que buscar: se midieron los cuatro almacenamientos del
+cliente en `dashboard.pijamafilms.com` con sesión activa y **ninguno contiene un token**.
+`localStorage` tiene una clave (`theme`), `sessionStorage` está vacío, IndexedDB está vacío, y
+las once cookies legibles por JS son todas de analítica. La sesión vive en
+`console-production`, una cookie `httpOnly` de `express-session` — `s:<sessionID>.<HMAC>`, un
+identificador opaco, no un token portador.
 
-**Tratalo como una credencial de producción, porque lo es.** Vive 24 horas. No lo pegues en
-un chat, ni en un archivo, ni me lo mandes a mí — no lo necesito y no debo verlo.
+**De dónde sale el token de verdad.** El bundle desplegado de Console
+(`/resources/entry.js?v=…`, público) muestra que lo emite su servidor en el momento del
+handoff:
+
+```js
+const t = await this.$aid.request("/partners/external-token");   // → { status:'ok', token }
+```
+
+Ese endpoint se autentica por cookie, así que se puede llamar desde la Console del navegador
+con la sesión abierta. En la pestaña de `dashboard.pijamafilms.com`:
+
+```js
+const r = await (await fetch('/partners/external-token',
+  { headers: { 'X-Requested-With': 'XMLHttpRequest' } })).json();
+const i = document.createElement('input');
+i.type = 'password';
+i.style.cssText = 'position:fixed;top:12px;left:12px;z-index:99999;width:420px;font-size:16px';
+i.value = r.token;
+document.body.appendChild(i);
+i.focus(); i.select();
+console.log(r.status, `len=${r.token.length} pref=${r.token.slice(0,10)}…`);
+```
+
+El token queda en un campo **enmascarado** y nunca se dibuja como texto. Después `Cmd+C`
+**sobre la página** — no en DevTools — y de ahí al simulador. Limpiar con `i.remove()`.
+
+**Dos gotchas, los dos observados:**
+
+- `navigator.clipboard.writeText` falla con `NotAllowedError: Document is not focused` cuando
+  se corre desde DevTools: el foco está en DevTools, no en la página. El `i.focus()` de arriba
+  lo resuelve. La utilidad `copy()` de DevTools tampoco sirve acá: el `await` de nivel superior
+  hace que el snippet se envuelva en una función async y `copy` queda fuera de scope.
+- **Copiar el snippet y pegarlo sin haber copiado el token deja el código en el portapapeles.**
+  Pasó. El panel lo delata: mostró `446 chars · starts with "const …"`. Si el largo no es del
+  orden de 200–900 y el prefijo no es `eyJ`, se colo el snippet.
+
+Trátalo como credencial de producción, porque lo es. No lo pegues en un chat ni en un archivo.
 
 ### A3. Correr el probe
 
@@ -69,8 +114,17 @@ respuesta:
 | 200 | `true` | `{...}` | **El SSO funciona.** Siguiente paso: poblar la allowlist con ese `partnerId` y probar el modo `login`. |
 | 200 | `true` | `null` | **El SSO funciona, pero tu cuenta es admin y no tiene partner.** No es un fallo. Hace falta una cuenta de productor en el dashboard. |
 | 200 | `false` | — | Atlas respondió otra cosa. `responseShapeKeys` es el hallazgo que va a Crazy Cake. |
-| 302 | `false` | — | Token rechazado, o la base URL no es esa. El mensaje trae el destino del redirect. |
+| 302 | `false` | — | **La puerta de sesión de Console**, no un token rechazado. Ver la corrección debajo. |
 | 0 | `false` | — | No se llegó a Atlas: DNS, timeout, o la variable sin configurar. |
+
+
+**CORRECCIÓN 2026-08-28 · la fila del 302 estaba mal leída.** Decía "token rechazado, o la base
+URL no es esa". Es otra cosa, y se midió: `/movies/by-partner` **existe** y con sesión responde
+`{"status":"error","error":"MISSING_TOKEN","message":"Authorization header with Bearer token is
+required"}`. O sea el path, el base URL y el mecanismo `Bearer` del Contrato C son correctos.
+Pero hay una **puerta de sesión por cookie delante de la ruta**: desde nuestro servidor las seis
+combinaciones de cabeceras dan 302 a `/auth/auth/logout`, con o sin `Bearer`. Un token rechazado
+por esa ruta produce JSON; **el 302 es la puerta, no la ruta.**
 
 **El más probable es el segundo**, porque tu cuenta administra todas las películas de la
 plataforma y el endpoint es por partner. Que el panel diga "el SSO funciona" en ese caso es
@@ -84,8 +138,10 @@ deliberado: es la conclusión correcta, no un error.
   "atlasStatus":302,"contractMatched":false,"partner":null,"responseShapeKeys":[]}}
 ```
 
-Si con tu token real sale exactamente eso, el token no está siendo aceptado o el base URL
-está equivocado — no es que el código falle.
+Ese 302 **no** significaba token rechazado: es la puerta de sesión respondiendo antes de que la
+ruta corra. Con un token real el resultado puede ser distinto, y si vuelve a salir 302 lo que
+queda demostrado es que la puerta no acepta `Bearer` desde fuera del navegador — un bloqueo de
+Crazy Cake, no nuestro.
 
 ### A5. Los otros cuatro casos del simulador
 
@@ -98,27 +154,49 @@ En todos, un `Ctrl+F` en la página debe **no** encontrar tu token completo.
 
 ---
 
-## Parte B · Contrato B, en producción
+## Parte B · Contrato B — CORREGIDO 2026-08-28: bloqueada, y no por nosotros
 
-Requiere merge a la rama que despliega, así que **es una decisión tuya y no la tomo yo.**
+**Ya no depende de un deploy nuestro.** Se leyó el bundle desplegado de Console y el emisor
+existe, pero tiene un defecto que impide que el handoff funcione en cualquier circunstancia:
 
-Antes de decidir, tres cosas que ese deploy arrastra además del SSO:
+```js
+setTimeout(() => {
+  win.postMessage({ type: "ATLAS_AUTH", token }, window.location.origin);
+}, 1000);
+```
 
-1. **`STRIPE_SECRET_KEY` v3** — la clave live rotada. Producción está en modo test desde el
-   viernes 21, así que esto es deseable, pero es un cambio de comportamiento real en cobros.
-2. **`META_PIXEL_ID` v2** — el valor real en vez del placeholder.
-3. **`NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` se hornea en build.** Mergear no la activa: hace
-   falta que App Hosting reconstruya. Si se mergea sin rollout, `/auth` rechaza a Console en
-   silencio — aunque el panel lo va a decir en pantalla ("none configured"), así que el
-   síntoma es legible.
+El segundo argumento de `postMessage` es el **`targetOrigin`**: el origen al que el navegador
+tiene permitido entregar el mensaje. Console pasa `window.location.origin`, que es **su propio
+origen**. La ventana destino está en `promote.pijamafilms.com`, así que los orígenes no
+coinciden y **el navegador descarta el mensaje en silencio**. Nunca sale del emisor.
 
-Y el PR #45 del webhook de Stripe sigue necesitando el `whsec_` que falta de Pablo.
+Es una línea. Debería ser el origen derivado de `marketingUrl`.
 
-**Cuando decidas hacerlo**, la prueba es: entrar a `dashboard.pijamafilms.com`, abrir la
-herramienta de promoción, y mirar el panel de `/auth`. Ahí se responde si el `postMessage`
-llega y de qué origen.
+**Consecuencia práctica:** desplegar nuestra mitad no hace que la Parte B pase. Mientras esa
+línea no se corrija del lado de Crazy Cake, el panel de `/auth` en producción va a decir
+—correctamente— que no llegó ningún `postMessage`. Eso no es un fallo nuestro y el panel lo
+distingue: *"Nothing was posted to this window at all"* es un estado distinto de "llegó y falló".
 
----
+**Dos hallazgos más del mismo código, que conviene mandar juntos:**
+
+1. El payload es `{ type, token }` — **sin `partner`**, que su documentación sí describe. Eso ya
+   lo absorbimos nosotros (`fc4b7e1`): `partner` pasó a opcional, porque además es dato no
+   confiable y la identidad autoritativa viene de la respuesta del servidor de Atlas.
+2. El `setTimeout` de 1000 ms es **disparo único, sin reintento ni handshake**. Nosotros
+   posteamos `PROMOTE_READY` al `opener`, pero Console no lo escucha. Nuestro listener se
+   registra antes del primer paint y bufferea, así que aguanta; pero si su ventana llegara a
+   postear antes de que carguemos, se pierde y no hay segunda oportunidad.
+
+### Cuando ellos corrijan, lo que arrastra nuestro deploy
+
+Sigue vigente y sigue siendo decisión tuya:
+
+1. **`NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` se hornea en build.** Mergear no la activa: hace falta
+   que App Hosting reconstruya. El síntoma es legible ("none configured" en el panel).
+2. **Auto-rollout está activo** (`Traffic.rolloutPolicy.codebaseBranch: master`, medido el
+   2026-08-28). O sea **mergear a `master` despliega de inmediato**, sin gate intermedio: el
+   merge y el deploy son el mismo acto. La versión anterior de este runbook decía lo contrario.
+3. **`/auth` cambia de comportamiento en producción**: hoy responde 404, después una página.
 
 ## Qué no cierra esta prueba
 

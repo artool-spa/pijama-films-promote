@@ -437,3 +437,98 @@ porque detiene la búsqueda. "No había auto-rollout" explicaba Stripe de forma 
 por eso dejé de preguntar. La objeción del usuario contra la pantalla fue lo que lo destapó —
 cuando el usuario contradice una medición mía, la consulta correcta es al sistema, no a mi
 razonamiento.
+
+---
+
+## 2026-08-28 · Cierre de la investigación del SSO: la respuesta está, y el bloqueo es de ellos
+
+### Estado actual
+
+`feat/atlas-sso` en **`3a8f42d`**, verificado por T0 en worktree propio sobre la integración de
+las dos ramas: `tsc --noEmit` limpio, **557/557 en 40/40**. Dev server corriendo en el checkout
+principal, servido desde esa rama. Nada desplegado.
+
+### La pregunta del proyecto, respondida
+
+**El SSO no está operativo, y el defecto que lo impide es de Crazy Cake.** Cinco hechos medidos,
+cada uno reproducible:
+
+1. `/movies/by-partner` **existe** y responde `MISSING_TOKEN` pidiendo `Bearer`. El Contrato C es
+   correcto en path, base URL y mecanismo — primera confirmación real desde enero.
+2. Está detrás de una **puerta de sesión por cookie**: seis combinaciones de cabeceras desde
+   nuestro servidor dan 302 a `/auth/auth/logout`, con y sin `Bearer`.
+3. La sesión del cliente es `console-production`, cookie `httpOnly` de `express-session`
+   (`s:<sessionID>.<HMAC>`) — **no un JWT**. No hay token en el cliente que se pueda leer.
+4. El token lo **emite el servidor** de Console en el handoff:
+   `GET /partners/external-token` → `{ status:'ok', token }`. El emisor existe.
+5. **El defecto:** `postMessage({...}, window.location.origin)`. El `targetOrigin` es el origen
+   *propio* de Console, no el del portal destino, así que el navegador descarta el mensaje. Una
+   línea, y explica por qué en enero pudieron decir de buena fe que "testing ya tiene todo para
+   funcionar": el código está escrito completo y no se probó de punta a punta ni una vez.
+
+Nuestra mitad quedó verificada contra el host real, sin fakes en ninguna frontera declarada.
+
+### Lo que se arregló de nuestro lado hoy
+
+| commit | qué |
+|---|---|
+| `fc4b7e1` | `partner` opcional en el Contrato B (Console no lo manda); el simulador ya no clasifica la forma real como modo de falla; el run con token real postea la forma real |
+| `3a8f42d` | un token que no puede viajar en una cabecera se rechaza en `stage: 'input'`, con el valor enmascarado |
+
+Verificado además **por HTTP contra el servidor corriendo**, no solo con unit tests —que mockean
+`fetch` justo en la frontera que el fix protege: saltos de línea, TAB y `é` dan
+`400 stage:"input"` nombrando el ofensor y su índice; un token opaco de una línea sigue llegando
+a Atlas con `atlasStatus: 302`.
+
+### Lecciones / gotchas
+
+**El nombre miente antes que el código.** Cuatro veces en el mismo día, en el mismo repo: el
+`CLAUDE.md` afirmando un auto-rollout que yo no verifiqué; el simulador declarando "modo de
+falla" la única forma que producción manda; el `stage` culpando a Atlas por un error nuestro de
+input; y un test llamado *"the same path Console uses"* cuyo payload no era el de Console. Las
+cuatro veces el código hacía algo consistente — mentía la etiqueta. **Un artefacto que se
+autodescribe hay que medirlo contra lo que hace, no leerlo.**
+
+**Una explicación falsa que cierra el caso es peor que ninguna.** Concluí que no había
+auto-rollout y con eso el episodio de Stripe quedaba explicado, así que dejé de buscar. La
+objeción de JP contra la pantalla de la consola lo destapó, y el gap real —rotar un secreto no
+despliega; Cloud Run fija la versión en build time— resultó ser otro (issue #53).
+
+**`fetch` no es un validador.** Medido en node 26.7/undici: LF, CR y NUL hacen throw *citando el
+valor completo*; TAB, espacio, DEL, VT y U+0080–U+00FF se **aceptan y se envían upstream tal
+cual**. Un defecto que parecía de diagnóstico tenía dos mitades: una filtraba el token, la otra
+contrabandeaba bytes a un tercero en silencio.
+
+**`toEqual` de vitest ignora las propiedades `undefined`.** Una aserción que se ve completa deja
+entrar un payload con la clave presente-pero-vacía. Se demuestra borrando la línea de
+`Object.keys` y viendo el test pasar. `toStrictEqual` lo atrapa nativamente.
+
+**Commitea antes de mutar.** Una corrida de mutación sobre un árbol sucio no mide el código que
+crees. Señal de que pasó: **nombres de test que ya no existen en el output**, y **un conteo que
+no cuadra**. (`git checkout -- <test>` sobre cambios sin commitear borra las ediciones.)
+
+**Un dev server viejo es un despliegue silencioso de código viejo contra datos reales.** Había
+uno de 3 días 18 horas apuntando a la Firestore de producción, en una rama sin el fix del
+largometraje. Al cerrar un incidente hay que preguntarse qué **procesos** quedaron corriendo,
+no solo qué ramas quedaron atrasadas.
+
+**El estado autoritativo entre coordinador y agente es el repositorio, nunca el último
+mensaje.** Tres cruces con el mismo agente en una hora, en las dos direcciones: yo midiendo un
+commit que ya no era la punta, y él pidiéndome un fetch que ya había hecho. Ninguno produjo una
+decisión equivocada, solo rondas gastadas, y solo porque cada afirmación se verificó contra el
+árbol antes de escribirla.
+
+**Un mutante vivo reportado es lo que hace creíble el reporte.** M6 sobrevivió; el agente
+diagnosticó la causa corriéndola junto con otra mutación para aislar quién carga el peso, y
+demostró que era redundancia y no hueco. Un reporte sin sobrevivientes es sospechoso.
+
+### Pendiente
+
+- **De Crazy Cake:** el `targetOrigin`. Sin eso la Parte B no puede pasar, se despliegue lo que
+  se despliegue.
+- **De JP:** correr la Parte A con el token real (`/partners/external-token` desde su Console).
+  Bloqueado momentáneamente porque su sesión de Console caducó.
+- **Posible:** que su cuenta admin no tenga partner del cual emitir token. Entonces hace falta
+  una cuenta de productor en el dashboard — un pedido concreto, no genérico.
+- **Fuera de este alcance, sigue siendo bloqueante del Go Live:** `getFilms()` no filtra por
+  partner. La allowlist es la única contención.
