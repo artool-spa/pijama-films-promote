@@ -120,3 +120,77 @@ the same class of defect as the one fixed here — but it is a configuration err
 user input, and changing it would rewrite an existing decision plus its test. Flagged
 rather than taken. DoD 5 as written ("`atlas_call` reserved for a genuine absence of an
 HTTP response") is satisfied for every path a user can trigger.
+
+---
+
+# T-stage, second pass — `stage: 'config'` for an unset `ATLAS_API_BASE_URL`
+
+Branch `fix/atlas-config-stage`, based on `feat/atlas-sso` @ `3a8f42d` (the merge of
+the first pass). Commit `10068a6`.
+
+## Why this was not just a note
+
+A missing base URL means we never had an address to call, yet it arrived as
+`stage: 'atlas_call'`, which `/auth` renders as *"Atlas could not be reached at
+all."* Same class as the header-unsafe token: our fault filed under the third
+party's. Configuration rather than input does not change who the message accuses —
+and on 2026-08-28 a mail to Crazy Cake about it was nearly sent.
+
+The decision being reversed here was taken before anyone knew that `stage` is the only
+thing separating "our fault" from "theirs" in the panel. This is informing it, not
+overturning it.
+
+## What changed
+
+- **`AtlasSessionStage` gains `'config'`.** The resulting build break is the mechanism,
+  not an obstacle: `STAGE_CONCLUSION` in `src/app/auth/atlas-bridge.ts` is keyed by the
+  imported type, so the build stayed red until the sentence a user reads was written.
+- **`AtlasCallResult.configError`** joins `inputError` as a channel meaning *the request
+  was never made*. `networkError` keeps its one meaning: Atlas did not answer.
+- **`500`**, not 400 or 502. The request was well-formed, so blaming the caller is wrong;
+  no gateway exchange happened, so 502 describes something that never took place.
+- **No diagnostics on the envelope.** This is not tidiness: a diagnostics block with
+  `atlasStatus: 0` makes `describeAtlasOutcome` print *"the request to Atlas never
+  completed — DNS, timeout or a refused connection"*, which is the same false accusation
+  arriving through a second door. Stage `input` already answers without diagnostics;
+  `config` matches it.
+- **On screen:** *"This deployment is missing its own configuration (ATLAS_API_BASE_URL),
+  so nothing was sent anywhere. Set the variable and try again — this result says nothing
+  about the token or about the integration."*
+- **Route header comment updated.** It documented the old behaviour as intentional; it
+  now records why that stopped being true.
+
+## The pre-existing test: deleted, not adapted
+
+`reports a missing ATLAS_API_BASE_URL as atlas_call, not as a crash` asserted exactly
+what this commit corrects, so adapting it would have preserved the claim under a new
+name. Its useful half — *a real transport failure is still `atlas_call`* — is now its own
+test, so narrowing the stage cannot silently empty it.
+
+One client-level assertion was **updated rather than deleted**: `reports a missing base
+URL without calling the network` claims something still true (no network call, reported
+not thrown); only the field carrying it moved from `networkError` to `configError`. The
+claim survived; the old stage claim did not.
+
+## Tests — 10 net new (567 / 40 files; 557 at `3a8f42d`)
+
+- **11 seen failing before the fix** (7 route+client, 4 bridge).
+- **2 born green**: `names the variable to set` (the old message already named it) and
+  `still mints no session`.
+- **1 replacement born green** by design: `keeps atlas_call for a transport failure`,
+  which exists to go red if the narrowing ever empties the stage.
+
+## Mutation report — all dead, none survived
+
+| # | Mutation | Result |
+|---|---|---|
+| M4 (mandatory) | send a missing base URL back to `atlas_call` | **DEAD** — 6 failed across the client and route suites |
+| M5 | keep the stage but attach a diagnostics block to it | **DEAD** — 1 failed (`attaches no diagnostics`). First attempt at this mutant killed via a TDZ `ReferenceError` instead of the assertion, which proves nothing; re-run with a literal diagnostics object so the kill is the assertion's. |
+| M6 | give `config` the `atlas_call` sentence on screen | **DEAD** — 1 failed (`blames the deployment, not Atlas`) |
+
+## Verification
+
+`npx tsc --noEmit` clean · `test --run` 567/567 in 40 files · `lint` 0 errors (same 4
+pre-existing warnings, untouched files). Not clicked through in a browser: `/auth` needs
+a real Atlas token. The rendered text was verified through `stageConclusion('config')` and
+`describeStage('config')` in `atlas-bridge.test.ts`.
