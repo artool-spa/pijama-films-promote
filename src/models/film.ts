@@ -383,25 +383,22 @@ function mapMediaAssets(movie: MuviMovieDetails): MediaAsset[] {
     }
   }
 
-  // Add main video as asset
-  if (movie.video_details) {
-    const videoUrl =
-      movie.video_details.mpeg_path ||
-      movie.video_details.file_url ||
-      movie.video_details.hls_path ||
-      movie.video_details.third_party_url ||
-      '';
-    if (videoUrl) {
-      assets.push({
-        id: `${movie.content_uuid}-video`,
-        type: 'video',
-        name: 'Video Principal',
-        url: videoUrl,
-        thumbnailUrl: posterUrl,
-        downloadUrl: getDirectVideoUrl(movie.video_details),
-      });
-    }
-  }
+  // `movie.video_details` is the FULL FEATURE FILM, and it is deliberately NOT
+  // mapped into a promotable asset. This is not an oversight -- do not re-add it.
+  //
+  // Two exposure paths made this a production incident:
+  //   1. Direct download. The asset carried a `downloadUrl` pointing at MUVI's
+  //      direct file, and the asset card in the UI renders a download button, so
+  //      anyone reaching the film page could pull the producer's whole movie.
+  //   2. Meta ingestion. `uploadAdVideo` (src/lib/meta/api.ts) sends
+  //      `file_url: videoUrl`, and Meta downloads the video from that URL. If the
+  //      asset were picked as a creative, Meta would ingest the feature film. The
+  //      500 MB cap does not protect here: it only applies to user uploads
+  //      (src/lib/storage/client.ts), never to URLs referenced from MUVI.
+  //
+  // `movie.trailer_details` above is the trailer -- legitimate promotional
+  // material -- and stays. The invariant is pinned by
+  // src/models/__tests__/film-media-assets.test.ts.
 
   return assets;
 }
