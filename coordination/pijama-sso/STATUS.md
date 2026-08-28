@@ -370,3 +370,41 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
   El documento de integración traía código de `fetch` desde el navegador que no puede
   funcionar. Un preflight con `curl` cuesta segundos y descarta media arquitectura.
   _(candidato: cuerpo de skill)_
+
+---
+
+## 2026-08-28 · Preparación de la Parte A + hallazgo de auto-deploy
+
+**Rama lista.** `feat/atlas-sso` en `5e3a6a3`: merge de `origin/master` para traer el fix #47.
+Verificado con build propio en ese HEAD (no por suma de reportes): `tsc --noEmit` limpio,
+**507/507 tests** en 40 archivos. Pusheada.
+
+**Por qué el merge no era opcional.** El dev local apunta a `FIREBASE_PROJECT_ID=pijama-promote-firebase`
+— o sea la **Firestore de producción**. Correr la prueba en una rama sin `f839ac5` y tocar
+cualquier ruta de películas dejaba a `syncMuviAssets` re-escribiendo los documentos
+`Video Principal` que se purgaron esta mañana. La rama sin el fix era un riesgo activo, no
+una deuda.
+
+**Hazard encontrado y cerrado:** había un `next dev` levantado hacía **3 días 18 horas** (PID
+85728) en el checkout principal, con `master` local en `bca7174` — atrasado respecto del fix.
+Detenido. Verificado antes de tocar nada que la purga aguanta: consulta de collection group
+por `name == 'Video Principal'` devuelve **0 documentos**.
+
+**Lección para el registro:** un dev server viejo es un despliegue silencioso de código viejo
+contra datos reales. El árbol dice `master`; el proceso sirve lo que cargó hace tres días.
+Al terminar un incidente hay que preguntarse qué procesos quedaron corriendo con el código de
+antes, no solo qué ramas quedaron atrasadas.
+
+**`.env` local:** agregadas las cuatro variables de Atlas (todas configuración pública). Los
+nombres se verificaron contra `grep process.env.*ATLAS` en el código, no contra el runbook.
+
+### Auto-deploy de App Hosting — la consola miente
+
+El campo "Rama activa (para lanzamientos)" muestra `master`; `v1`, `v1beta` y `v1alpha`
+coinciden en que `codebase` **no tiene campo `branch`**, y `gcloud builds triggers list` está
+vacío. La consola pre-rellena el default branch como sugerencia. Registrado en el issue #52
+con el comando que falta. **El PATCH quedó bloqueado por el clasificador de auto mode**: se
+escaló a JP en vez de buscarle la vuelta.
+
+Consecuencia escalada, no resuelta: con auto-rollout activo, mergear a `master` despliega. Eso
+cambia la naturaleza de tres merges pendientes (SSO, #45, #46).
