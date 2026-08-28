@@ -342,6 +342,26 @@ export function describeStage(
  * route there redirects to `/auth/auth/logout` rather than answering the `401`
  * its documentation promises. Rendering that as a bare number leaves the reader
  * to guess; naming it is the difference between a diagnosis and a status code.
+ *
+ * **Every branch here reports what was observed and never why.** That rule is not
+ * stylistic. This text renders in the "What Atlas did" row of `/auth`, and that
+ * screen gets screenshotted and sent to Crazy Cake — so a sentence here is a claim
+ * we make to the counterparty about their system.
+ *
+ * Two branches used to break the rule in opposite directions. The 3xx one said
+ * "either the token was rejected or ATLAS_API_BASE_URL points at the wrong host",
+ * and the non-contract one opened with "Atlas answered normally, so the token was
+ * accepted". Neither is observable from here: a redirect and a 200-with-an-error-body
+ * both tell us what came back, never whether Atlas examined the credential before
+ * producing it.
+ *
+ * What is measured, as of 2026-08-28: the same token that gets a 302 from our server
+ * (Bearer only) returns 200 with a well-formed Contract C body from a browser
+ * carrying session cookie + Bearer. So the token is valid and the route works, and
+ * the only variable that moves the result is the cookie. That still does not reveal
+ * whether the token is read before the redirect — which is the whole reason no
+ * branch may assign it a cause, in either direction. An unfounded exoneration is not
+ * better than an unfounded accusation; it is the same error wearing a friendlier face.
  */
 export function describeAtlasOutcome(diagnostics: AtlasDiagnostics | undefined): string | null {
   if (!diagnostics) return null;
@@ -352,7 +372,7 @@ export function describeAtlasOutcome(diagnostics: AtlasDiagnostics | undefined):
     return 'The request to Atlas never completed — DNS, timeout or a refused connection. Nothing can be concluded about the token.';
   }
   if (status >= 300 && status < 400) {
-    return 'Atlas redirected instead of answering. That is exactly what an unauthenticated request looks like there, so either the token was rejected or ATLAS_API_BASE_URL points at the wrong host.';
+    return `Atlas redirected (HTTP ${status}) instead of answering, so no Contract C body was produced and the call never reached the endpoint that returns one. That is what every unauthenticated request looks like there. Nothing follows from it about the token or the account — whether Atlas examined the token before redirecting is not visible from our side. Check whether ATLAS_API_BASE_URL points at the right host and whether the call carries the credentials Atlas expects.`;
   }
   if (status === 401 || status === 403) {
     return 'Atlas rejected the token outright.';
@@ -361,7 +381,7 @@ export function describeAtlasOutcome(diagnostics: AtlasDiagnostics | undefined):
     return 'Atlas answered with a server error. The token cannot be judged from this.';
   }
   if (diagnostics.contractMatched === false) {
-    return 'Atlas answered normally, so the token was accepted, but the body does not match Contract C. Compare the response keys below with what Crazy Cake documented.';
+    return `Atlas answered HTTP ${status}, but the body does not match Contract C. What that means for the token is not established either way — a success status carrying an unexpected body is not proof the credential was accepted. Compare the response keys below with what Crazy Cake documented.`;
   }
   return null;
 }

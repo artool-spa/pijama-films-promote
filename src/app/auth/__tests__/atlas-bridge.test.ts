@@ -4,6 +4,7 @@ import {
   ATLAS_LAB_ORIGIN,
   ATLAS_PRODUCTION_ORIGIN,
   defaultAllowedOrigins,
+  describeAtlasOutcome,
   STAGE_CONCLUSION,
   atlasAuthEnvelopeSchema,
   describeStage,
@@ -341,5 +342,69 @@ describe('parseSessionResponse (Contract A)', () => {
     expect(parseSessionResponse('<!doctype html>')).toBeNull();
     expect(parseSessionResponse({ error: 'Not found' })).toBeNull();
     expect(parseSessionResponse(null)).toBeNull();
+  });
+});
+
+/**
+ * `describeAtlasOutcome` had **no test at all** until now, which is how a false
+ * accusation lived in it unnoticed: its 3xx branch said "either the token was
+ * rejected or ATLAS_API_BASE_URL points at the wrong host".
+ *
+ * That sentence renders in the "What Atlas did" row, four rows under a banner that
+ * says nothing can be concluded about the token — so one screen made two
+ * incompatible claims, and it was on its way into a screenshot to Crazy Cake.
+ *
+ * Measured 2026-08-28: the same token that gets a 302 from our server (Bearer only)
+ * returns a 200 with a well-formed Contract C body from JP's browser (cookie +
+ * Bearer). The token is valid and the route works. Whether Atlas looks at the token
+ * before redirecting is still not visible from our side — which is exactly why no
+ * branch of this function may assign a cause to it, in either direction.
+ */
+describe('describeAtlasOutcome — reports observations, never causes it cannot see', () => {
+  const REJECTS_TOKEN = /token was rejected|invalid token|token is invalid/i;
+  const CLEARS_TOKEN = /token was (never )?(evaluated|examined|read|judged)|token was accepted/i;
+
+  it('describes a 302 as a redirect, without blaming or clearing the token', () => {
+    const text = describeAtlasOutcome({ atlasStatus: 302, contractMatched: false }) ?? '';
+
+    expect(text).toMatch(/redirect/i);
+    expect(text).not.toMatch(REJECTS_TOKEN);
+    expect(text).not.toMatch(CLEARS_TOKEN);
+  });
+
+  it('says the same for every 3xx, not just the 302 we happened to measure', () => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const text = describeAtlasOutcome({ atlasStatus: status, contractMatched: false }) ?? '';
+
+      expect(text, `status ${status}`).toMatch(/redirect/i);
+      expect(text, `status ${status}`).not.toMatch(REJECTS_TOKEN);
+      expect(text, `status ${status}`).not.toMatch(CLEARS_TOKEN);
+    }
+  });
+
+  /**
+   * This branch only runs for a 2xx, and it used to open with "Atlas answered
+   * normally, so the token was accepted". A 200 carrying an error body does not
+   * establish that. Same overclaim as the 3xx one, pointing the other way.
+   */
+  it('does not turn a 2xx with a non-contract body into "the token was accepted"', () => {
+    const text = describeAtlasOutcome({ atlasStatus: 200, contractMatched: false }) ?? '';
+
+    expect(text).toMatch(/Contract C/);
+    expect(text).not.toMatch(CLEARS_TOKEN);
+    expect(text).not.toMatch(REJECTS_TOKEN);
+  });
+
+  it('still says nothing can be concluded when the request never completed', () => {
+    const text = describeAtlasOutcome({ atlasStatus: 0 }) ?? '';
+
+    expect(text).toMatch(/nothing can be concluded/i);
+    expect(text).not.toMatch(REJECTS_TOKEN);
+  });
+
+  it('returns null when there is nothing measured to describe', () => {
+    expect(describeAtlasOutcome(undefined)).toBeNull();
+    expect(describeAtlasOutcome({})).toBeNull();
+    expect(describeAtlasOutcome({ contractMatched: true })).toBeNull();
   });
 });

@@ -463,10 +463,18 @@ describe('AtlasAuthClient — Contract A results', () => {
     post(validEnvelope(), PROD);
     renderClient();
 
+    // This asserted the sentence "either the token was rejected or ATLAS_API_BASE_URL
+    // points at the wrong host" until 2026-08-28 — so the false accusation was
+    // pinned by a test, exactly like the false green was. The row still has to
+    // *explain* the redirect; what it may not do is name a cause it cannot see.
     expect(await screen.findByText('What Atlas did')).toBeTruthy();
+    expect(screen.getByText(/Atlas redirected \(HTTP 302\)/)).toBeTruthy();
+    // getAllByText, and that is the point: the banner and this row now give the
+    // reader the same advice instead of two different stories.
     expect(
-      screen.getByText(/either the token was rejected or ATLAS_API_BASE_URL points at the wrong host/)
-    ).toBeTruthy();
+      screen.getAllByText(/ATLAS_API_BASE_URL points at the right host/).length
+    ).toBeGreaterThan(1);
+    expect(screen.queryByText(/either the token was rejected/)).toBeNull();
   });
 
   it('reports a network failure without crashing', async () => {
@@ -640,6 +648,59 @@ describe('AtlasAuthClient — the banner claims only what was established', () =
     ).toBeTruthy();
     expect(bannerSeverity(container)).toBe('info');
   });
+});
+
+/**
+ * A screen-level invariant, not a string-level one.
+ *
+ * Each sentence on this page was individually defensible while the page as a whole
+ * contradicted itself: the banner said nothing could be concluded about the token,
+ * and the "What Atlas did" row four rows below said "either the token was rejected".
+ * Testing each string separately is what let that survive — both passed their own
+ * checks. This asserts the property that actually matters: **for one run, no part of
+ * the rendered page assigns a cause to the token or the account.**
+ *
+ * It matters because this screen gets screenshotted and sent to Crazy Cake. A
+ * capture containing both sentences is worse than either one alone.
+ */
+describe('AtlasAuthClient — the whole screen agrees with itself', () => {
+  // Claims about *why*, in both directions. A redirect or a wrong-shaped body tells
+  // us what Atlas returned, never whether it looked at the credential first.
+  const CAUSAL_CLAIMS = [
+    /token was rejected/i,
+    /invalid token/i,
+    /token is invalid/i,
+    /token was (never )?(evaluated|examined|read|judged)/i,
+    /token was accepted/i,
+    /account (is|was) (not )?(allowed|rejected)/i,
+  ];
+
+  for (const atlasStatus of [301, 302, 307, 200]) {
+    it(`assigns no cause to the token anywhere on screen for an HTTP ${atlasStatus}`, async () => {
+      respondWith(200, {
+        ok: true,
+        diagnostics: {
+          atlasStatus,
+          contractMatched: false,
+          atlasUrlTried: 'https://dashboard.pijamafilms.com/movies/by-partner',
+          responseShapeKeys: ['error'],
+        },
+      });
+      installBridge();
+      post(validEnvelope(), LAB);
+      const { container } = renderClient();
+
+      await screen.findByText('Atlas answered, but not with the contract');
+      const page = container.textContent ?? '';
+
+      for (const claim of CAUSAL_CLAIMS) {
+        expect(page, `HTTP ${atlasStatus} — page asserts a cause it cannot see`).not.toMatch(claim);
+      }
+      // And the status itself is on screen, so "says nothing" never becomes "shows
+      // nothing": the reader still gets the one fact that was measured.
+      expect(page).toContain(String(atlasStatus));
+    });
+  }
 });
 
 describe('AtlasAuthClient — login redirect', () => {
