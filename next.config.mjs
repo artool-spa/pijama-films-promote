@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // `next dev` otherwise appends a `nextjs-agent-rules` block to CLAUDE.md on
+  // every start, leaving an uncommitted change in a file the repo maintains by
+  // hand. The guidance it adds is in `node_modules/next/dist/docs/` regardless.
+  agentRules: false,
   serverExternalPackages: ['pino', 'pino-pretty'],
   images: {
     formats: ['image/avif', 'image/webp'],
