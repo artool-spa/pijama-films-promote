@@ -28,11 +28,18 @@ function getSecretKey(): Uint8Array {
 // and each route authorizes that token itself via authorizeInternalRequest.
 // Leaving either one out here means the middleware answers 401 before the route
 // ever runs.
+//
+// `/api/webhooks/` is the same case with a different caller: Stripe posts from
+// its own servers and carries no session cookie, so gating it here answered 401
+// to every event before the handler ran. The route authorizes itself by
+// verifying the HMAC signature against STRIPE_WEBHOOK_SECRET, which is a
+// stronger check than a cookie.
 const PUBLIC_ROUTES = [
   '/login',
   '/api/auth/login',
   '/api/cron/',
   '/api/internal/',
+  '/api/webhooks/',
   '/privacy-policy',
   '/terms-of-service',
   '/auth',
