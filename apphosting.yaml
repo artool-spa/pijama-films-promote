@@ -254,14 +254,22 @@ env:
     availability:
       - RUNTIME
 
-  # Comma-separated partner ids allowed to log in through Atlas. FAIL-CLOSED:
-  # empty or absent rejects everyone. It must never be read as "empty = all" -
-  # getFilms() does not filter by partner, so one unintended session sees the
-  # whole catalogue. Leave empty until JP names the partner ids.
-  - variable: ATLAS_LOGIN_ALLOWED_PARTNER_IDS
-    value: ""
-    availability:
-      - RUNTIME
+  # ATLAS_LOGIN_ALLOWED_PARTNER_IDS is DELIBERATELY ABSENT, not empty.
+  #
+  # It is the comma-separated list of partner ids allowed to log in through
+  # Atlas, and it is FAIL-CLOSED: absent or empty rejects everyone. It must
+  # never be read as "empty = all" - getFilms() does not filter by partner, so
+  # one unintended session sees the whole catalogue.
+  #
+  # Do NOT add it back with `value: ""` to make the intent look explicit. App
+  # Hosting rejects an empty value at build time and the whole build fails with
+  # "apphosting.yaml is not formatted properly", which names the file and not
+  # the line - that is what broke build-2026-09-01-001. Absent is the supported
+  # way to express "nobody", and `getAtlasAllowedPartnerIds()` reads it as such
+  # (src/lib/atlas/config.ts), guarded by the test "rejects everyone when the
+  # allowlist is absent".
+  #
+  # To enable login: add the entry back WITH real partner ids as the value.
 
   # Origins allowed to postMessage into /auth. Production first; the lab is
   # secondary. No wildcards. NEXT_PUBLIC_* is baked at BUILD time: merging a
