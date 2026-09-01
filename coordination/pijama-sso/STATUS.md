@@ -668,3 +668,67 @@ El correo a Mathias queda **sin** el párrafo sobre el redirect y **sin** el pun
   (recordar: mergear = desplegar) · PRs #45/#46 y el `whsec_` de Pablo · scoping por partner
   en `getFilms()` (bloqueante del Go Live, proyecto aparte) · aplicar etapas 1 y 2 del DNS
   cuando Crazy Cake confirme.
+
+---
+
+## 2026-09-01 · Crazy Cake entregó, y el Contrato C se cumplió por primera vez
+
+Mathias respondió el 2026-08-31 23:38, catorce horas después del correo. Las tres cosas que
+pedimos: hechas, con una salvedez de ambiente. **Verificado por T0, no tomado del mensaje.**
+
+| Lo que dijo | Verificación independiente | Testing | Producción |
+|---|---|---|---|
+| "Ya arreglamos todo" (fix del `targetOrigin`) | Lectura del bundle desplegado | ✅ `new URL(i, window.location.origin).origin` → postea contra el origen del portal | ❌ sigue `window.location.origin` |
+| "Dejamos abierto el endpoint verificando el bearer" (opción A) | `curl` con Bearer falso, sin cookie | ✅ `401 INVALID_TOKEN` en JSON | ❌ sigue `302 → /auth/auth/logout` |
+| "Ya ejecutamos la etapa 1" del DNS | `dig` | ✅ TXT `fah-claim=002-02-198b7569-…` y CNAME del ACME resuelven con los valores exactos; el `A` sigue en `64.176.6.210`, o sea la etapa 2 no se tocó | — |
+
+Eligieron la **opción A** y avisan que igual van a trabajar en la **C** (RS256 + JWKS), que era
+la que recomendamos a largo plazo. Piden nuestro visto bueno para pasar a producción.
+
+### La prueba local contra testing — resultado
+
+`ATLAS_API_BASE_URL` apuntado a `dashboard-lab`, token real emitido por
+`/partners/external-token` de una cuenta de productor, simulador en modo `probe`:
+
+```
+atlasStatus 200 · contractMatched yes · responseShapeKeys status, data
+partner: jpundurraga@artool.cl · partnerId 6984824e65c8a085b5d5a632
+movieCount 0
+```
+
+**El 401 previo con token falso fue tan informativo como el 200.** Antes de la corrección,
+cualquier llamada sin cookie moría en el 302 sin que la ruta mirara el `Authorization`; ahora
+la ruta evalúa el token y responde sobre él. Eso es exactamente lo que la opción A prometía.
+
+De paso quedó ejercitada nuestra cadena interna completa: listener registrado antes del primer
+paint con buffer (`buffered pre-mount` en el panel), envelope aceptado **sin** campo `partner`,
+canje del token en el servidor.
+
+### Qué NO prueba esta corrida — y conviene no confundirlo
+
+- **El Contrato B sigue sin ejercitarse de verdad.** El `postMessage` lo emitió *nuestro*
+  simulador, no Console. Que su fix funcione lo sabemos por lectura del bundle, no porque un
+  navegador lo haya ejecutado contra nuestra página. Es justo la trampa del smoke que inyecta
+  una pieza falsa en la frontera que quiere validar: acá la pieza falsa es el emisor, y la
+  frontera que sí se validó de verdad es servidor↔Atlas. Para cerrar B hace falta `/auth` vivo
+  en `promote.pijamafilms.com` (hoy 404) y abrir el portal desde Console del lab.
+- **`movieCount 0`.** La forma del contrato queda probada igual —`data.movies` vino como
+  arreglo vacío, que es respuesta válida—, pero **nuestro código que lee las entradas de
+  `movies[]` nunca corrió contra datos reales**. Ese camino sigue sin ejercitar.
+
+### Pendientes, en orden
+
+1. **Confirmar el certificado en App Hosting antes de dar luz verde a la etapa 2 del DNS.** Los
+   registros propagaron, pero que el dominio quede verificado y el cert emitido lo dice Google,
+   no el `dig`. Requiere reautenticar `gcloud`.
+2. **Responder a Mathias**: visto bueno para producción + luz verde de la etapa 2.
+3. **Merge de `feat/atlas-sso`** para cerrar el Contrato B. Recordar: mergear despliega de
+   inmediato, y antes hay que resolver el conflicto trivial de `src/middleware.ts` con el
+   `master` nuevo (PR #45 agregó `/api/webhooks/` a la misma lista `PUBLIC_ROUTES`).
+   El deploy es de bajo riesgo: en `apphosting.yaml`, `ATLAS_LOGIN_ENABLED=false` y la
+   allowlist vacía, así que `/auth` queda como página de diagnóstico y no puede emitir sesión.
+4. **Scoping por partner en `getFilms()`** — sigue siendo el bloqueante del Go Live, aparte.
+5. El `whsec_` de Pablo, sin relación con esto.
+
+El `partnerId` a poner en la allowlist cuando se habilite el login es
+`6984824e65c8a085b5d5a632`.
