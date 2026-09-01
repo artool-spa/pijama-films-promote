@@ -788,3 +788,48 @@ Verificación del árbol desplegado: `tsc` limpio, lint sin errores, **588/588 e
 expuesto: `ATLAS_LOGIN_ENABLED=false` y allowlist vacía la dejan como página de diagnóstico sin
 poder emitir sesión. En producción el canje va a dar `302` hasta que Crazy Cake despliegue allá
 —ya tienen nuestro visto bueno—, y el panel reporta ese caso sin culpar al token.
+
+### El deploy falló primero, y por el `apphosting.yaml` — no por el código
+
+`build-2026-09-01-001`, el auto-rollout del merge de #54, murió con *"Your apphosting.yaml file
+at path '/workspace/apphosting.yaml' is not formatted properly"*. El mensaje **nombra el archivo,
+no la línea**. De las 34 entradas de `env`, la única inválida era nuestra:
+`ATLAS_LOGIN_ALLOWED_PARTNER_IDS` con `value: ""` — **App Hosting rechaza un valor vacío**.
+
+Producción nunca se vio afectada: el build falla antes de crear revisión, así que las tres
+señales del baseline seguían idénticas cuando se diagnosticó. Falló cerrado.
+
+Arreglo en **PR #55**: la variable queda **deliberadamente ausente** en vez de vacía. No debilita
+el fail-closed, y no es suposición: `getAtlasAllowedPartnerIds()` lee ausente y vacío igual, y el
+test *"rejects everyone when the allowlist is absent"* ya cubría ese camino **antes** de este
+cambio. Donde estaba la entrada quedó un comentario diciendo por qué no hay que reponerla vacía,
+porque el error del build no apunta a la causa.
+
+**La lección, que es la de siempre en este proyecto:** `tsc`, lint y los 588 tests no miran el
+`apphosting.yaml`. Es una rama que solo se ejecuta en el entorno real, y por eso ningún entorno
+anterior podía verla. Pendiente propuesto: validar el `apphosting.yaml` en la suite —al menos
+"ninguna entrada de `env` con `value` vacío o nulo, y todas con `variable` más `value` o
+`secret`"—, que es barato y habría atajado esto.
+
+### Deploy confirmado · `build-2026-09-01-002` READY, commit `eaff7fe`
+
+Verificado contra la foto del ANTES, no por supuesto:
+
+| Ruta | Antes | Ahora | Lectura |
+|---|---|---|---|
+| `/auth` | 404 | **200** | la señal inequívoca: el código nuevo está vivo |
+| `/dev/atlas-simulator` | 307 | 307 | **sigue cerrado**, las dos capas aguantan |
+| `POST /api/webhooks/stripe` | 400 | 400 | sin regresión: la firma se sigue verificando, no volvió el 401 |
+
+Dos verificaciones de fondo más:
+
+- **`NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS` se horneó bien**: la página sirve los dos orígenes y no
+  dice "none configured", que era el síntoma del gotcha de las variables de BUILD.
+- **El canje está cableado en producción**: con token inválido responde
+  `atlasStatus 302 · contractMatched false`, o sea llega a Atlas de producción y se topa con la
+  puerta de sesión que Crazy Cake todavía no ha desplegado allá. Es el resultado esperado, y el
+  panel lo reporta sin culpar al token.
+
+Con esto el **Contrato B ya se puede cerrar de verdad**: falta abrir el portal desde Console del
+lab —que sí tiene el fix— contra este `/auth` de producción. Es la única frontera que hasta ahora
+se había ejercitado con una pieza simulada.
