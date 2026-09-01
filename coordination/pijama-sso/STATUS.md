@@ -748,3 +748,43 @@ Queda pendiente de Crazy Cake: el deploy a producción y la etapa 2. **El proxy 
 baja al recibir el aviso** — primero se verifica que el tráfico entre directo (`server: envoy`,
 no `nginx`), y JP dejó dicho en el correo que esperaremos uno o dos días. Mientras el proxy siga
 en pie, el rollback es volver a poner el `A` anterior.
+
+---
+
+## 2026-09-01 20:07 UTC · `feat/atlas-sso` mergeada a `master` — deploy a producción
+
+PR **#54**, merge commit `e860fe6`. 31 archivos, +7748/−30. Autorizado explícitamente por JP.
+
+Antes del merge se resolvió el conflicto de `src/middleware.ts` (commit `46b5b7e`): era solo
+entre los dos párrafos de comentario, y se conservaron las dos entradas de `PUBLIC_ROUTES`.
+
+**Dos cosas se hicieron antes del merge a propósito, para no gastar un segundo rollout:**
+
+1. **Se agregó el guard que le faltaba al PR #45.** Mutación: quitar `/api/webhooks/` de
+   `PUBLIC_ROUTES` dejaba los 584 tests **verdes**, o sea el fix de Stripe se podía borrar y
+   nadie se enteraba — exactamente el modo de falla del incidente original (401 antes del
+   handler, y el 401 nunca dice "middleware"). Nuevo archivo
+   `src/app/api/webhooks/__tests__/middleware-public-route.test.ts`, en su propio archivo y no
+   en el de Atlas, que está acotado a ese dominio. Verificado con tres mutaciones; cada uno de
+   los cuatro casos muere en al menos una, ninguno es peso muerto. La tercera mutación —quitar
+   la barra final de la entrada— mata solo el caso de rutas hermanas, que es justo la propiedad
+   que ese caso existe para proteger.
+2. **Los cuatro `readme-T*.md` de los agentes salieron de la raíz de master** (commit
+   `e268589`), archivados acá en `readmes-agentes/`. Decisión de JP entre tres opciones.
+
+**Baseline del ANTES, tomado antes de mergear** (sin foto previa, cualquier valor posterior es
+compatible con "ya estaba así"):
+
+| Ruta | Antes |
+|---|---|
+| `/auth` | **404** ← la señal inequívoca que debe cambiar |
+| `/dev/atlas-simulator` | 307 (cerrado) — debe **seguir** cerrado |
+| `POST /api/webhooks/stripe` | 400 — debe **seguir** en 400, no volver a 401 |
+
+Verificación del árbol desplegado: `tsc` limpio, lint sin errores, **588/588 en 41 archivos**, y
+`git diff` vacío entre el commit probado y el desplegado.
+
+**Lo que cambia visiblemente:** `/auth` pasa de 404 a servir una página. Nada más queda
+expuesto: `ATLAS_LOGIN_ENABLED=false` y allowlist vacía la dejan como página de diagnóstico sin
+poder emitir sesión. En producción el canje va a dar `302` hasta que Crazy Cake despliegue allá
+—ya tienen nuestro visto bueno—, y el panel reporta ese caso sin culpar al token.
