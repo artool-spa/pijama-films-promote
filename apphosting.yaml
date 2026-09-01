@@ -249,27 +249,42 @@ env:
 
   # Gate for the `login` mode. Only the exact string "true" enables it; probe
   # mode is unaffected and never mints a session.
+  #
+  # Enabled 2026-09-01, and the allowlist below is what makes that safe: the two
+  # are one decision, not two. Turning this on with an empty or absent allowlist
+  # still admits nobody (fail-closed), but widening the allowlist while this is
+  # "true" grants real access immediately.
   - variable: ATLAS_LOGIN_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
 
-  # ATLAS_LOGIN_ALLOWED_PARTNER_IDS is DELIBERATELY ABSENT, not empty.
+  # Comma-separated partner ids allowed to log in through Atlas. FAIL-CLOSED:
+  # absent or empty rejects everyone, and it must never be read as "empty = all"
+  # - getFilms() does not filter by partner, so any session sees the WHOLE
+  # catalogue and the platform-wide aggregates. This list is the only thing
+  # containing that.
   #
-  # It is the comma-separated list of partner ids allowed to log in through
-  # Atlas, and it is FAIL-CLOSED: absent or empty rejects everyone. It must
-  # never be read as "empty = all" - getFilms() does not filter by partner, so
-  # one unintended session sees the whole catalogue.
+  # These are ATLAS partner ids (Console ObjectIds), NOT the `partnerId` on our
+  # own Firebase users. All five current promote users share `pijamafilms`, which
+  # Atlas never sends: putting it here would allow nobody while looking
+  # configured. Verify a new id by running the /auth panel in probe mode with
+  # that person's token and reading the partnerId Atlas returns.
   #
-  # Do NOT add it back with `value: ""` to make the intent look explicit. App
-  # Hosting rejects an empty value at build time and the whole build fails with
-  # "apphosting.yaml is not formatted properly", which names the file and not
-  # the line - that is what broke build-2026-09-01-001. Absent is the supported
-  # way to express "nobody", and `getAtlasAllowedPartnerIds()` reads it as such
-  # (src/lib/atlas/config.ts), guarded by the test "rejects everyone when the
-  # allowlist is absent".
+  # 6984824e65c8a085b5d5a632 - jpundurraga@artool.cl, measured 2026-09-01. The
+  # in-house operator, deliberately the only entry: with getFilms() unscoped,
+  # admitting a real producer here would hand them the whole catalogue.
   #
-  # To enable login: add the entry back WITH real partner ids as the value.
+  # If this ever has to mean "nobody", REMOVE THE ENTRY - do not set `value: ""`.
+  # App Hosting rejects an empty value and the whole build fails with
+  # "apphosting.yaml is not formatted properly", naming the file and not the
+  # line; that is what broke build-2026-09-01-001. Absent is the supported way,
+  # `getAtlasAllowedPartnerIds()` reads it as such, and the test "rejects
+  # everyone when the allowlist is absent" guards it.
+  - variable: ATLAS_LOGIN_ALLOWED_PARTNER_IDS
+    value: 6984824e65c8a085b5d5a632
+    availability:
+      - RUNTIME
 
   # Origins allowed to postMessage into /auth. Production first; the lab is
   # secondary. No wildcards. NEXT_PUBLIC_* is baked at BUILD time: merging a
