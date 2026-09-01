@@ -29,6 +29,12 @@ function getSecretKey(): Uint8Array {
 // Leaving either one out here means the middleware answers 401 before the route
 // ever runs.
 //
+// `/api/webhooks/` is the same case with a different caller: Stripe posts from
+// its own servers and carries no session cookie, so gating it here answered 401
+// to every event before the handler ran. The route authorizes itself by
+// verifying the HMAC signature against STRIPE_WEBHOOK_SECRET, which is a
+// stronger check than a cookie.
+//
 // `/api/auth/atlas/` is the Atlas SSO exchange: it is called by the `/auth`
 // landing page, which by definition has no session cookie yet, and it
 // authorizes itself on Atlas' answer plus a partner allowlist.
@@ -38,6 +44,7 @@ const PUBLIC_ROUTES = [
   '/api/auth/atlas/',
   '/api/cron/',
   '/api/internal/',
+  '/api/webhooks/',
   '/privacy-policy',
   '/terms-of-service',
   '/auth',
