@@ -732,3 +732,19 @@ canje del token en el servidor.
 
 El `partnerId` a poner en la allowlist cuando se habilite el login es
 `6984824e65c8a085b5d5a632`.
+
+### Respuesta enviada · 2026-09-01 18:42 UTC
+
+Visto bueno para producción + luz verde para la etapa 2 del DNS. Copia de lo enviado en
+`correo-mathias-2026-09-01.html` (message id `1a05e47f60a50526`).
+
+Antes de dar la luz verde se confirmó el estado del dominio en App Hosting, que es lo que el
+`dig` no puede decir: `ownershipState OWNERSHIP_ACTIVE` · `certState CERT_ACTIVE` ·
+`hostState HOST_WRONG_SHARD`. **El certificado ya está emitido y activo antes del cambio de
+tráfico**, así que la etapa 2 no abre ninguna ventana de error de TLS. El `HOST_WRONG_SHARD` no
+es un defecto: es la descripción de que falta la etapa 2, y desaparece al aplicarla.
+
+Queda pendiente de Crazy Cake: el deploy a producción y la etapa 2. **El proxy de Vultr no se
+baja al recibir el aviso** — primero se verifica que el tráfico entre directo (`server: envoy`,
+no `nginx`), y JP dejó dicho en el correo que esperaremos uno o dos días. Mientras el proxy siga
+en pie, el rollback es volver a poner el `A` anterior.

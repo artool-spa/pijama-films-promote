@@ -1,0 +1,47 @@
+<!--
+  Copia de lo ENVIADO el 2026-09-01 18:42 UTC (message id 1a05e47f60a50526),
+  hilo "Pruebas de integración de marketing" (19b147d3c8d649c0).
+  Para: mathias.beckhaus@crazycake.tech
+  CC: pparga@artool.cl, cristian.aldunate@crazycake.tech, hernan.romero@crazycake.tech,
+      natalia.quinteros@crazycake.tech
+
+  Difiere del borrador de T0 en tres cosas, todas de JP y todas mejores:
+  el visto bueno para producción va arriba en el primer párrafo en vez de
+  como párrafo aparte; el saludo incluye al equipo; y la bajada del proxy
+  queda con una espera explícita de uno o dos días, que preserva la ventana
+  de rollback sin necesidad de explicar el mecanismo.
+-->
+
+<p>Hola Mathias y equipo,</p>
+
+<p>Verificamos los dos cambios en testing y funcionan perfecto, muchas gracias. Con esto ya podemos pasar a producción.</p>
+
+<p><strong>1 · El fix del <code>targetOrigin</code>:</strong> confirmado. El bundle de testing ahora deriva el origen del portal desde <code>marketingUrl</code> en vez de usar el de Console.</p>
+
+<p><strong>2 · El endpoint (opción A):</strong> confirmado y funcionando perfecto. Desde nuestro servidor, con <code>Authorization: Bearer</code> y sin cookie, la ruta ahora evalúa el token y responde en JSON. Probamos el flujo completo con un token real emitido por <code>/partners/external-token</code> y el resultado fue HTTP 200 con los cuatro campos del partner.</p>
+
+<p style="margin-left:2em"><code>HTTP 200 · {status:'ok', data:{partner:{…}, movies:[]}}</code></p>
+
+<p>Quedamos a la espera del desarrollo de la opción C. Cuando la tengan publiquen el JWKS y adaptamos nuestro lado sin problema.</p>
+
+<p><strong>3 · DNS:</strong> verificamos los registros y <strong>pudimos comprobar la propiedad y emitir el certificado</strong> así que el TLS ya está listo esperando el cambio.</p>
+
+<p><strong>Pueden aplicar la etapa 2 cuando les acomode.</strong> Es un solo cambio:</p>
+
+<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">
+  <tr style="background:#f2f2f2">
+    <th align="left">Acción</th><th align="left">Tipo</th><th align="left">Nombre</th><th align="left">Valor</th>
+  </tr>
+  <tr>
+    <td>AGREGAR</td><td>A</td><td>promote.pijamafilms.com</td><td>35.219.200.9</td>
+  </tr>
+  <tr>
+    <td>QUITAR</td><td>A</td><td>promote.pijamafilms.com</td><td>64.176.6.210</td>
+  </tr>
+</table>
+
+<p>Cuando lo hagan nos avisan para bajar el proxy que tenemos andando (esperaremos uno o dos dias).</p>
+
+<p><strong>Un tema de coordinación:</strong> nuestra página <code>/auth</code> todavía no está en producción, así que si abren el portal desde Console de producción hoy van a encontrar un 404. Les confirmamos en cuanto la desplegemos para que puedan probar el flujo completo desde su lado.</p>
+
+<p>Saludos,</p>
