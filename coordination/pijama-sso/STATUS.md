@@ -899,3 +899,57 @@ Pablo el 2026-01-13, y el `_blank` lo describió Mathias el 2026-01-08. No son r
 Contrato B— y después que el login está deshabilitado, que es la respuesta correcta y no un error.
 Ejercitar la cadena hasta emitir sesión exige poner el `partnerId` en la allowlist, paso aparte y
 deliberado, y arrastra el tema de `getFilms()` sin scoping.
+
+### 2026-09-01 22:23 UTC · Login habilitado con allowlist de un solo id (PR #57)
+
+Decisión de JP: contener con allowlist mientras `getFilms()` no filtre. Al ejecutarla apareció
+que **el pedido literal no era ejecutable**, y vale dejarlo escrito porque el próximo va a
+tropezar igual:
+
+**Los dos espacios de identidad no se cruzan.** La allowlist se compara contra el `partnerId` que
+devuelve **Atlas** (un ObjectId de Console). Los **cinco** usuarios actuales de promote
+—`producer1@`, `producer2@`, `admin@pijamafilms.com`, `josefina@fabula.cl`,
+`testpijamatest@gmail.com`— comparten `partnerId=pijamafilms`, que Atlas **nunca** envía. Poner
+`pijamafilms` en la lista no habilita a nadie **y parece configurado**: el peor resultado
+posible, un fail-closed disfrazado de permiso.
+
+Tampoco hay correspondencia de personas: `jpundurraga@artool.cl` **no tiene cuenta de promote**,
+así que su acceso por SSO es acceso nuevo, no el de un usuario actual. Llevado al pie de la letra
+el cambio habría sido un no-op.
+
+Resuelto con una entrada: `6984824e65c8a085b5d5a632` (JP, medido con el panel en modo probe), más
+`ATLAS_LOGIN_ENABLED=true`. El operador interno y nadie más, porque admitir a un productor real
+le entregaría el catálogo completo.
+
+**Verificado con la foto del antes, no por supuesto:**
+
+| | `POST /api/auth/atlas/session` con `mode:'login'` |
+|---|---|
+| Antes | `403` · `stage:'disabled'` |
+| Ahora | `502` · `stage:'atlas_call'` · `atlasStatus 302` |
+
+Ese resultado prueba **dos** cosas: que el flag actuó, y que **la allowlist no está vacía** — el
+chequeo de lista vacía corre *antes* de salir a la red, así que una lista vacía habría dado
+`stage:'allowlist'` sin llamar a Atlas. Haber llegado al 302 significa que pasó los dos portones.
+
+Efecto secundario del despacho: el comentario del `apphosting.yaml` que decía "DELIBERATELY
+ABSENT" se reescribió en el mismo commit. Dejaba de ser verdad, y un comentario que describe el
+estado anterior es el mismo defecto que pasamos la semana sacando de los diagnósticos.
+
+### Hallazgo aparte, y ya materializado
+
+**`josefina@fabula.cl` —productora externa, Fábula— ya tiene cuenta de promote y ya ve el catálogo
+completo**, con último ingreso el 2026-08-31 09:51 de Chile. O sea la exposición de `getFilms()`
+no es futura ni hipotética: hoy una tercera parte ve el catálogo y las métricas agregadas de toda
+la plataforma. Eso mueve el scoping por partner de "bloqueante del Go Live" a "problema vivo".
+
+De paso queda cerrado el reporte de que sus credenciales no funcionaban: entró bien 40 minutos
+después de avisar.
+
+### `STRIPE_WEBHOOK_SECRET`, medido con `gcloud` reautenticado
+
+**Una sola versión, del 2026-08-17** — la copiada del proyecto viejo. Pablo nunca subió el
+`whsec_` nuevo, y el deploy de hoy tomó esa misma versión. Como los secretos de firma de Stripe
+son **por endpoint**, cada evento real se rechaza por firma inválida: los pagos de créditos no se
+procesan. El 400 de nuestras pruebas es por otra causa —falta la cabecera— así que no lo delata.
+Issue #53, y no depende de Crazy Cake.
