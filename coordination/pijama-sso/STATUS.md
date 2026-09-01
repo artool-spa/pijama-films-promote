@@ -871,3 +871,31 @@ Console's, or the browser drops the message"*.
 sesión de promote. Ahí las dos hipótesis se separan sin ambigüedad —si el popup cae en `/login`,
 `marketingUrl` es la raíz y hace falta el tercer fix; si cae en el panel de `/auth`, el Contrato B
 por fin se ejercita—. Conviene hacerlo **antes** de pedirles el tercer cambio.
+
+### Confirmado con la prueba en limpio, y pedido enviado · 2026-09-01 21:27 UTC
+
+JP borró las cookies, volvió a entrar al lab y apretó el botón: el popup cayó en
+`promote.pijamafilms.com/login`. Con las dos mediciones juntas —`/films` con sesión previa,
+`/login` sin ella— la hipótesis queda cerrada: **ambas son lo que hace nuestro servidor al
+recibir la raíz**, y si Console abriera `/auth` se quedaría ahí en los dos casos, porque esa ruta
+responde 200 con o sin cookie. `marketingUrl` apunta a la raíz.
+
+Correo enviado con los dos pedidos (copia en `correo-mathias-2026-09-01-marketingurl.html`,
+message id `1a05eded7eeb8f05`):
+
+1. `marketingUrl` → `https://promote.pijamafilms.com/auth`, en testing y producción. Sin
+   parámetros: se verificó que el default de `mode` en `src/app/auth/page.tsx:50` es `login`, que
+   es el flujo real de Console.
+2. Pestaña en vez de popup: soltar el tercer argumento de `window.open`. **Con la advertencia
+   explícita de que no puede llevar `noopener`**, que es el único modo en que ese cambio de UI
+   rompería el handoff: devolvería `null` y se pierden las dos direcciones —su referencia para
+   postear y nuestro `PROMOTE_READY` al `opener`—. Es un riesgo real porque `noopener` es
+   normalmente la buena práctica al abrir pestañas.
+
+Los dos pedidos tienen antecedente en lo que ellos mismos escribieron: la ruta `/auth` la dio
+Pablo el 2026-01-13, y el `_blank` lo describió Mathias el 2026-01-08. No son requisitos nuevos.
+
+**Qué va a mostrar el panel cuando corrijan la URL:** que el mensaje llegó —eso cierra el
+Contrato B— y después que el login está deshabilitado, que es la respuesta correcta y no un error.
+Ejercitar la cadena hasta emitir sesión exige poner el `partnerId` en la allowlist, paso aparte y
+deliberado, y arrastra el tema de `getFilms()` sin scoping.

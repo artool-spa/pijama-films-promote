@@ -1,0 +1,54 @@
+<!--
+  Copia de lo ENVIADO el 2026-09-01 21:27 UTC (message id 1a05eded7eeb8f05),
+  hilo "Pruebas de integración de marketing" (19b147d3c8d649c0).
+  Para: mathias.beckhaus@crazycake.tech
+  CC: pparga@artool.cl, cristian.aldunate@crazycake.tech, hernan.romero@crazycake.tech,
+      natalia.quinteros@crazycake.tech
+
+  Segundo correo del día. Pide los dos cambios que quedaron después del deploy:
+  la URL del portal y la pestaña en vez del popup.
+
+  Ediciones de JP sobre el borrador de T0:
+   - El título del punto 2 pasa a primera persona y nombra la razón — "creo que es
+     más adecuado pensando en la UX del usuario" — en vez de presentarlo como
+     requisito. Es un pedido de criterio, no un defecto, y decirlo así es más
+     honesto.
+   - Se recorta la justificación de la ventana chica a una frase. El borrador
+     enumeraba las funciones del panel; la versión enviada dice lo necesario.
+   - Se saca "las dos chicas y de su lado" duplicado y queda "de su lado, las dos
+     chicas".
+-->
+
+<p>Hola Mathias,</p>
+
+<p>Ya desplegamos nuestra mitad a producción, así que <code>/auth</code> está arriba y respondiendo. Probamos el flujo real desde Console de testing y encontramos dos cosas de su lado, las dos chicas:</p>
+
+<p><strong>1 · El popup no abre <code>/auth</code>, abre la raíz del dominio.</strong></p>
+
+<p>Lo verificamos dos veces: con sesión previa en el navegador el popup terminó en <code>promote.pijamafilms.com/films</code>, y con las cookies borradas terminó en <code>promote.pijamafilms.com/login</code>. Las dos son lo que hace nuestro servidor cuando recibe la raíz.</p>
+
+<p>En su bundle la URL sale de <code>$store.state.marketingUrl</code>, o sea de la configuración de su backend y no del código. Nuestro listener del <code>postMessage</code> vive en <code>/auth</code>, así que mientras la URL sea la raíz el mensaje llega a una ventana que no lo escucha.</p>
+
+<p>Lo que necesitamos es que <code>marketingUrl</code> quede así, en testing y en producción:</p>
+
+<p style="margin-left:2em"><code>https://promote.pijamafilms.com/auth</code></p>
+
+<p>Sin parámetros ni nada más. Esa ruta ya resuelve sola el modo correcto. Es la misma que Pablo les indicó el 13 de enero, así que probablemente se perdió en el camino hacia la configuración.</p>
+
+<p><strong>2 · Creo que es más adecuado pensando en la UX del usuario que promote.pijamafilms.com se abra en una pestaña, no en un popup.</strong></p>
+
+<p>Es lo que ustedes mismos describieron el 8 de enero: <em>"vamos a redirigir al cliente a su url con un <code>_blank</code>"</em>. La implementación quedó con un popup de tamaño fijo:</p>
+
+<p style="margin-left:2em"><code>window.open(portalUrl, 'MarketingPortal', 'width=1200,height=800')</code></p>
+
+<p>La ventana del pop up es muy chica para Promote, que es un panel completo. En una pestaña o un <code>_blank</code> se comporta como el resto de la navegación del usuario.</p>
+
+<p>Bastaría con soltar el tercer argumento:</p>
+
+<p style="margin-left:2em"><code>window.open(portalUrl, '_blank')</code></p>
+
+<p><strong>Un detalle importante si hacen ese cambio:</strong> no puede llevar <code>noopener</code>. Con <code>noopener</code> la llamada devuelve <code>null</code> y se rompen las dos direcciones del handoff — ustedes se quedan sin la referencia para postear el token, y nuestra señal <code>PROMOTE_READY</code> hacia el <code>opener</code> tampoco tendría a quién llegar. Sin <code>noopener</code>, el <code>postMessage</code> funciona en una pestaña exactamente igual que en un popup, así que este cambio no afecta el SSO.</p>
+
+<p>El fix del <code>targetOrigin</code> lo confirmamos de nuevo en el bundle nuevo de testing y está correcto, con todo y el comentario que le pusieron. En cuanto la URL apunte a <code>/auth</code> podemos probar el handoff completo el mismo día y les confirmamos.</p>
+
+<p>Gracias,</p>
