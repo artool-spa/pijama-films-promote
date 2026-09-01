@@ -833,3 +833,41 @@ Dos verificaciones de fondo más:
 Con esto el **Contrato B ya se puede cerrar de verdad**: falta abrir el portal desde Console del
 lab —que sí tiene el fix— contra este `/auth` de producción. Es la única frontera que hasta ahora
 se había ejercitado con una pieza simulada.
+
+### 2026-09-01 · Primer intento real del Contrato B: NO se ejercitó, y apareció un tercer bloqueo
+
+JP creó una película de prueba en Console del lab y apretó el botón de marketing. Se abrió un
+popup en `promote.pijamafilms.com/films`, **con sesión abierta y el catálogo completo a la vista**.
+La lectura intuitiva —"el SSO funcionó, y además filtra mal"— es falsa en las dos mitades.
+
+**Qué pasó de verdad, con evidencia:**
+
+| Hecho medido | Cómo se midió |
+|---|---|
+| El modo `login` está cerrado en producción: `HTTP 403`, `stage:'disabled'`, **sin `Set-Cookie`** | `POST /api/auth/atlas/session` con `mode:'login'` |
+| Sin cookie, `/films` y `/` redirigen a `/login` (307) | `curl` a las tres rutas |
+| `/` con sesión válida redirige a `/films` | `src/app/page.tsx` |
+| Nuestra `/auth` **nunca** redirige salvo en modo `login` con respuesta ok — imposible acá | `src/app/auth/client.tsx:230` |
+
+De ahí se sigue, sin margen: **el SSO no creó esa sesión** (no puede), y **el popup no abrió
+`/auth`** (si lo hubiera hecho, seguiría en `/auth`, que responde 200 con o sin cookie). El popup
+abrió la raíz, y la **sesión preexistente de JP en ese navegador** —de las pruebas anteriores, la
+del partner interno `pijamafilms`: 28 campañas, $858— lo llevó a `/films`.
+
+**Tercer bloqueo, de Crazy Cake:** `marketingUrl` sale de `$store.state.marketingUrl`, o sea de la
+configuración de su backend, y **no apunta a `/auth`** — a pesar de que Pablo les dio esa ruta
+exacta el 2026-01-13. Es un cambio de configuración de una línea de su lado. Mientras siga
+apuntando a la raíz, el `postMessage` llega a una ventana donde nuestro listener no existe.
+
+**El catálogo completo NO es un hallazgo nuevo ni una fuga del SSO:** es el bloqueante conocido de
+`getFilms()`, que no filtra por partner, visto acá en su forma más concreta con la sesión del
+partner interno. Es exactamente la razón por la que el login arranca cerrado y detrás de allowlist.
+
+**Lo bueno:** el bundle del lab se redesplegó (2,4 MB minificado → 6,8 MB sin minificar) y ahora el
+fix se lee en el fuente con su comentario: *"targetOrigin must be the portal's origin, not
+Console's, or the browser drops the message"*.
+
+**El experimento limpio que falta, y es barato:** repetir el click en una ventana de incógnito, sin
+sesión de promote. Ahí las dos hipótesis se separan sin ambigüedad —si el popup cae en `/login`,
+`marketingUrl` es la raíz y hace falta el tercer fix; si cae en el panel de `/auth`, el Contrato B
+por fin se ejercita—. Conviene hacerlo **antes** de pedirles el tercer cambio.
