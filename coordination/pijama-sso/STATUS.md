@@ -953,3 +953,32 @@ después de avisar.
 son **por endpoint**, cada evento real se rechaza por firma inválida: los pagos de créditos no se
 procesan. El 400 de nuestras pruebas es por otra causa —falta la cabecera— así que no lo delata.
 Issue #53, y no depende de Crazy Cake.
+
+### 2026-09-01 23:51 UTC · Mathias responde: los tres fixes en testing, y la etapa 2 del DNS
+
+Dos horas después de nuestro correo. Contenido, verificado antes de responder, no tomado del
+mensaje:
+
+**Los tres cambios, confirmados en el bundle del lab:**
+```
+let n = window.open(i, "_blank");                    // pestaña, no popup
+let r = new URL(i, window.location.origin).origin;   // targetOrigin del portal
+n.postMessage({type:"ATLAS_AUTH", token:e}, r);
+```
+No se puede verificar por bundle que `marketingUrl` apunte a `/auth` — es una variable de
+configuración, solo se ve al ejecutar el click real. Ese es el único paso que falta antes de
+poder decir que los tres están.
+
+**La etapa 2 del DNS ya se aplicó:**
+```
+A promote.pijamafilms.com -> 35.219.200.9   (antes: 64.176.6.210, el proxy de Vultr)
+```
+Confirmado sirviendo directo: `server: envoy`, sin pasar por nginx. `/auth` sigue en 200 tras el
+cutover.
+
+**Pendiente, antes de dar el visto bueno de producción:** repetir el click desde Console del lab
+y confirmar que cae en `/auth`, no en la raíz.
+
+**Pedido nuevo de Crazy Cake, sin relación con el SSO:** quieren que nosotros definamos la matriz
+de tracking de GTM/GA (evento · entorno · trigger · payload) para que ellos la implementen. Es
+trabajo nuevo de producto/marketing, no un bloqueo técnico. JP a cargo de decidir cuándo abordarlo.
