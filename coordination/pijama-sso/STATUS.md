@@ -982,3 +982,54 @@ y confirmar que cae en `/auth`, no en la raíz.
 **Pedido nuevo de Crazy Cake, sin relación con el SSO:** quieren que nosotros definamos la matriz
 de tracking de GTM/GA (evento · entorno · trigger · payload) para que ellos la implementen. Es
 trabajo nuevo de producto/marketing, no un bloqueo técnico. JP a cargo de decidir cuándo abordarlo.
+
+---
+
+## 2026-09-03 18:15 · EL SSO FUNCIONA PUNTA A PUNTA
+
+Primera corrida completa de la cadena, con Atlas real y token real del lab. Evidencia por
+eslabón, leída del log del servidor y de Firestore, no de la pantalla:
+
+| Eslabón | Evidencia |
+|---|---|
+| Página y listener | `GET /auth?mode=login 200` |
+| Envelope aceptado | token de 348 chars, prefijo `eyJhbG` |
+| Atlas real | `atlasStatus 200 · contractMatched true` contra `dashboard-lab` |
+| Allowlist | pasó: el `partnerId` coincidió con el configurado |
+| Sesión | `Atlas login succeeded · partnerId 6984824e65c8a085b5d5a632` |
+| Persistencia | `partners/cB3ztvnh5pwH0cgBe8tB`, creado 18:15:49.924Z |
+| Destino | `GET /films 200`, renderizado con sesión real |
+
+**Alcance honesto:** la única pieza simulada fue el **emisor** del `postMessage`. Ese emisor se
+probó por separado el 2026-09-02 en producción, con Console del lab real (panel: `Accepted · live`,
+origen `dashboard-lab`). Las dos mitades están verificadas; lo que **nunca** ocurrió es que ambas
+corrieran en la **misma** ejecución. Eso llega cuando Crazy Cake despliegue producción.
+
+### Cómo se llegó, y dos fricciones que valen para el próximo
+
+1. **El desajuste de ambientes es el que hay que entender:** el ambiente que **emite** el token y
+   el que lo **valida** tienen que ser el mismo. El intento de ayer en producción falló porque el
+   token venía del lab y producción valida contra Atlas de producción. No era defecto de nadie.
+2. **El camino del token real en el simulador está clavado en `probe`**, a propósito y con su
+   comentario. JP pegó el token ahí —es el lugar obvio— y la corrida salió en probe: dos canjes
+   `200 · contractMatched true`, buenos, pero sin ejercitar la sesión. El end-to-end en modo
+   `login` se hace por la **mitad sintética**, pegando el token real en el campo
+   `Token (synthetic by default)` y cambiando el radio a `login`. Es un filo de usabilidad: la
+   protección del campo enmascarado se paga con que el único camino a `login` expone el token en
+   pantalla.
+
+### Pendientes que esto deja
+
+- **El `partnerId` de la allowlist es del LAB.** `6984824e65c8a085b5d5a632` se midió con token del
+  lab. Lab y producción son ambientes separados: el id de JP en producción probablemente sea otro,
+  y entonces el login desde Console de producción va a fallar con `stage:'allowlist'`, que se lee
+  igual que "no autorizado". **Hay que re-medirlo en cuanto Atlas de producción permita el probe.**
+- **Banner falso en `atlas_call`:** `STAGE_CONCLUSION.atlas_call` afirma "Atlas could not be
+  reached at all" para toda la etapa, y es falso cuando Atlas respondió un 302/401. La pantalla se
+  autocontradice con la fila "What this means" de abajo, que sí distingue. El test de coherencia no
+  lo atrapó porque su predicado solo cubre atribución de causa al token o a la cuenta, no
+  afirmaciones sobre alcanzabilidad.
+- **Sacar el lab de los orígenes permitidos de producción** cuando termine la prueba: hoy un
+  Console de testing puede hacer handoff hacia producción; es inocuo porque el canje contra Atlas
+  de producción falla, pero es una ampliación latente.
+- Dar el visto bueno a Crazy Cake para producción.
