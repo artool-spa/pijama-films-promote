@@ -1,0 +1,56 @@
+<!--
+  Copia de lo ENVIADO el 2026-09-03 18:29 UTC (message id 1a0688823f129793),
+  hilo "Pruebas de integración de marketing" (19b147d3c8d649c0).
+  Para: mathias.beckhaus@crazycake.tech
+  CC: pparga@artool.cl, cristian.aldunate@crazycake.tech, hernan.romero@crazycake.tech,
+      cjofre@gmail.com, juandedios@fabula.cl
+
+  DOS CAMBIOS DE FONDO DE JP sobre el borrador de T0, los dos conviene tener presentes:
+
+  1. AGREGÓ un pedido que el borrador no tenía: una cuenta de PRODUCTOR (no admin) CON
+     PELÍCULAS, para verificar que la colección de películas del usuario llega bien.
+     Es el hueco que T0 había registrado el 2026-09-01 —`movieCount` vino 0 en todas las
+     corridas, así que el código que lee las entradas de `movies[]` nunca se ejecutó
+     contra datos reales— y JP lo convirtió en una petición concreta. Buen catch.
+
+  2. QUITÓ el aviso del partnerId por ambiente. Consecuencia a vigilar: si el primer
+     login en producción falla con `stage:'allowlist'`, Crazy Cake no tiene contexto para
+     interpretarlo y puede diagnosticarlo como problema suyo. Decisión de JP.
+
+  También suavizó el "visto bueno" a "Estamos ok! para pasar a producción", condicionado a
+  ese detalle de las películas.
+-->
+
+<p>Hola Mathias,</p>
+
+<p>Revisamos los tres cambios en testing y el SSO funciona perfecto.</p>
+
+<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">
+  <tr style="background:#f2f2f2">
+    <th align="left">Prueba</th><th align="left">Resultado</th>
+  </tr>
+  <tr>
+    <td>Console abre el portal y postea el <code>ATLAS_AUTH</code></td>
+    <td>Llega y se acepta. Origen recibido: <code>dashboard-lab.pijamafilms.com</code></td>
+  </tr>
+  <tr>
+    <td>Nuestro servidor canjea el token contra <code>/movies/by-partner</code></td>
+    <td><code>HTTP 200</code> con la forma documentada y la identidad del partner</td>
+  </tr>
+  <tr>
+    <td>Emisión de sesión y entrada a la plataforma</td>
+    <td>Sesión creada y el usuario queda dentro de su panel</td>
+  </tr>
+</table>
+
+<p>Los tres cambios que pedimos quedaron correctos: el <code>targetOrigin</code> derivado del portal, el endpoint alcanzable con <code>Bearer</code> desde un servidor, y la URL apuntando a <code>/auth</code>. El <code>_blank</code> también, gracias por eso.</p>
+
+<p><strong>El DNS también quedó verificado.</strong> El dominio ya resuelve a la infraestructura nueva y responde directo, sin pasar por el proxy — medimos <code>35.219.200.9</code> y el servidor que contesta ya no es el intermediario. Con eso confirmado, en los próximos días bajamos el proxy que teníamos andando.</p>
+
+<p>Lo único que me falta probar de punta a cabo es que llegue bien la colección de las películas asociadas al usuario. Si tienen un usuario productor —no admin, que tenga películas— que me puedan prestar, ideal.</p>
+
+<p>Fuera de ese detalle: <strong>Estamos ok! para pasar a producción.</strong></p>
+
+<p>Sobre la matriz de tracking de GTM/GA: recibido, lo estamos viendo. Les confirmamos plazo para enviarles el documento con los eventos, el entorno, el trigger y el payload de cada uno.</p>
+
+<p>Quedamos atentos, Saludos</p>

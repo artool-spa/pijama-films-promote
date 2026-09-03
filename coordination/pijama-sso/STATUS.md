@@ -1033,3 +1033,50 @@ corrieran en la **misma** ejecución. Eso llega cuando Crazy Cake despliegue pro
   Console de testing puede hacer handoff hacia producción; es inocuo porque el canje contra Atlas
   de producción falla, pero es una ampliación latente.
 - Dar el visto bueno a Crazy Cake para producción.
+
+### 2026-09-03 18:29 UTC · Enviado el ok para producción, con dos cambios de JP
+
+Copia en `correo-mathias-2026-09-03.html` (message id `1a0688823f129793`).
+
+**JP agregó un pedido que el borrador no tenía, y es el hueco correcto:** una cuenta de
+**productor (no admin) con películas**, para verificar que la colección de películas del usuario
+llega bien. `movieCount` vino **0** en todas las corridas —el partner del lab no tiene películas—
+así que **el código que lee las entradas de `movies[]` nunca se ejecutó contra datos reales**. La
+forma del contrato está probada (`data.movies` llegó como arreglo vacío, respuesta válida), pero
+el parseo de cada entrada no. T0 lo tenía registrado el 2026-09-01 como limitación; JP lo convirtió
+en petición concreta.
+
+**JP quitó el aviso del `partnerId` por ambiente.** Consecuencia a vigilar: si el primer login en
+producción falla con `stage:'allowlist'`, Crazy Cake no tiene el contexto para interpretarlo y
+puede diagnosticarlo como problema suyo. Decisión suya, queda anotada para que al retomar se sepa
+que ellos **no** están advertidos.
+
+---
+
+## Estado al cierre de sesión · 2026-09-03
+
+**Nuestra mitad: completa, desplegada y probada punta a punta.** `master` en `6831ae6`. Login
+habilitado con allowlist de un id. Producción: `/auth` 200, simulador cerrado, webhook 400, DNS
+cortado directo a App Hosting.
+
+**En cancha de Crazy Cake:** el deploy a producción (ya tienen el ok), y la cuenta de productor
+con películas que JP pidió.
+
+**Nuestro, sin depender de nadie, en orden de prioridad:**
+
+1. **Scoping por partner en `getFilms()`** — el bloqueante real del Go Live, y **ya materializado**:
+   Josefina (Fábula, externa) tiene cuenta de promote y ve el catálogo completo. Ahora que el SSO
+   funciona, es lo único que separa esto de abrirlo a un productor real.
+2. **El `whsec_` de Stripe** — `STRIPE_WEBHOOK_SECRET` sigue con la única versión del 2026-08-17,
+   copiada del proyecto viejo. Los secretos de firma son por endpoint: cada evento real se rechaza
+   y los pagos de créditos no se procesan. JP espera credenciales de Dominique Spiniak. Issue #53.
+3. **Re-medir el `partnerId` de JP en producción** y actualizar la allowlist, en cuanto Atlas de
+   producción permita el probe.
+4. **El parseo de `movies[]` contra datos reales**, cuando llegue la cuenta con películas.
+5. **Banner falso en `atlas_call`**: afirma "could not be reached at all" también cuando Atlas
+   respondió 302/401, y contradice la fila "What this means" del mismo panel. Ampliar además el
+   predicado del test de coherencia para cubrir afirmaciones sobre alcanzabilidad, no solo
+   atribución de causa al token.
+6. **Sacar `dashboard-lab` de los orígenes permitidos de producción** al cerrar las pruebas.
+7. **Bajar el proxy de Vultr** (`64.176.6.210`) — el tráfico ya entra directo, verificado. JP dijo
+   a Crazy Cake "en los próximos días".
