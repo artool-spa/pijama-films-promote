@@ -20,7 +20,7 @@ import type {
 } from '#muvi';
 import { AggregateField } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
-import { COLLECTIONS, docData } from '@/lib/firestore';
+import { COLLECTIONS, IdSchema as PartnerDocIdSchema, docData } from '@/lib/firestore';
 import { withAds } from './hydrate';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
 
@@ -563,14 +563,42 @@ export async function getFilmById(
 }
 
 /**
- * Get aggregate stats for all campaigns from the database
- * Returns real stats from database campaigns
+ * Aggregate campaign stats for ONE partner.
+ *
+ * `partnerDocId` is the partner's internal Firestore document id — the value
+ * `campaign.partnerId` holds — not the external id carried on the session. A
+ * caller holding a session gets there via `getPartnerRecordByPartnerId`.
+ *
+ * ## Why the argument is required
+ *
+ * This used to aggregate over the whole `campaigns` collection, so the KPI
+ * header on /films and /campaigns reported every producer's combined
+ * advertising budget and campaign counts to whoever happened to be logged in.
+ * That is third-party commercial information, and it was visible to a partner
+ * with no campaigns of their own.
+ *
+ * The argument is therefore mandatory, and an empty one throws rather than
+ * defaulting: an optional partner whose absence means "all partners" is the
+ * same defect with a parameter in front of it, and it would come back the first
+ * time someone called this from a context where the partner was inconvenient
+ * to obtain.
+ *
+ * Failure returns zeroes, never platform-wide figures — see the catch below.
  */
-export async function getAggregateStats() {
+export async function getAggregateStats(partnerDocId: string) {
+  // Outside the try on purpose. Inside, the catch below would turn a missing
+  // partner id into a tidy set of zeroes, which reads as "this partner has no
+  // campaigns" and would hide the very mistake this guard exists to catch.
+  const validPartnerDocId = PartnerDocIdSchema.parse(partnerDocId);
+
   try {
-    const campaigns = adminDb().collection(COLLECTIONS.campaigns);
+    const campaigns = adminDb()
+      .collection(COLLECTIONS.campaigns)
+      .where('partnerId', '==', validPartnerDocId);
 
     // Server-side aggregations: these read index entries, not documents.
+    // Both need the composite indexes on (partnerId, status[, budget]) declared
+    // in firestore.indexes.json.
     const [published, active] = await Promise.all([
       campaigns
         .where('status', '!=', 'DRAFT')
@@ -590,7 +618,11 @@ export async function getAggregateStats() {
       costPerConversion: 0,
     };
   } catch (error) {
-    log.error({ err: error }, 'Failed to get aggregate stats');
+    log.error({ err: error, partnerDocId: validPartnerDocId }, 'Failed to get aggregate stats');
+
+    // Zeroes, deliberately. A partner seeing 0 when the query failed is a
+    // wrong number; a partner seeing the platform-wide totals would be a
+    // disclosure. The fallback must never be the un-scoped figure.
     return {
       totalBudget: 0,
       totalCampaigns: 0,
