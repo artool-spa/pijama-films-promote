@@ -1241,3 +1241,75 @@ no quedaba nada sin commitear ni sin pushear. Quedan solo `master` y `coordinati
 3. **Stripe**: falta saber si la cuenta nueva "Pijama Promote" tiene clave `sk_live_`. Nada en el
    código ata a una cuenta, así que migrar es solo cambiar credenciales, en un solo rollout.
 4. El banner de `atlas_call`, que sigue mintiendo.
+
+---
+
+## 2026-09-16 · `movies[].muviUuid` no identifica la película: trae el `partnerId`
+
+Con dos películas de prueba subidas por JP al lab —la primera vez que se pudo observar un
+`movies[]` con contenido, después de nueve meses de contrato— el campo quedó medido:
+
+```
+partnerId : 6984824e65c8a085b5d5a632
+
+[0] _id 6a9737d1d6ad2b6d0d3cbdf7   muviUuid 6984824e65c8a085b5d5a632   pending_approval
+[1] _id 6aab162fb9ceb1dd4faf44ce   muviUuid 6984824e65c8a085b5d5a632   pending_approval
+```
+
+Los `_id` difieren, o sea Atlas distingue las películas. El `muviUuid` es **constante e igual al
+`partnerId`**. Dos evidencias independientes lo confirman:
+
+- **El valor**: coincide carácter por carácter con el id del partner.
+- **El formato**: los uuid de MUVI tienen **32** hex (el `muviUuid` del partner, los
+  `muviAssetId` de los assets). Este tiene **24** — un ObjectId de Mongo.
+
+La segunda película fue el brazo discriminante: con una sola, "relleno porque está pendiente" y
+"campo mal asignado" eran indistinguibles. Con dos compartiendo valor, la primera explicación cae.
+
+### La consecuencia cierra la decisión 1 por evidencia
+
+No es que el campo esté equivocado y haya que leerlo distinto: **la respuesta de Atlas no contiene
+ningún campo que identifique la película en el catálogo de MUVI.** `_id` es interno de Atlas,
+`muviUuid` trae el partner, y los `muviAssetId` identifican archivos y no la ficha. Como
+`getFilms()` se indexa por el uuid de contenido de MUVI, **el mapeo partner→películas por la vía
+del SSO es hoy imposible**.
+
+Queda la **carga manual como única fuente viable**, con el login SSO como alimentador futuro solo
+si ellos corrigen el campo.
+
+**Vale registrar el contrafactual:** si se hubiera implementado la opción A sin medir —que era la
+recomendación inicial, y la más elegante— cada productor habría visto **cero** películas, y el
+síntoma se habría leído como "no tengo contenido" y no como un defecto. Lo evitó que T0.1 se
+negara a dar por bueno un campo que nunca se había observado con datos.
+
+### Límite honesto de la medición
+
+Las dos películas están en `pending_approval`. Lo probado vale para ese estado; no se puede
+descartar que al aprobar se escriba el uuid real. Por eso el correo lo plantea como **pregunta
+precisa** —¿se llena al aprobar o está mal asignado siempre?— y no como reclamo cerrado.
+
+### Otros dos hallazgos de la misma corrida
+
+- **La forma de `movies[]` no calza con la guía de enero**: faltan `title` y `releaseYear`.
+- **Los maestros se sirven sin firmar.** Las `muviUrl` entregan el archivo desde CloudFront sin
+  autenticación: verificado con una petición de rango de 1 KB contra el archivo de prueba de JP
+  (`HTTP 206`, `video/mp4`). Las rutas son largas y difíciles de adivinar, pero viajan en la
+  respuesta de la API. Para contenido de pago por visión lo habitual es URL firmada con
+  expiración. No es nuestro sistema; va como consulta, no como hallazgo que persigamos.
+
+### La hipótesis de JP, no confirmada
+
+JP planteó que el único `content_created_by` del catálogo (`2cfaa272…`) sería Josefina/Fábula, y
+que por eso MUVI parecía no tener atribución. Su propio `muviUuid` es `b00680d6…`, distinto, así
+que **él no es el uploader**. Josefina sigue siendo la candidata y solo se zanja corriendo el mismo
+comando desde una cuenta suya en Console. Salvedad: la medición de MUVI usó credenciales de
+**producción** y esto es el **lab**, así que pueden ser catálogos distintos.
+
+T0 verificó la medición de MUVI corriendo el script él mismo: mismos números, y el brazo de
+control devolviendo 62 es lo que prueba que `user_uuid` se ignora, independiente de quién sea el
+dueño del contenido.
+
+### Correo redactado
+
+Cuatro puntos, todos medidos, en `correo-mathias-muviuuid.html` (borrador, pendiente de envío por
+JP). El punto que destraba es el 2.
