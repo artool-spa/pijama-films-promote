@@ -77,6 +77,22 @@ function isPublicExactRoute(pathname: string): boolean {
 // API routes that require authentication
 const PROTECTED_API_PREFIX = '/api/';
 
+// Headers a caller must never be able to supply, because something downstream
+// treats them as authority. They are deleted from the cloned request headers
+// before this middleware sets its own — see the comment at the deletion site.
+//
+// `x-partner-id` is here because it WAS an authority: it named the internal
+// partner document id and getPartnerFromRequest preferred it over the
+// session-derived header. The other two are set below from the verified session
+// payload, so overwriting already protects them; they are deleted as well so
+// that this list, rather than the ordering of the `set` calls further down, is
+// what guarantees a caller cannot speak for the session.
+const CALLER_FORBIDDEN_HEADERS = [
+  'x-partner-id',
+  'x-pijama-partner-id',
+  'x-user-name',
+] as const;
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const start = Date.now();
@@ -130,6 +146,23 @@ export async function middleware(request: NextRequest) {
     // absent from the override set, so building a fresh Headers() here would
     // strip the cookie, user-agent and everything else.
     const requestHeaders = new Headers(request.headers);
+
+    // Strip the headers this middleware is the sole authority for, BEFORE
+    // setting our own. The clone above carries the caller's headers verbatim,
+    // so a header we overwrite is safe and a header we merely forget is not.
+    //
+    // `x-partner-id` is the one that mattered: getPartnerFromRequest used to
+    // read it in preference to the session-derived id set below, and nothing
+    // but a caller ever produced it, so one request header turned any session
+    // into any partner — including `pijamafilms`, which is granted unrestricted
+    // access by design. That read is gone; deleting the header here makes it
+    // unreachable as well, so reintroducing the read cannot on its own reopen
+    // the hole. Deleting is not the same as overwriting: `x-partner-id` has no
+    // session-derived value to overwrite it with.
+    for (const header of CALLER_FORBIDDEN_HEADERS) {
+      requestHeaders.delete(header);
+    }
+
     requestHeaders.set('x-pijama-partner-id', payload.partnerId as string);
     requestHeaders.set('x-user-name', payload.name as string);
     requestHeaders.set('x-request-path', pathname);
