@@ -1200,3 +1200,44 @@ con 62 títulos el filtrado local no necesita fan-out por título.
   `sk_live_`. Verificado que **nada en el código ata a una cuenta** (el checkout usa `price_data`
   al vuelo, sin Price/Product IDs), así que migrar es solo cambiar credenciales. La clave
   publicable en producción es `pk_test_` y **no la usa nadie** — configuración muerta.
+
+### 2026-09-16 · Desplegada la primera tanda de seguridad (PR #59) y el guard de Firestore (#58)
+
+Ambos mergeados por JP y verificados por T0: `build-2026-09-16-001` y `-002`, los dos `READY`.
+Producción sana después del cambio de middleware, que era el riesgo real: `/auth` 200, simulador
+cerrado, webhook 400, y **el canje de Atlas sigue funcionando** (`ok:true · atlasStatus 401` con
+token inválido). El índice `campaigns(partnerId, status, budget)` pasó a `READY` **antes** de que
+el código llegara, que es el orden correcto.
+
+**Corrección de T0 sobre la severidad del bypass.** Durante toda la jornada lo describí como
+"cualquiera con un header se convierte en cualquier partner, **sin necesitar sesión**". Es
+demasiado fuerte para la pila completa: `src/middleware.ts` gatea todo `/api/` contra la cookie y
+**ninguna de las cinco rutas públicas llama a `getPartnerFromRequest`** (verificado). El bypass
+requería sesión válida, o sea era **escalación entre usuarios ya autenticados**, no un acceso
+anónimo. Sigue siendo grave —hay una productora externa con cuenta— pero no es lo mismo. El
+origen del salto: el test del agente `does not authenticate on x-partner-id alone` prueba la
+función aislada, no el recorrido completo, y lo leí como si probara la pila.
+
+**El `deploy:firestore` tenía dos defectos** (PR #58): caía al proyecto `pijama-films` —vivo y
+ajeno— cuando `FIREBASE_PROJECT_ID` no estaba en el entorno, y **nunca desplegó índices** pese a
+que el `CLAUDE.md` decía que sí. Ahora exige proyecto explícito y despliega índices. Sin
+`--force` a propósito: la política de TTL que el propio script crea es un field override ausente
+del archivo, y `--force` la borraría deteniendo la expiración de eventos en silencio.
+
+### Aseo
+
+Worktree y rama de T0.1 eliminados tras confirmar que su contenido está íntegro en `master` y que
+no quedaba nada sin commitear ni sin pushear. Quedan solo `master` y `coordination/pijama-sso`.
+
+### Pendiente al retomar
+
+1. **Las dos decisiones de producto**, que destraban F3 y F4: quién llena el mapeo
+   partner→películas (el login SSO ya recibe `movies[]` y lo descarta; o a mano por script; o
+   ambos), y qué `partnerId` llevan los 5 usuarios de Firebase —hoy los cinco son `pijamafilms`,
+   el partner con acceso a todo, incluida la productora externa.
+2. **Lo que sigue abierto en seguridad**: `getFilms()` devuelve el catálogo completo, `/campaigns`
+   lista campañas ajenas, las rutas `DELETE /api/films/[filmId]/images|videos/[id]` permiten
+   borrar assets de otro partner, y el resto de los IDOR del árbol de API.
+3. **Stripe**: falta saber si la cuenta nueva "Pijama Promote" tiene clave `sk_live_`. Nada en el
+   código ata a una cuenta, así que migrar es solo cambiar credenciales, en un solo rollout.
+4. El banner de `atlas_call`, que sigue mintiendo.
