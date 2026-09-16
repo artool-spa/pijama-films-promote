@@ -30,7 +30,11 @@ yarn test:watch          # Watch mode
 yarn test:coverage       # With coverage
 
 # Database (Cloud Firestore)
-npm run deploy:firestore                # Rules + indexes + TTL policy (idempotent)
+# Rules + indexes + TTL policy (idempotent). The project is REQUIRED: this is a
+# bash script, it does NOT read .env, and it refuses to run without one rather
+# than guess. It used to default to `pijama-films` — a different, still-active
+# project — so the documented command deployed this project's rules there.
+FIREBASE_PROJECT_ID=pijama-promote-firebase npm run deploy:firestore
 npm run db:seed                         # Seed the special "pijamafilms" partner
 npm run firestore:import-partners       # Import partner records from a JSON export
 
@@ -120,7 +124,7 @@ the cost, and let the user decide. Never silently pick the insecure shortcut.
    against the production Firestore database. Local work runs against the Firestore emulator or the
    in-memory fake in `src/test/firestore-fake.ts`.
 3. ✅ **Rules and indexes are deployed, not edited by hand.** Change `firestore.rules` /
-   `firestore.indexes.json` and run `npm run deploy:firestore`; never widen a rule to make a query
+   `firestore.indexes.json` and run `FIREBASE_PROJECT_ID=<project> npm run deploy:firestore`; never widen a rule to make a query
    work.
 4. ✅ **Secrets live in Secret Manager.** Production secrets are managed with
    `firebase-tools apphosting:secrets:set`, referenced by name from `apphosting.yaml`, and read
