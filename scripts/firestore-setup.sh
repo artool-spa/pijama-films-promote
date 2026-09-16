@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 #
-# One-time Firestore setup for the realtime event bus (replaces the Mercure hub).
+# Firestore setup: database, TTL policy, security rules and composite indexes.
 #
-# Creates the database, enables the TTL policy that reaps expired events, and
-# deploys the security rules. Safe to re-run: every step is idempotent.
+# Safe to re-run: every step is idempotent.
 #
-# Usage: bash scripts/firestore-setup.sh
+# Usage: FIREBASE_PROJECT_ID=<project> bash scripts/firestore-setup.sh
+#
+# The project MUST be passed explicitly. This script used to fall back to a
+# hardcoded `pijama-films` when the variable was absent, and that default was a
+# trap: this is a bash script, so it does NOT read `.env`, and in an ordinary
+# shell the variable is simply not set. Running the documented command therefore
+# deployed THIS project's security rules to `pijama-films` — a different project
+# that is still active — and would have tried to create a database there.
+# Guessing a project is never better than refusing to run.
 #
 # Prerequisites: gcloud CLI authenticated with rights on the project.
 
@@ -13,10 +20,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Firestore and the security rules live in the Firebase project, which may
-# differ from the project running Cloud Run.
-GCP_PROJECT="${FIREBASE_PROJECT_ID:-${GCP_PROJECT:-pijama-films}}"
+GCP_PROJECT="${FIREBASE_PROJECT_ID:-${GCP_PROJECT:-}}"
 GCP_REGION="${GCP_REGION:-us-west1}"
+
+if [[ -z "${GCP_PROJECT}" ]]; then
+  cat >&2 <<'USAGE'
+error: no project given.
+
+Set FIREBASE_PROJECT_ID (or GCP_PROJECT) explicitly — this script deploys
+security rules and creates a database, so it will not guess which project
+to touch.
+
+  FIREBASE_PROJECT_ID=pijama-promote-firebase bash scripts/firestore-setup.sh
+
+Note that this script does not read .env; export the variable in the shell.
+USAGE
+  exit 1
+fi
 
 echo "==> Project: ${GCP_PROJECT} (${GCP_REGION})"
 
@@ -44,5 +64,18 @@ gcloud firestore fields ttls update expiresAt \
 
 echo "==> Deploying security rules"
 npx firebase-tools deploy --only firestore:rules --project="${GCP_PROJECT}"
+
+# Indexes were missing here until 2026-09-16, while CLAUDE.md claimed this
+# script deployed them. A composite index added to firestore.indexes.json
+# therefore never reached the project, and the query that needed it failed in
+# production with a missing-index error pointing at the code rather than at the
+# gap between the command and its description.
+#
+# No `--force`: without it, firebase-tools reports indexes and field overrides
+# that exist in the project but not in the file, and leaves them alone. That
+# matters here — the TTL policy set above IS such a field override, and --force
+# would delete it, silently stopping event expiry.
+echo "==> Deploying composite indexes"
+npx firebase-tools deploy --only firestore:indexes --project="${GCP_PROJECT}"
 
 echo "==> Done."
