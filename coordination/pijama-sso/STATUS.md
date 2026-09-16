@@ -1080,3 +1080,67 @@ con películas que JP pidió.
 6. **Sacar `dashboard-lab` de los orígenes permitidos de producción** al cerrar las pruebas.
 7. **Bajar el proxy de Vultr** (`64.176.6.210`) — el tráfico ya entra directo, verificado. JP dijo
    a Crazy Cake "en los próximos días".
+
+---
+
+## 2026-09-16 · El SSO cerró, y detrás apareció algo más grande
+
+### Primero: el SSO funciona punta a punta en producción
+
+Crazy Cake desplegó su fix (lo detectamos midiendo, nunca avisaron: el endpoint de producción
+pasó de `302` a `401 INVALID_TOKEN`). Ese día se cerró la cadena completa, con evidencia por
+eslabón:
+
+| Eslabón | Evidencia |
+|---|---|
+| Console real → nuestro `/auth` | Panel: origen `dashboard-lab`, `Accepted · live`, token 348 chars |
+| Servidor → Atlas de **producción** | `atlasStatus 200 · contractMatched true` con la identidad de JP |
+| Aislamiento entre ambientes | Token del lab **rechazado** por producción con 401 — no comparten clave de firma |
+| Allowlist | El `partnerId` de producción **coincide** con el del lab: `6984824e65c8a085b5d5a632` |
+| Sesión | `Atlas login succeeded` en el log de Cloud Run, 18:53:45 |
+| Destino | `/films` renderizado con sesión real |
+
+**Corrección a una predicción de T0:** dije que el `partnerId` de producción probablemente
+diferiría del de testing. No difiere. Los dos ambientes comparten identidad de partners (mismo
+`partnerId` y mismo `muviUuid`) pero **no** la clave de firma. La allowlist ya estaba correcta.
+
+También quedó medido que **el deploy de Crazy Cake a producción fue parcial**: el bundle de
+producción tiene el fix del `targetOrigin` pero conserva `window.open(url,'MarketingPortal',
+'width=1200,height=800')` — la pestaña no llegó. Y la etapa 2 del DNS sí está aplicada:
+`promote.pijamafilms.com` sirve directo desde App Hosting (`envoy`), sin el proxy de Vultr.
+
+### Y después: el scoping no era un hueco, era la punta
+
+T0.1 (`feat/partner-scoping-t01`) hizo el barrido completo. **T0 verificó a mano seis de sus
+afirmaciones más graves y las seis son exactas.** No evidencia de explotación: cero llamadas al
+DELETE sin auth en 90 días.
+
+| Hallazgo verificado | Dónde |
+|---|---|
+| **Suplantación de partner.** `getPartnerFromRequest` lee `x-partner-id` del request y lo **prioriza**; el Edge middleware clona los headers entrantes sin borrarlo. Nada en el repo produce ese header. Cualquiera con sesión se convierte en cualquier partner. `GET /api/partners` reparte los doc ids. | `lib/auth/middleware.ts:22` · `src/middleware.ts:132` |
+| **Borrado sin autenticación.** Cero menciones de auth en el archivo; borra cualquier objeto de Cloud Storage por su key, y las keys se publican en las respuestas de assets. | `api/upload/[key]/route.ts` |
+| **Escribe presupuesto ajeno en Meta y Google.** Autentica pero nunca compara el dueño de la campaña. | `api/meta/campaigns/[id]/edit/route.ts:46` |
+| **Un camino de lectura escribe una ACL.** Visitar los assets de cualquier película hace `arrayUnion` del visitante en `filmEvents.allowedPartnerIds`. Hay datos ya contaminados que habrá que limpiar. | `films/[id]/assets/page.tsx:32` · `lib/events/firestore.ts:75` |
+| **Maquinaria de scoping que falla ABIERTA y que nadie llama.** `if (!pijama) return { allowed: true }`, y `PIJAMA_CLIENT_ID` no existe en ningún entorno. Conectarla dejaría producción igual de abierta **con apariencia de cerrada**. | `lib/auth/access-control.ts:59,94,69` |
+| **Josefina está provisionada como partner administrador**, no mal filtrada. El propio script lo dice: *"Everyone belongs to the special partner, which grants access to every film."* | `scripts/provision-seed-users.ts:35-41` |
+
+**Corrección importante a lo que T0 venía diciendo:** durante dos semanas reporté que Josefina
+veía el catálogo completo *porque `getFilms()` no filtra*. Es incompleto y el encuadre estaba
+mal: los cinco usuarios de Firebase comparten `partnerId: 'pijamafilms'`, que es el partner
+especial con acceso a todo. **El scoping perfecto no la contendría** — hace falta además cambiar
+su identidad. Son dos arreglos, no uno.
+
+T0.1 reporta IDOR en ~20 rutas más, no verificadas una por una por T0.
+
+### Estado de las decisiones
+
+Dos arreglos **no dependen de nadie**: borrar la rama `x-partner-id` y autenticar el DELETE. Sin
+el primero, cualquier control de propiedad que se agregue se saltea con un header.
+
+Dos decisiones son de JP: qué `partnerId` llevan los 5 usuarios provisionales (y si `pijamafilms`
+sigue significando "ve todo"), y de dónde sale el mapeo partner→películas. T0.1 pidió además
+autorización para una medición de solo lectura contra MUVI —probar si el filtro `user_uuid` es
+por dueño—, porque si lo fuera conserva la paginación y cambia el plan a mejor.
+
+Pendiente menor que bajó de prioridad: el banner de `atlas_call`, que volvió a mentir hoy y
+ocultó justo el hallazgo del aislamiento entre ambientes.
