@@ -1144,3 +1144,59 @@ por dueño—, porque si lo fuera conserva la paginación y cambia el plan a mej
 
 Pendiente menor que bajó de prioridad: el banner de `atlas_call`, que volvió a mentir hoy y
 ocultó justo el hallazgo del aislamiento entre ambientes.
+
+### 2026-09-16 · Primera tanda de T0.1: verificada por T0 con build propio
+
+Rama `feat/partner-scoping-t01`, 4 commits en `origin`, **nada mergeado**. T0 verificó en worktree
+propio (no el del agente): `tsc` exit 0, **617/617 en 46 archivos** contra 598/42 previos.
+
+**La verificación que importa fue por mutación**, no por lectura: al devolver `src/middleware.ts` y
+`src/lib/auth/middleware.ts` al código de `master`, se ponen rojos exactamente cuatro tests de
+seguridad, incluido `cannot be used to become the special partner`. Los tests protegen de verdad.
+
+| Commit | Qué cierra |
+|---|---|
+| `53e97e3` | La suplantación por `x-partner-id`, en dos capas. Medición previa al fix: **un request sin sesión alguna, solo con el header, resolvía al partner `pijamafilms`** |
+| `3dc6012` | `getAggregateStats` exige partner. Fuga medida: **12350 vs 350** propios. Trae un índice compuesto nuevo → **requiere `npm run deploy:firestore`** para servir en producción |
+| `5aa6869` | `DELETE /api/upload/[key]` **borrado**, no autenticado |
+| `aa2cc42` | El script de la medición MUVI, commiteado con la lectura de los tres brazos |
+
+**Sobre el DELETE, la decisión del agente fue mejor que la instrucción de T0.** Yo pedí
+autenticarlo; lo borró. Verificó que nada lo llama (los clientes usan otras rutas) y con 90 días
+de logs en cero era código muerto con capacidad destructiva. Autenticarlo habría sido más débil:
+sin `partnerId` en `Image`/`Video`, cualquier partner autenticado habría seguido borrando assets
+ajenos, o sea el cierre habría dependido de F4. **Queda abierto y dicho:** las rutas hermanas
+`DELETE /api/films/[filmId]/images|videos/[id]` siguen permitiendo borrar assets de otro partner
+—solo validan consistencia asset↔film, que no prueba propiedad—. Necesita F4.
+
+### La medición de MUVI cierra la decisión de diseño
+
+Tres brazos **con control**, porque una sola llamada no era interpretable: con una cuenta de cero
+películas, un filtro funcionando y un parámetro ignorado en silencio producen ambos un número
+creíble.
+
+```
+A · sin filtro          total_count = 62
+B · uuid del partner    total_count = 62
+C · uuid de control     total_count = 62   ← el brazo que lo prueba
+```
+
+**MUVI ignora `user_uuid`.** Y la misma corrida mató la otra variante: los 62 títulos tienen un
+único `content_created_by` (una cuenta de operador subió el catálogo entero). **No hay atribución
+por partner en MUVI por ninguna vía**, así que el mapeo tiene que vivir de nuestro lado.
+
+Consecuencia: la decisión de JP ya no es entre arquitecturas. Queda una sola y la pregunta se
+reduce a **quién llena el campo**. El agente además retiró una advertencia propia de la fase 1:
+con 62 títulos el filtrado local no necesita fan-out por título.
+
+### Sigue abierto
+
+- `getFilms()` devuelve el catálogo completo; **`/campaigns` sigue listando campañas ajenas**. Es
+  F3 y depende de la decisión de JP.
+- Las dos decisiones: quién llena el mapeo, y qué `partnerId` llevan los 5 usuarios de Firebase
+  (y si `pijamafilms` sigue significando "ve todo").
+- `npm run deploy:firestore` pendiente para el índice nuevo.
+- Stripe: cuenta nueva "Pijama Promote" existe sin actividad; falta confirmar si tiene clave
+  `sk_live_`. Verificado que **nada en el código ata a una cuenta** (el checkout usa `price_data`
+  al vuelo, sin Price/Product IDs), así que migrar es solo cambiar credenciales. La clave
+  publicable en producción es `pk_test_` y **no la usa nadie** — configuración muerta.
