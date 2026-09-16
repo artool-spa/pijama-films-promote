@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import type { AtlasDiagnostics } from '@/lib/atlas';
 import {
   ATLAS_ERROR_STAGES,
+  atlasCallConclusion,
   ATLAS_LAB_ORIGIN,
   ATLAS_PRODUCTION_ORIGIN,
   defaultAllowedOrigins,
@@ -275,10 +277,50 @@ describe('the stage taxonomy', () => {
     ).not.toMatch(/could not be reached|Atlas answered|token was/i);
   });
 
-  it('keeps atlas_call meaning what it now exclusively means', () => {
-    expect(stageConclusion('atlas_call')).toMatch(/could not be reached/i);
+  it('keeps atlas_call and config saying different things', () => {
+    const atlasCall = stageConclusion('atlas_call') ?? '';
+    const config = stageConclusion('config') ?? '';
+
+    // This used to assert the literal "could not be reached", and that string was
+    // the defect: `atlas_call` also covers "Atlas answered, just not with a 2xx".
+    // Bare — with no diagnostics — the stage may claim neither direction, because
+    // a missing status is exactly what leaves reachability unknown.
+    expect(atlasCall).not.toMatch(/could not be reached|was reached and answered/i);
+    expect(atlasCall).toMatch(/not visible from here/i);
+
+    // The original point of this test, unchanged: a configuration failure of ours
+    // must never read as a fault of Atlas'. These two are one keystroke apart in
+    // the route and worlds apart on screen.
+    expect(config).not.toEqual(atlasCall);
+    expect(config).toContain('ATLAS_API_BASE_URL');
+
     expect(describeStage('config', 'x').known).toBe(true);
     expect(describeStage('config', 'x').label).toBe('config');
+  });
+
+  /**
+   * The three readings of one stage. `atlas_call` is the only conclusion that
+   * cannot be written in advance, so it is the only one with a function behind it.
+   */
+  it('reads atlas_call from the diagnostics, in all three cases', () => {
+    const bare = atlasCallConclusion(undefined);
+    const noAnswer = atlasCallConclusion({ atlasStatus: 0 } as AtlasDiagnostics);
+    const answered = atlasCallConclusion({ atlasStatus: 401 } as AtlasDiagnostics);
+
+    expect(bare, 'no status means reachability is unknown, not that it failed').toMatch(
+      /not visible from here/i
+    );
+    expect(noAnswer).toMatch(/never completed/i);
+    expect(answered, 'Atlas answered, so the text must not deny it was reached').toMatch(
+      /was reached/i
+    );
+    expect(answered).toContain('401');
+
+    // None of the three may judge the credential: that reading belongs to
+    // describeAtlasOutcome, and saying it twice is how the two got to disagree.
+    for (const said of [bare, noAnswer, answered]) {
+      expect(said).not.toMatch(/token was (rejected|accepted)|invalid token/i);
+    }
   });
 
   it('says something for every one of them', () => {

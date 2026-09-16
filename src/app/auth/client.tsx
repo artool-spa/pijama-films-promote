@@ -720,7 +720,7 @@ function AttemptPanel({ attempt }: { attempt: ExchangeAttempt }) {
  * explanation, and this taxonomy has grown three times already.
  */
 function StageRows({ response }: { response: ParsedSessionResponse }) {
-  const stage = describeStage(response.stage, response.message);
+  const stage = describeStage(response.stage, response.message, response.diagnostics);
 
   return (
     <>
@@ -847,7 +847,13 @@ function SettledBanner({
     return (
       <Alert severity="info">
         <AlertTitle>The SSO works — this account has no partner attached</AlertTitle>
-        {describeStage(informational.response.stage, informational.response.message).meaning}{' '}
+        {
+          describeStage(
+            informational.response.stage,
+            informational.response.message,
+            informational.response.diagnostics
+          ).meaning
+        }{' '}
         Sign-in did not complete, but the
         handshake, the token and the call to Atlas all did.
       </Alert>
@@ -894,7 +900,8 @@ function SettledBanner({
   }
 
   const conclusion = primary?.response
-    ? describeStage(primary.response.stage, primary.response.message).meaning
+    ? describeStage(primary.response.stage, primary.response.message, primary.response.diagnostics)
+        .meaning
     : null;
 
   return (
