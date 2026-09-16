@@ -1,16 +1,33 @@
 import { NextRequest } from 'next/server';
-import {
-  getPartnerRecordById,
-  getPartnerRecordByPartnerId,
-  type Partner,
-} from '@/models/partner';
+import { getPartnerRecordByPartnerId, type Partner } from '@/models/partner';
 
 /**
- * Extract and validate partner from request headers.
+ * Extract and validate the partner from request headers.
  *
- * Checks headers in order:
- * 1. x-partner-id - internal database ID
- * 2. x-pijama-partner-id - external Pijama partner ID (set by auth middleware)
+ * The ONLY accepted source is `x-pijama-partner-id`, which the Edge middleware
+ * derives from the signed session cookie (`src/middleware.ts`). There is
+ * deliberately no second source.
+ *
+ * ## Why there is no `x-partner-id` branch any more
+ *
+ * This function used to read `x-partner-id` — the internal document id — and to
+ * prefer it over the session-derived header. Nothing in this repository, in
+ * `proxy/nginx.conf` or in `apphosting.yaml` ever set that header, so its only
+ * possible source was the caller. The Edge middleware clones the incoming
+ * headers (it has to, or the cookie and user-agent would be stripped) and
+ * overrides only `x-pijama-partner-id`, so a caller-supplied `x-partner-id`
+ * arrived here intact and won.
+ *
+ * The consequence was total: anyone could name any partner and become it for
+ * the whole request — including `pijamafilms`, the SPECIAL_PARTNER_ID that
+ * `@/lib/auth/access-control` grants unrestricted access by design. The victim
+ * ids are not even secret; `GET /api/partners` hands them to any caller. Every
+ * correctly written ownership check in the codebase was bypassable with one
+ * header, which is why this was fixed before any of them were added.
+ *
+ * Do not reintroduce a second source. A genuine server-to-server caller must
+ * authenticate as itself — see `@/lib/auth/oidc-caller` — and name the partner
+ * inside a verified payload, never in a bare request header.
  *
  * @param req - The Next.js request object
  * @returns The partner if found and valid, null otherwise
@@ -18,28 +35,7 @@ import {
 export async function getPartnerFromRequest(
   req: NextRequest
 ): Promise<Partner | null> {
-  // First try internal database ID
-  const partnerId = req.headers.get('x-partner-id');
-  if (partnerId) {
-    try {
-      const partner = await getPartnerRecordById(partnerId);
-      if (partner) return partner;
-    } catch {
-      // Continue to fallback
-    }
-  }
-
-  // Fallback to Pijama partner ID (set by session middleware)
-  const pijamaPartnerId = req.headers.get('x-pijama-partner-id');
-  if (pijamaPartnerId) {
-    try {
-      return await getPartnerRecordByPartnerId(pijamaPartnerId);
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
+  return getPartnerByPijamaIdFromRequest(req);
 }
 
 /**
