@@ -842,7 +842,9 @@ describe('AtlasAuthClient — no_partner reads as a working SSO', () => {
   it('spells out a conclusion for every stage the contract defines', async () => {
     for (const [stage, fragment] of [
       ['input', /bug on our side/],
-      ['atlas_call', /could not be reached/],
+      // No diagnostics on these responses, so this is the case where reachability
+      // is genuinely unknown — and the text says so rather than guessing either way.
+      ['atlas_call', /whether Atlas was reached is not visible/],
       ['contract', /does not match what Crazy Cake documented/],
       ['disabled', /switched off by configuration/],
       ['allowlist', /not on the list allowed to sign in/],
@@ -995,5 +997,94 @@ describe('AtlasAuthClient — the re-run button', () => {
 
     const button = screen.getByRole('button', { name: /Re-run as diagnostic probe/i });
     expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+/**
+ * The sibling of the block above, for the other way this screen can contradict
+ * itself.
+ *
+ * That one pins *causal* claims: nothing may say why Atlas answered as it did.
+ * This one pins *reachability* claims, which is the axis that slipped through.
+ * On 2026-09-16 a real production run rendered, on one screen:
+ *
+ *   banner  "Atlas could not be reached at all. Nothing can be concluded…"
+ *   message "Atlas did not answer with 2xx: HTTP 401"
+ *
+ * The causal predicate could not catch it — "could not be reached" assigns the
+ * cause to the network, not to the token, so every assertion passed. And the cost
+ * was not cosmetic: that 401 carried `INVALID_TOKEN`, so the banner's "nothing can
+ * be concluded" buried the very finding the run produced, which was that the lab
+ * and production environments do not share a signing key.
+ *
+ * Note the predicate is deliberately NOT the one above. For a 401, saying Atlas
+ * rejected the token IS defensible — the status proves it was evaluated. Reusing
+ * the causal list here would have forbidden a true statement.
+ */
+describe('AtlasAuthClient — what the screen claims about reaching Atlas', () => {
+  const UNREACHABLE_CLAIMS = [
+    /could not be reached/i,
+    /never completed/i,
+    /never reached Atlas/i,
+    /unreachable/i,
+  ];
+
+  for (const atlasStatus of [302, 401, 500]) {
+    it(`never claims Atlas was unreachable when it answered HTTP ${atlasStatus}`, async () => {
+      respondWith(502, {
+        ok: false,
+        stage: 'atlas_call',
+        message: `Atlas did not answer with 2xx: HTTP ${atlasStatus}`,
+        diagnostics: {
+          atlasStatus,
+          contractMatched: false,
+          atlasUrlTried: 'https://dashboard.pijamafilms.com/movies/by-partner',
+          responseShapeKeys: ['status', 'error', 'message'],
+        },
+      });
+      installBridge();
+      post(validEnvelope(), LAB);
+      const { container } = renderClient();
+
+      await screen.findByText('Sign-in did not complete');
+      const page = container.textContent ?? '';
+
+      for (const claim of UNREACHABLE_CLAIMS) {
+        expect(
+          page,
+          `HTTP ${atlasStatus} — Atlas answered, so the page must not say it was never reached`
+        ).not.toMatch(claim);
+      }
+
+      // The counterweight: refusing to overclaim must not become refusing to
+      // report. The status stays visible, and the page says Atlas did answer.
+      expect(page).toContain(String(atlasStatus));
+      expect(page).toMatch(/was reached/i);
+    });
+  }
+
+  it('does say the call never completed when atlasStatus is 0', async () => {
+    respondWith(502, {
+      ok: false,
+      stage: 'atlas_call',
+      message: 'Atlas did not answer',
+      diagnostics: {
+        atlasStatus: 0,
+        contractMatched: false,
+        atlasUrlTried: 'https://dashboard.pijamafilms.com/movies/by-partner',
+        responseShapeKeys: [],
+      },
+    });
+    installBridge();
+    post(validEnvelope(), LAB);
+    const { container } = renderClient();
+
+    await screen.findByText('Sign-in did not complete');
+    const page = container.textContent ?? '';
+
+    // The other direction of the same property: a genuine non-answer must still be
+    // reported as one, or the fix would have traded a false alarm for a blind spot.
+    expect(page).toMatch(/never completed/i);
+    expect(page).not.toMatch(/was reached/i);
   });
 });

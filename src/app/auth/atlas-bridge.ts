@@ -274,7 +274,11 @@ export const STAGE_CONCLUSION: Record<AtlasErrorStage, string> = {
     'Too many attempts in a short window — wait a minute and try again. The integration is fine; this is our own limiter.',
   config:
     'This deployment is missing its own configuration (ATLAS_API_BASE_URL), so nothing was sent anywhere. Set the variable and try again — this result says nothing about the token or about the integration.',
-  atlas_call: 'Atlas could not be reached at all. Nothing can be concluded about the token or the account.',
+  // The no-diagnostics default, and it claims nothing about reachability on
+  // purpose: without a status, whether Atlas answered is not visible from here.
+  // With diagnostics the text is chosen per status — see `atlasCallConclusion`.
+  atlas_call:
+    'The call to Atlas failed, and this response carries no diagnostics, so whether Atlas was reached is not visible from here. Nothing can be concluded about the token or the account.',
   contract:
     'Atlas answered, so the token was delivered, but the response does not match what Crazy Cake documented.',
   no_partner:
@@ -298,6 +302,46 @@ export function stageConclusion(stage: string | undefined): string | null {
   return (STAGE_CONCLUSION as Record<string, string>)[stage] ?? null;
 }
 
+/**
+ * The conclusion for `atlas_call`, which is the one stage whose meaning cannot be
+ * written down in advance.
+ *
+ * The stage covers two situations that share nothing: the request never completed,
+ * and Atlas answered something that was not a 2xx. The fixed text used to assert
+ * the first for both, so on 2026-09-16 a real run showed
+ *
+ *   banner  "Atlas could not be reached at all. Nothing can be concluded…"
+ *   message "Atlas did not answer with 2xx: HTTP 401"
+ *
+ * on the same screen. Both sentences passed their own tests. Worse than the
+ * contradiction: that 401 carried `INVALID_TOKEN`, so the token HAD been evaluated
+ * — the banner's "nothing can be concluded" hid the finding the run existed to
+ * produce, which was that the lab and production environments do not share a
+ * signing key.
+ *
+ * So this states only what is observable — reached or not, and with what status —
+ * and deliberately makes no claim about the token. The per-status reading lives in
+ * `describeAtlasOutcome`, which already weighs each status separately; duplicating
+ * it here is how the two got to disagree in the first place.
+ *
+ * Three cases, not two. The first draft of this fix collapsed "no diagnostics" into
+ * "never completed", which is the same overclaim pointed the other way: with no
+ * status, whether Atlas answered is exactly what we do not know.
+ */
+export function atlasCallConclusion(diagnostics: AtlasDiagnostics | undefined): string {
+  const status = diagnostics?.atlasStatus;
+
+  if (status === undefined) {
+    return STAGE_CONCLUSION.atlas_call;
+  }
+
+  if (status === 0) {
+    return 'The call to Atlas never completed — DNS, timeout or a refused connection. Nothing can be concluded about the token or the account.';
+  }
+
+  return `Atlas was reached and answered HTTP ${status}, which is not a 2xx, so no Contract C response was produced. What that implies for the token depends on the status — see "What Atlas did" below.`;
+}
+
 export interface StageDescription {
   label: string;
   /** What to show under "what this means". Never empty when there is anything to say. */
@@ -315,7 +359,8 @@ export interface StageDescription {
  */
 export function describeStage(
   stage: string | undefined,
-  message: string | undefined
+  message: string | undefined,
+  diagnostics?: AtlasDiagnostics
 ): StageDescription {
   if (!stage) {
     return {
@@ -323,6 +368,10 @@ export function describeStage(
       meaning: message ?? null,
       known: false,
     };
+  }
+
+  if (stage === 'atlas_call') {
+    return { label: stage, meaning: atlasCallConclusion(diagnostics), known: true };
   }
 
   const conclusion = (STAGE_CONCLUSION as Record<string, string>)[stage];
