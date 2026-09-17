@@ -1313,3 +1313,81 @@ dueño del contenido.
 
 Cuatro puntos, todos medidos, en `correo-mathias-muviuuid.html` (borrador, pendiente de envío por
 JP). El punto que destraba es el 2.
+
+---
+
+## 2026-09-16/17 · Cierre de jornada: cuatro PRs desplegados y Stripe migrado
+
+`master` en `23e3707`. Cuatro merges verificados por T0, cada uno con su build en `READY` y
+producción comprobada después.
+
+| PR | Qué entró |
+|---|---|
+| #58 | `deploy:firestore` exige proyecto explícito **y por fin despliega índices** |
+| #59 | Suplantación por `x-partner-id` cerrada · agregados filtrados por partner · `DELETE /api/upload/[key]` eliminado |
+| #60 | El banner de `atlas_call` deja de afirmar que Atlas no fue alcanzado cuando sí respondió |
+| #61 | Las tres credenciales de Stripe pasan a la cuenta propia de Promote |
+
+### Stripe quedó migrado y el webhook existe por primera vez
+
+Usando una clave de 1Password —leída sin pasar por salida, argumentos ni archivo— se creó el
+endpoint `we_1UGT1ABO3YGG9xBoh` en `acct_1UDAXTBO3YGG9xBo` ("Pijama Promote") y se cargaron sus
+secretos. La revisión viva confirma: `STRIPE_SECRET_KEY` **v4**, `STRIPE_WEBHOOK_SECRET` **v2**,
+publicable `pk_live_51UDAXTB…`. Fragmento de cuenta idéntico en las tres.
+
+**El diagnóstico previo era incompleto y conviene dejarlo corregido.** Durante semanas se dijo
+"el `whsec_` está mal". La causa real: **la cuenta no tenía ningún endpoint de webhook**, por eso
+90 días de logs mostraban cero entregas. Y la proporción: los créditos **sí** se acreditaban,
+porque `verify-session` lo hace cuando el navegador vuelve del checkout. Lo que faltaba era la red
+de seguridad para quien cierra la pestaña antes de volver — no "los pagos no se procesan", como T0
+llegó a afirmar.
+
+Verificado contra la propia API lo que el dashboard no aclaraba: `charges_enabled`,
+`payouts_enabled` y `details_submitted` en `true`. Los ítems pendientes del checklist eran el
+perfil público y la insignia Stripe Verified.
+
+**Falta un paso de JP:** enviar un evento de prueba desde el dashboard de Stripe. Si el endpoint
+responde `Missing session metadata`, la firma se verificó y el webhook quedó operativo.
+
+**Un error de T0 en el proceso, y su corrección.** Al sondear permisos de escritura sobre
+`customers` con cuerpo vacío —técnica que con la clave restringida daba `403` sin efecto—, la
+clave completa **creó un cliente vacío**: en Stripe todos los campos de `customers` son
+opcionales, así que la petición era válida. Detectado en el acto, verificado que era el único de
+la cuenta y borrado (`cus_VH18Is9EDkMmUq`, `deleted=true`). La cuenta volvió a cero clientes. El
+razonamiento valía para el caso probado y se aplicó a otro sin revisarlo.
+
+### Decisión 2, resuelta: los cinco usuarios se quedan en `pijamafilms`
+
+JP evaluó reasignarlos a un partner de Fábula. La medición lo desaconsejó: **no existe un partner
+de Fábula** —en Firestore solo hay `pijamafilms` y el creado por el SSO de JP— y todo cuelga del
+documento de `pijamafilms`:
+
+```
+55 campañas · $3.249 de presupuesto  →  cmls4099q00002xq7404l4b44
+1 cuenta de crédito · saldo $63,81   →  cmls4099q00002xq7404l4b44
+```
+
+Cambiarles el claim los habría desconectado de todo eso, y con los agregados ya filtrados por el
+PR #59 el efecto habría sido inmediato y visible: cero campañas, cero créditos.
+
+### PENDIENTE NUEVO · dos identidades para la misma persona
+
+```
+Los 5 por contraseña  → pijamafilms                → 55 campañas, $63,81
+JP por SSO            → 6984824e65c8a085b5d5a632   → 0 campañas, $0
+```
+
+Hasta el PR #59 esto no se notaba porque los agregados no filtraban. **Ahora sí**: si JP entra por
+SSO verá el panel vacío, y eso es el scoping funcionando sobre una identidad que no tiene nada, no
+un defecto. Contenido hoy porque la allowlist tiene **un solo id**. Hay que resolverlo antes de
+abrir el SSO a un productor real. Opciones planteadas: repuntar el `partnerId` externo del
+documento existente (cambio de datos, sin tocar código, conserva campañas y saldo), o traducir en
+el canje de SSO (más limpio, escala a varios productores, pero es código nuevo).
+
+**Decisión de JP: dejarlo por ahora.**
+
+### Aseo
+
+Worktrees y ramas de los cuatro PRs eliminados tras confirmar contenido en `master`. Quedan
+`master` y `coordination/pijama-sso`. Nota: siguen en el remoto ~12 ramas de trabajos anteriores
+a esta sesión; no se tocaron por no haber verificado su estado.

@@ -1,0 +1,45 @@
+<p>Hola Mathias,</p>
+
+<p>Ya probamos el SSO completo en producción y funciona: el <code>postMessage</code> llega, el canje contra <code>/movies/by-partner</code> responde con la forma documentada, y la sesión se emite. Gracias por los fixes.</p>
+
+<p>Ahora que pudimos ver por primera vez un <code>movies[]</code> con contenido —subí dos películas de prueba en testing para tener datos— aparecieron tres cosas que necesitamos aclarar con ustedes.</p>
+
+<p><strong>1 · El campo <code>muviUuid</code> de cada película trae el <code>partnerId</code>, no el identificador de la película.</strong></p>
+
+<p>Con dos películas distintas en la misma cuenta, la respuesta es esta:</p>
+
+<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">
+  <tr style="background:#f2f2f2">
+    <th align="left">Película</th><th align="left"><code>_id</code></th><th align="left"><code>muviUuid</code></th>
+  </tr>
+  <tr>
+    <td>Prueba Película</td><td><code>6a9737d1d6ad2b6d0d3cbdf7</code></td><td><code>6984824e65c8a085b5d5a632</code></td>
+  </tr>
+  <tr>
+    <td>Prueba Película 2</td><td><code>6aab162fb9ceb1dd4faf44ce</code></td><td><code>6984824e65c8a085b5d5a632</code></td>
+  </tr>
+</table>
+
+<p>Los <code>_id</code> son distintos, así que Atlas sí las distingue. Pero el <code>muviUuid</code> es idéntico en ambas, y coincide exactamente con el <code>partnerId</code> que ustedes mismos devuelven en <code>data.partner</code>.</p>
+
+<p>El formato lo confirma: los uuid de MUVI tienen 32 caracteres hexadecimales —como el <code>muviUuid</code> del partner, o como los <code>muviAssetId</code> de los assets, que sí vienen correctos—. Ese valor tiene 24, que es un ObjectId de Mongo.</p>
+
+<p><strong>2 · ¿Se llena al aprobar, o está mal asignado siempre?</strong></p>
+
+<p>Nuestras dos películas están en <code>pending_approval</code>, así que lo que medimos vale para ese estado. Puede que al aprobarse ustedes escriban ahí el uuid real de MUVI y el campo quede correcto. Necesitamos saber cuál de las dos es, porque cambia lo que construimos de nuestro lado.</p>
+
+<p>El motivo por el que preguntamos: <strong>necesitamos saber qué películas le pertenecen a cada productor</strong> para mostrarle solo las suyas. Hoy, con lo que devuelve <code>/movies/by-partner</code>, no hay ningún campo que identifique la película en el catálogo de MUVI — <code>_id</code> es interno de Atlas, <code>muviUuid</code> trae el partner, y los <code>muviAssetId</code> identifican archivos, no la ficha. Si el campo se corrige, ese problema se resuelve solo.</p>
+
+<p><strong>3 · La forma de <code>movies[]</code> no calza con la guía de enero.</strong></p>
+
+<p>Las claves reales son <code>_id</code>, <code>assets</code>, <code>createdAt</code>, <code>description</code>, <code>duration</code>, <code>genre</code>, <code>muviUuid</code>, <code>status</code> y <code>updatedAt</code>. La documentación describe además <code>title</code> y <code>releaseYear</code>, que no vienen. No es bloqueante para nosotros, pero conviene alinear el documento con lo que entrega la API para que el próximo que lo lea no se guíe por algo que no existe.</p>
+
+<p><strong>4 · Una consulta aparte, sobre los assets.</strong></p>
+
+<p>Las URLs de <code>muviUrl</code> que devuelve el endpoint sirven el archivo maestro directamente desde CloudFront, sin firma ni expiración: comprobamos que responden a una petición sin autenticación de ningún tipo. Lo probamos solo contra nuestro propio archivo de prueba.</p>
+
+<p>Entendemos que las rutas son largas y difíciles de adivinar, pero para contenido de pago suele usarse URL firmada con expiración. ¿Es algo que ya está considerado o que viene más adelante? Lo preguntamos porque esas URLs viajan en la respuesta de la API, así que quedan en manos de cualquiera que reciba un token de partner.</p>
+
+<p>Quedamos atentos sobre todo al punto 2, que es el que nos destraba.</p>
+
+<p>Saludos,</p>
