@@ -51,10 +51,17 @@ env:
   # ---------------------------------------------------------------------------
   # Stripe
   # ---------------------------------------------------------------------------
-  # Public by design. Must belong to the same Stripe account as the
-  # STRIPE_SECRET_KEY stored in Secret Manager.
+  # All three belong to account acct_1UDAXTBO3YGG9xBo ("Pijama Promote"), this
+  # project's own Stripe account. Until 2026-09-16 they did not match: the
+  # publishable key here was a TEST key of a DIFFERENT account (51SyJh2…) while
+  # the secret key was live. It went unnoticed because nothing reads the
+  # publishable key — checkout runs entirely server-side — so the mismatch had
+  # no symptom. Keep the account fragment (51UDAXTBO3YGG9x) identical across the
+  # three, and check it whenever any of them is rotated.
+  #
+  # Public by design: it ships to the browser on every page load.
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: pk_test_51SyJh2Er5kwaq6LfTF3E01JeUD2n22UJEZOTghkqrlbyHWFcRSYsF2psGL8CYCluiUWEZHIxkNx06BakU5DkVbaz00GI9tnrdy
+    value: pk_live_51UDAXTBO3YGG9xBoxXpEfsahpeJ3yQcLHT2PwyDcXvTvj4PPM8hbvgTc8xWQ7AyTitdQJxvtuETxhr0U8Dh161yy00efLApdip
     availability:
       - BUILD
       - RUNTIME
@@ -64,10 +71,14 @@ env:
     availability:
       - RUNTIME
 
-  # Copied from the pijama-films project. Note that Stripe signing secrets are
-  # per-endpoint: once this backend has its own webhook URL, create the endpoint
-  # in the Stripe dashboard and push the new whsec_ value, or signature
-  # verification will reject every event.
+  # Signing secret of endpoint we_1UGT1ABO3YGG9xBoh, created 2026-09-16 for
+  # https://promote.pijamafilms.com/api/webhooks/stripe (checkout.session.completed).
+  #
+  # Stripe signing secrets are PER ENDPOINT, not per account. The previous value
+  # was copied from the pijama-films project, so it could never have verified an
+  # event sent to this backend — and the account had no endpoint at all, which is
+  # why 90 days of logs show zero deliveries from Stripe. Creating a new endpoint
+  # here means rolling this value too.
   - variable: STRIPE_WEBHOOK_SECRET
     secret: STRIPE_WEBHOOK_SECRET
     availability:
