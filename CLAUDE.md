@@ -62,11 +62,12 @@ npx firebase-tools apphosting:secrets:set NAME --project=pijama-promote-firebase
 #     --project=pijama-promote-firebase --git-commit <sha>
 # The live Stripe key sat inert for 3d16h in 2026-08 because nobody merged.
 
-# DNS (transitional): promote.pijamafilms.com still resolves to 64.176.6.210,
-# the legacy Vultr VM, which reverse-proxies to App Hosting (~450ms vs ~77ms
-# direct, and it strips some headers). Do NOT decommission that VM until the
-# A record cutover completes — plan and exact records in
-# coordination/pijama-sso/transicion-dns-proxy.md (branch coordination/pijama-sso).
+# DNS: the cutover is DONE. promote.pijamafilms.com resolves to 35.219.200.9
+# and is served by App Hosting directly (envoy, ~150ms) — verified 2026-09-28.
+# The legacy Vultr VM at 64.176.6.210 still answers if you force-resolve to it,
+# but no public traffic reaches it any more, so it can be decommissioned.
+# History and exact records in coordination/pijama-sso/transicion-dns-proxy.md
+# (branch coordination/pijama-sso).
 
 # Triggers (Cloud Functions) — the ONE exception to "do not deploy by hand".
 # functions/ is a second deployable: App Hosting does not build it, so it has to
