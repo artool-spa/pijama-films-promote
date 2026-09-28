@@ -1,13 +1,27 @@
-# Atlas Console SSO — state of the integration
+# PijamaFilms dashboard SSO — state of the integration
 
 _Last updated: 2026-08-29 · branch `feat/atlas-sso` · everything below is measured, not assumed._
 
+## A note on the name "Atlas"
+
+**"Atlas" is this codebase's internal convention, not what the product is called.** The
+dashboard was renamed to PijamaFilms months ago; Crazy Cake call it "el dashboard" and have
+never used "Atlas" in any correspondence. The name survives here because it is baked into
+env vars (`ATLAS_API_BASE_URL`, `ATLAS_LOGIN_ENABLED`), module paths (`src/lib/atlas/`),
+route names (`/api/auth/atlas/session`) and Secret Manager entries, where renaming would mean
+touching production configuration for no functional gain. It reached us through the handoff
+envelope Crazy Cake still emits — `postMessage({ type: 'ATLAS_AUTH', token })` — and "Console"
+came from their session cookie, `console-production`.
+
+Keep it in code. **Do not use it when writing to Crazy Cake or to Pijama**: say "the dashboard"
+or `dashboard.pijamafilms.com`.
+
 ## What this is
 
-Single sign-on from **Atlas Console** (`dashboard.pijamafilms.com`, built by Crazy Cake) into
-this platform. A producer clicks the marketing button in Console; Console opens `/auth` here
-in a popup and posts a JWT via `postMessage`; we exchange that token against Console's API,
-identify the partner, and mint our own session.
+Single sign-on from the PijamaFilms dashboard (`dashboard.pijamafilms.com`, built by Crazy
+Cake) into this platform. A producer clicks the marketing button there; the dashboard opens
+`/auth` here in a popup and posts a JWT via `postMessage`; we exchange that token against the
+dashboard's API, identify the partner, and mint our own session.
 
 Full project history, contracts and measurements live in `coordination/pijama-sso/` on the
 `coordination/pijama-sso` branch. This file is the summary a developer needs.
