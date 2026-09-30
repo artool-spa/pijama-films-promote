@@ -1,48 +1,80 @@
-# STATUS — SSO Atlas Console → promote.pijamafilms.com
+# STATUS — SSO dashboard PijamaFilms → promote.pijamafilms.com
 
-_Última actualización: **2026-08-28** · Actualizado por: T0_
+_Última actualización: **2026-09-30** · Actualizado por: T0_
 
 > **Cómo leer este archivo.** Esta cabecera es el estado actual y es lo único que hay que leer
 > para saber dónde está el proyecto. Todo lo de abajo es **log histórico**: describe mundos que
 > ya se movieron y sus filas no son el estado de hoy. Si una fila de más abajo contradice esta
 > cabecera, la cabecera gana.
 
+> **Sobre el nombre "Atlas".** Era el nombre original del producto; cambió a PijamaFilms a
+> mitad de camino. Sobrevive en variables de entorno, rutas y secretos, donde renombrarlo
+> costaría tocar configuración de producción sin ganar nada. **No usarlo al escribirle a Crazy
+> Cake ni a Pijama** — ellos le dicen "el dashboard". Detalle en `docs/atlas-sso-integration.md`.
+
 ## Estado actual
 
-**Nuestra mitad está completa. El proyecto está bloqueado, y el bloqueo es de Crazy Cake.**
+**Nuestra mitad está desplegada y funcionando en producción. Lo que falta es de ellos, salvo el
+scoping por partner, que es nuestro y es el bloqueante del Go Live.**
 
 ```
-rama feat/atlas-sso · commit ad97dd6 · next 16.3.1
-tsc --noEmit   exit 0
-vitest         584/584 · 40 archivos
+master 2268df9 · next 16.3.1
+vitest  622/622 · 46 archivos
 ```
 
-Verificado por T0 en worktree propio sobre la integración, no por suma de reportes de agentes.
-Cada fix además ejercitado **por HTTP contra un servidor corriendo**, porque los unit tests
-mockean `fetch` justo en la frontera que protegen.
+`ATLAS_LOGIN_ENABLED="true"` · allowlist con **una** entrada: `6984824e65c8a085b5d5a632` (JP).
+Esa entrada única es la única contención mientras `getFilms()` no filtre por partner.
 
-`ATLAS_LOGIN_ENABLED="false"` y allowlist vacía: producción arranca cerrada. **Nada desplegado.**
+**Al Go Live el SSO será la única vía de acceso** (decisión de JP, 2026-09-30). Las cinco
+cuentas con correo y contraseña son de prueba y no representan un camino soportado.
 
-### Por qué está bloqueado
+### Lo que quedó resuelto desde agosto
+
+| Qué | Estado |
+|---|---|
+| `targetOrigin` en el bundle del dashboard | ✅ arreglado por Crazy Cake, confirmado 09-03 |
+| `/movies/by-partner` alcanzable server-to-server | ✅ opción A aplicada, HTTP 200 con `Bearer` |
+| Login completo en producción (token → partner → sesión → `/films`) | ✅ verificado 09-17 |
+| Stripe en cuenta propia `acct_1UDAXTBO3YGG9xBo` + endpoint de webhook | ✅ migrado 09-16 |
+| Corte de DNS a App Hosting | ✅ hecho — 35.219.200.9, envoy, verificado 09-28 |
+| `muviContentUuid` como llave hacia MUVI | ✅ es un uuid real de MUVI (control de tres brazos) |
+
+### Lo que está abierto
 
 | # | Hecho medido | Dueño |
 |---|---|---|
-| 1 | `openMarketingPortal` postea con `targetOrigin = window.location.origin` — el origen **propio** de Console, no el del portal destino. El navegador descarta el mensaje. **El handoff no puede funcionar.** | Crazy Cake |
-| 2 | `/partners/external-token` responde `{status:'error', error:'UNAUTHORIZED'}` a una cuenta admin. Hace falta una cuenta de **productora** para probar. | Crazy Cake / JP |
-| 3 | `/movies/by-partner` está detrás de una puerta de sesión por cookie: toda llamada server-to-server recibe 302, con y sin `Bearer`. | Crazy Cake |
+| 1 | **El botón de Marketing en producción nunca ha funcionado.** `marketingUrl` allá apunta a la raíz y no a `/auth`; el arreglo llegó a testing el 09-03 y nunca a producción. Lo del 09-17 que validamos fue el canje del token, no el botón. | Crazy Cake |
+| 2 | **Las dos películas asignadas (Fuga, Tony Manero) no se pueden leer en MUVI.** El dashboard las da por Publicadas; MUVI responde *"not available in your region"* desde cualquier IP y no están en el catálogo de 98. Otras de Fábula sí están. | Crazy Cake / Pijama |
+| 3 | **`getFilms()` no filtra por partner.** MUVI no sabe filtrar por productor — medido con tres brazos y control. **Bloqueante del Go Live.** | Nosotros |
+| 4 | Las tres dudas del dataLayer (datos personales, cuál `content_id`, entorno por evento) sin responder. El documento de eventos se le prometió a Crazy Cake el 09-22. | Jorge León |
+| 5 | Evento de prueba de Stripe desde el dashboard. Esperado: `400 "Missing session metadata"` = firma verificada. | JP |
 
-El punto 1 es la respuesta a la pregunta del proyecto, y es una línea de código. Explica por qué
-en enero pudieron decir de buena fe que *"testing ya tiene todo para funcionar"*: el código está
-escrito completo y no se probó de punta a punta ni una vez.
+### Lo que todavía nadie ha observado
+
+**Ninguna película con las dos mitades a la vista**: un `muviContentUuid` entregado por el
+dashboard que coincida con un `content_uuid` que podamos leer en MUVI. El mapeo se apoya hoy en
+el formato y en el control de mensajes de error, no en una coincidencia. Se cierra pidiendo que
+asignen una película viva del catálogo — Ema `c009c426e3e1437bac1e7e3360bb5e07`, Neruda
+`a939ac9caba041fd8f598139820d45be`, No `1423df88449a4cb9a6d8becbdd76bed5`, Post Mortem
+`11ac041c6f0b477c99a16ed74a3f634d`.
+
+### Decisión de arquitectura sobre la mesa
+
+La respuesta del dashboard viene **acotada al partner por construcción** y desde el cambio de
+contrato trae título, año, género, duración, precio, tráiler y assets. Leer de ahí la lista del
+productor, en vez del catálogo global de MUVI, cerraría de una vez el punto 2 y el 3. No es
+gratis: la película **igual tiene que estar viva en MUVI**, porque los avisos apuntan a
+`https://pijamafilms.com/watch/{content_uuid}` (`src/models/film.ts:438`), y el contrato de
+ellos ya cambió una vez sin aviso. Decisión pendiente, no plan.
 
 ### Siguiente acción, y de quién
 
-- **JP** — reconocimiento en el dashboard: ¿existe sección de partners/productoras y se puede
-  crear o asignar una desde el rol admin? Eso decide autoservicio vs. correo. Y el intento
-  simple: entrar con su propia cuenta y correr el snippet de `/partners/external-token`.
-- **T0** — armar el correo a Mathias con los tres puntos de arriba, **cuando JP lo pida**.
-- **Fuera de este alcance, sigue bloqueando el Go Live:** `getFilms()` no filtra por partner.
-  La allowlist es la única contención.
+- **Crazy Cake** — responder los puntos 1 y 2. Seguimiento enviado 09-30.
+- **Jorge León** — las tres dudas del dataLayer. Reiteradas 09-28.
+- **JP** — el evento de prueba de Stripe.
+- **Quien retome** — decidir el punto 3 y la fuente del catálogo; sacar `dashboard-lab` de los
+  orígenes permitidos en producción cuando terminen las pruebas.
+
 
 ## Equipo
 
@@ -55,6 +87,7 @@ intermedios y no hay que leerlas como pendientes.
 | FX-envelope | `partner` opcional, simulador, fidelidad del ensayo | ✅ cerrado, `fc4b7e1` |
 | FX-stage | `stage: input` por header-safety, `stage: config` | ✅ cerrado, `3a8f42d` + `3ff2ba2` |
 | FX-envelope (rondas 4–5) | banner falso verde, y los dos overclaims de `describeAtlasOutcome` | ✅ cerrado, `ad97dd6` |
+| T0.1 · T01-scoping | medición del alcance por partner en MUVI (`scripts/muvi-partner-scope-check.ts`) | ✅ cerrado 2026-09-30, entregable en master |
 
 ---
 
@@ -1391,3 +1424,86 @@ el canje de SSO (más limpio, escala a varios productores, pero es código nuevo
 Worktrees y ramas de los cuatro PRs eliminados tras confirmar contenido en `master`. Quedan
 `master` y `coordination/pijama-sso`. Nota: siguen en el remoto ~12 ramas de trabajos anteriores
 a esta sesión; no se tocaron por no haber verificado su estado.
+
+---
+
+## 2026-09-17 → 09-30 · El contrato cambió, la llave apareció, y el acceso se volvió el problema
+
+Dos semanas en que el bloqueante se movió de lugar tres veces. Vale registrar el recorrido
+porque cada movimiento vino de una medición, no de una respuesta de Crazy Cake.
+
+### El campo que faltaba tiene nombre, y es real
+
+El 09-17 Mathias reconoció que `movies[].muviUuid` traía el `partnerId` — *"un artefacto que
+quedó del desarrollo tempranamente"* — y dijo que el campo bueno es `muviContentUuid`. El 09-21
+aclaró que **solo se rellena al publicarse en MUVI**, lo que explica por qué las dos películas
+de prueba subidas al lab nunca lo trajeron: el lab tiene bloqueada la publicación, porque MUVI
+no tiene ambiente de testing y publicar allá publicaría de verdad.
+
+El 09-23 asignaron dos películas de Fábula y el campo apareció, distinto por película y con 32
+hex. **Que exista no prueba que sirva**, así que se midió contra MUVI con tres brazos:
+
+| uuid consultado | respuesta de MUVI |
+|---|---|
+| uno vivo del catálogo | encontrado, y presente en el listado |
+| `35cf6b4d…` (Fuga) | `This content is not available in your region` |
+| `bd71229b…` (Tony Manero) | `This content is not available in your region` |
+| `ffffffff…` (inventado) | `The content you're looking for is no longer available` |
+
+**El uuid inventado produce un mensaje distinto al de los dos reales.** Esa diferencia es lo
+que prueba que `muviContentUuid` lleva un identificador que MUVI reconoce como suyo. Sin el
+brazo del control, "no disponible" y "no existe" se veían igual.
+
+### Pero el catálogo no las sirve, y la primera hipótesis era falsa
+
+Ninguna de las dos está entre los 98 títulos que devuelve MUVI con nuestras credenciales, y el
+bloqueo se repite desde IP chilena, estadounidense y otra. La primera lectura fue que
+apuntábamos a otra tienda: las 98 tienen un único `content_created_by` (`2cfaa272…`), distinto
+del `muviUuid` del partner (`b00680d6…`).
+
+**Esa hipótesis se cayó al mirar los títulos.** El catálogo es el de Pijama: están *Ema*,
+*Neruda*, *No*, *Post Mortem*, *Gloria*, *A Fantastic Woman*, *Nasty Baby*, *Princesita* —
+varias de Fábula, del mismo director. Las credenciales son las correctas. Lo que falta son esas
+dos películas en particular, las más antiguas de Larraín, 2006 y 2008.
+
+Lección: **un `created_by` único no prueba nada sobre de quién es la tienda.** Mirar los datos
+costó un comando y descartó una hipótesis que iba camino a un correo equivocado.
+
+### El contrato de `movies[]` cambió en producción sin aviso
+
+Alrededor del 09-23 la forma cambió entera. Claves nuevas: `muviContentUuid`, `originalTitle`,
+`internationalTitle`, `year`, `language`, `ageRating`, `price`, `trailerUrl`, `publishedAt`.
+Desaparecieron `muviUuid`, `status` y `createdAt`. Mathias documentó la estructura el mismo día
+y **calza clave por clave con lo medido** — la primera vez en toda la integración que la
+documentación y la observación coinciden.
+
+No nos rompió porque `AtlasMovieSchema` es `z.object({}).passthrough()`: las películas pasan sin
+validar y solo el objeto `partner` se exige estricto. Sí dejó en blanco la tabla `movieSample`
+del panel de diagnóstico, que lee `title` y `muviUuid` (`src/lib/atlas/types.ts:158`).
+Cosmético, sin arreglar.
+
+### El botón de Marketing en producción nunca funcionó
+
+JP lo probó el 09-23 y cayó en `/login`. Eso solo puede pasar si la ventana abrió la raíz:
+`/auth` es ruta pública y **nunca** redirige a `/login` — cuando falla muestra su panel. Leído
+directo del store del dashboard, `marketingUrl` en producción es `https://promote.pijamafilms.com`,
+sin `/auth`.
+
+**Lo que validamos el 09-17 fue el canje del token y la emisión de la sesión, no el botón.** Por
+eso pasó seis semanas sin detectarse. Es la lección más cara del período: *verificar el
+mecanismo no es verificar el camino del usuario*.
+
+### Higiene
+
+- Doce ramas mergeadas borradas tras verificarlas por tres vías (0 commits adelante,
+  `is-ancestor`, y cruce contra PRs mergeados), con los SHA de punta anotados como vía de
+  rescate. Quedan `master` y `coordination/pijama-sso`.
+- `docs/atlas-sso-integration.md` reescrito contra mediciones y fechado (PR #62). El `CLAUDE.md`
+  decía que el dominio seguía resolviendo a la VM de Vultr y advertía no darla de baja: el corte
+  ya había ocurrido, corregido en el mismo PR.
+- Un borrador de Gmail **se desprende del hilo si se actualiza**: pierde `In-Reply-To` y
+  `References`, y el `threadId` cambia en la respuesta. Para corregir un borrador de respuesta,
+  rehacerlo, no editarlo.
+- Gmail muestra un hilo largo recortado cuando se abre desde una búsqueda por remitente, y
+  parece una cadena distinta. Verificar por `thread-f:` antes de salir a buscar un hilo que no
+  existe.
