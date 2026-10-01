@@ -66,6 +66,25 @@ function valueOf(file: string, variable: string): string | undefined {
   return typeof entry?.value === 'string' ? entry.value : undefined;
 }
 
+/**
+ * Literals that identify production, read from the base file so this survives
+ * production itself ever moving. The project number is recovered from the
+ * invoker service account, which embeds it — that is what makes
+ * CRON_INVOKER_SERVICE_ACCOUNTS count as naming production.
+ */
+function productionLiterals(): string[] {
+  const literals = [
+    valueOf(BASE_CONFIG, 'FIREBASE_PROJECT_ID'),
+    valueOf(BASE_CONFIG, 'GCS_BUCKET_NAME'),
+    valueOf(BASE_CONFIG, 'CRON_INVOKER_SERVICE_ACCOUNTS')?.match(/^(\d{6,})-compute@/)?.[1],
+    'pk_live_',
+  ];
+
+  return literals.filter(
+    (literal): literal is string => typeof literal === 'string' && literal.length > 0
+  );
+}
+
 /** `variable` for messages, or a positional label when even that is missing. */
 function label(entry: EnvEntry, index: number): string {
   return typeof entry.variable === 'string' && entry.variable.length > 0
@@ -281,31 +300,59 @@ describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
      * so this stays correct if production itself ever moves.
      */
     it('carries no production identifier', () => {
-      const forbidden = [
-        valueOf(BASE_CONFIG, 'FIREBASE_PROJECT_ID'),
-        valueOf(BASE_CONFIG, 'GCS_BUCKET_NAME'),
-      ].filter((literal): literal is string => typeof literal === 'string' && literal.length > 0);
-
       const offending: string[] = [];
 
       for (const entry of envEntries(file)) {
         if (typeof entry.value !== 'string') continue;
 
-        for (const literal of forbidden) {
+        for (const literal of productionLiterals()) {
           if (entry.value.includes(literal)) {
             offending.push(`${String(entry.variable)} contains "${literal}"`);
           }
-        }
-
-        if (entry.value.includes('pk_live_')) {
-          offending.push(`${String(entry.variable)} carries a live Stripe key`);
         }
       }
 
       expect(
         offending,
         'this file configures a non-production backend; a production project id, ' +
-          'bucket or live key here points it at real data or real money'
+          'bucket, project number or live key here points it at real data or real money'
+      ).toEqual([]);
+    });
+
+    /**
+     * The mirror image, and the one that actually bit.
+     *
+     * The assertion above only inspects what the override DECLARES. The real
+     * failure was what it OMITTED: the Stripe publishable key was missing from
+     * the override, so the merge left the base `pk_live_` value standing and the
+     * development backend came up holding a production key. Nothing in the file
+     * looked wrong, because the problem was an absence.
+     *
+     * So: if a base value names production, the override has to replace it.
+     * Anything else means that production value reaches a non-production
+     * backend, and the merge being override-only guarantees it silently.
+     */
+    it('overrides every base variable whose value names production', () => {
+      const declared = new Set(
+        envEntries(file)
+          .map((entry) => entry.variable)
+          .filter((name): name is string => typeof name === 'string')
+      );
+
+      const missing = envEntries(BASE_CONFIG)
+        .filter(
+          (entry) =>
+            typeof entry.value === 'string' &&
+            productionLiterals().some((literal) => (entry.value as string).includes(literal))
+        )
+        .map((entry) => String(entry.variable))
+        .filter((name) => !declared.has(name));
+
+      expect(
+        missing,
+        'these base values name production and this file does not replace them. The ' +
+          'merge is override-only, so leaving one out does not neutralise it — the ' +
+          'production value reaches this backend intact and nothing reports it'
       ).toEqual([]);
     });
   }

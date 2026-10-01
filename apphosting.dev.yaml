@@ -77,6 +77,29 @@ env:
       - RUNTIME
 
   # ---------------------------------------------------------------------------
+  # Stripe — TEST mode of the same account as production, acct_1UDAXTBO3YGG9xBo.
+  #
+  # Keep the account fragment `51UDAXTBO3YGG9x` identical to the base file's
+  # live key. Until 2026-09-16 production carried a test publishable key of a
+  # DIFFERENT account (51SyJh2…) alongside a live secret key, and it went
+  # unnoticed for months because nothing reads the publishable key — checkout is
+  # entirely server-side. The local .env still holds a 51SyJh2… test key today,
+  # which is the same trap with the roles reversed: it would exercise an account
+  # that is not ours.
+  #
+  # The test-mode webhook signing secret is NOT here. Signing secrets are per
+  # ENDPOINT, so it only exists once an endpoint is created against this
+  # backend's hostname, and it lives in this project's Secret Manager under the
+  # same STRIPE_WEBHOOK_SECRET name the base file references.
+  #
+  # Public by design: it ships to the browser on every page load.
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    value: pk_test_51UDAXTBO3YGG9xBoHrqI3xXMgwl9WJhcQu969gf7r0jdIv4jE8P8wtRsgwLUv8kUQIcd0AwRUAaFVxsVzVU8jBY600uMWPTsxi
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
   # Internal triggers — must name THIS backend, or every scheduled job and every
   # queued task gets a 401 with nothing useful in either log.
   #
