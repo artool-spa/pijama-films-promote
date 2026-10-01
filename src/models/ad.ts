@@ -317,21 +317,6 @@ export async function getAdsByCampaignId(campaignId: string) {
   return z.array(AdSchema).parse(await attachMedia(docs));
 }
 
-/**
- * Get ad by its Meta API ID
- */
-export async function getAdByMetaId(metaAdId: string) {
-  const validMetaAdId = MetaAdIdSchema.parse(metaAdId);
-
-  const snap = await ads().where('metaAdId', '==', validMetaAdId).limit(1).get();
-
-  if (snap.empty) return null;
-
-  const [hydrated] = await attachMedia([docData(snap.docs[0]) as Doc]);
-
-  return AdSchema.parse(hydrated);
-}
-
 // ============================================================================
 // MUTATION FUNCTIONS
 // ============================================================================

@@ -11,7 +11,7 @@
 - **MUI 7.3** Material Design components
 - **Cloud Firestore** via the Firebase Admin SDK
 - **Vitest** testing framework
-- **Docker** for deployment
+- **Firebase App Hosting** for deployment (builds from source; there is no Dockerfile)
 
 ## Quick Reference
 

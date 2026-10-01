@@ -67,31 +67,10 @@ export class GoogleAdsClient {
   }
 
   /**
-   * Build resource name for a customer
-   */
-  buildCustomerResourceName(): string {
-    return `customers/${this.customerId}`;
-  }
-
-  /**
    * Build URL for customer-level operations
    */
   buildCustomerUrl(endpoint: string): string {
     return `${this.baseUrl}/customers/${this.customerId}/${endpoint}`;
-  }
-
-  /**
-   * Build resource name for a campaign
-   */
-  buildCampaignResourceName(campaignId: string): string {
-    return `customers/${this.customerId}/campaigns/${campaignId}`;
-  }
-
-  /**
-   * Build resource name for an ad group
-   */
-  buildAdGroupResourceName(adGroupId: string): string {
-    return `customers/${this.customerId}/adGroups/${adGroupId}`;
   }
 
   /**

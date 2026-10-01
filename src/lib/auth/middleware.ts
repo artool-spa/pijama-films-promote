@@ -19,11 +19,13 @@ import { getPartnerRecordByPartnerId, type Partner } from '@/models/partner';
  * arrived here intact and won.
  *
  * The consequence was total: anyone could name any partner and become it for
- * the whole request — including `pijamafilms`, the SPECIAL_PARTNER_ID that
- * `@/lib/auth/access-control` grants unrestricted access by design. The victim
- * ids are not even secret; `GET /api/partners` hands them to any caller. Every
- * correctly written ownership check in the codebase was bypassable with one
- * header, which is why this was fixed before any of them were added.
+ * the whole request — including `pijamafilms`, which every seeded user shares
+ * and which the access-control module of the time granted unrestricted access
+ * by design (that module has since been deleted; it could only ever return
+ * "allowed"). The victim ids are not even secret; `GET /api/partners` hands
+ * them to any caller. Every correctly written ownership check in the codebase
+ * was bypassable with one header, which is why this was fixed before any of
+ * them were added.
  *
  * Do not reintroduce a second source. A genuine server-to-server caller must
  * authenticate as itself — see `@/lib/auth/oidc-caller` — and name the partner
