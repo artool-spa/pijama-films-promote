@@ -1,134 +1,51 @@
 /**
- * Access Control Module
+ * Ownership checks for campaigns.
  *
- * Handles permission checks for partners including:
- * - Film access (which films a partner can manage ads for)
- * - Special partner access (pijamafilms has full access)
- * - Admin operations
+ * This module used to export twelve helpers covering film access, partner
+ * management and Meta campaign visibility. Eleven of them had no callers, and
+ * two of those — `canAccessFilm` and `getAccessibleFilmIds` — could only ever
+ * return "allowed" / "all films": both short-circuit when the Pijama client is
+ * absent, and `PIJAMA_CLIENT_ID` is configured in no environment, so the client
+ * is always null. Dead code that fails open is worse than dead code, because it
+ * is what the next person reaches for when they implement the real thing.
+ *
+ * What remains is the one check that is actually wired up.
  */
 
 import type { Partner } from '@/models/partner';
-import { pijama, canPartnerAccessFilm, getPartnerFilmIds } from '../pijama';
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-// Special partner ID that has full access to all films
-export const SPECIAL_PARTNER_ID = 'pijamafilms';
-
-// ============================================================================
-// TYPES
-// ============================================================================
 
 export interface AccessCheckResult {
   allowed: boolean;
   reason?: string;
 }
 
-// ============================================================================
-// SPECIAL PARTNER CHECKS
-// ============================================================================
-
 /**
- * Check if a partner is the special "pijamafilms" partner with full access
- */
-export function isSpecialPartner(partner: Partner): boolean {
-  return partner.partnerId === SPECIAL_PARTNER_ID;
-}
-
-/**
- * Check if a partner ID is the special partner
- */
-export function isSpecialPartnerId(partnerId: string): boolean {
-  return partnerId === SPECIAL_PARTNER_ID;
-}
-
-// ============================================================================
-// FILM ACCESS CONTROL
-// ============================================================================
-
-/**
- * Check if a partner can access a specific film
+ * Partner id that bypasses the ownership check below.
  *
- * Access rules:
- * 1. Special partner (pijamafilms) has access to ALL films
- * 2. Regular partners only have access to films in their Pijama account
- * 3. If Pijama is not configured, allow access (development mode)
+ * ⚠️ Every seeded user currently carries this as their `partnerId`
+ * (`scripts/provision-seed-users.ts`), so in practice the check below passes
+ * for everyone today. That is not an accident of this module — it is the
+ * partner-scoping work that blocks Go Live, and removing the bypass here
+ * without the rest of that work would deny access without granting it
+ * correctly anywhere else. Change it there, deliberately, not here.
  */
-export async function canAccessFilm(
-  partner: Partner,
-  filmMuviUuid: string
-): Promise<AccessCheckResult> {
-  // Special partner has full access
-  if (isSpecialPartner(partner)) {
-    return { allowed: true };
-  }
-
-  // If Pijama is not configured, allow access (development mode)
-  if (!pijama) {
-    return { allowed: true };
-  }
-
-  // Check with Pijama API
-  const canAccess = await canPartnerAccessFilm(pijama, partner.partnerId, filmMuviUuid);
-
-  if (!canAccess) {
-    return {
-      allowed: false,
-      reason: 'No tienes acceso a esta película',
-    };
-  }
-
-  return { allowed: true };
-}
+const SPECIAL_PARTNER_ID = 'pijamafilms';
 
 /**
- * Get list of film UUIDs a partner can access
+ * Can this partner act on a campaign owned by `campaignPartnerId`?
  *
- * Returns:
- * - null for special partner (means ALL films)
- * - Empty array if no films configured
- * - Array of film UUIDs otherwise
- */
-export async function getAccessibleFilmIds(
-  partner: Partner
-): Promise<string[] | null> {
-  // Special partner has access to all films (return null to indicate "all")
-  if (isSpecialPartner(partner)) {
-    return null;
-  }
-
-  // If Pijama is not configured, return null (allow all in dev mode)
-  if (!pijama) {
-    return null;
-  }
-
-  // Get films from Pijama API
-  return getPartnerFilmIds(pijama, partner.partnerId);
-}
-
-// ============================================================================
-// CAMPAIGN ACCESS CONTROL
-// ============================================================================
-
-/**
- * Check if a partner can manage a Campaign
- *
- * Rules:
- * 1. Partner must own the Campaign (partnerId matches)
- * 2. Special partner can manage ALL Campaigns
+ * Used by the Meta sync, ad update and ad preview routes. Compares the
+ * partner's document id against the campaign's owner — note that is the
+ * document id, while the bypass above compares the external `partnerId`.
  */
 export function canManageCampaign(
   partner: Partner,
   campaignPartnerId: string
 ): AccessCheckResult {
-  // Special partner can manage any Campaign
-  if (isSpecialPartner(partner)) {
+  if (partner.partnerId === SPECIAL_PARTNER_ID) {
     return { allowed: true };
   }
 
-  // Regular partners can only manage their own Campaigns
   if (partner.id !== campaignPartnerId) {
     return {
       allowed: false,
@@ -137,103 +54,4 @@ export function canManageCampaign(
   }
 
   return { allowed: true };
-}
-
-/**
- * Check if a partner can view a Campaign
- *
- * Rules:
- * 1. Partner must own the Campaign OR
- * 2. Partner is the special partner
- */
-export function canViewCampaign(
-  partner: Partner,
-  campaignPartnerId: string
-): AccessCheckResult {
-  return canManageCampaign(partner, campaignPartnerId);
-}
-
-// ============================================================================
-// PARTNER MANAGEMENT ACCESS
-// ============================================================================
-
-/**
- * Check if a partner can manage other partners
- * Only the special partner can do this
- */
-export function canManagePartners(partner: Partner): AccessCheckResult {
-  if (!isSpecialPartner(partner)) {
-    return {
-      allowed: false,
-      reason: 'Solo administradores pueden gestionar partners',
-    };
-  }
-
-  return { allowed: true };
-}
-
-/**
- * Check if a partner can view all partners
- * Only the special partner can do this
- */
-export function canViewAllPartners(partner: Partner): AccessCheckResult {
-  return canManagePartners(partner);
-}
-
-// ============================================================================
-// META CAMPAIGN ACCESS
-// ============================================================================
-
-/**
- * Check if a partner can view Meta campaign settings
- * All partners can view their own campaigns
- * Special partner can view all campaigns
- */
-export function canViewMetaCampaigns(
-  partner: Partner,
-  targetPartnerId?: string
-): AccessCheckResult {
-  // Special partner can view all campaigns
-  if (isSpecialPartner(partner)) {
-    return { allowed: true };
-  }
-
-  // Regular partners can only view their own campaigns
-  if (targetPartnerId && partner.id !== targetPartnerId) {
-    return {
-      allowed: false,
-      reason: 'No tienes acceso a las campañas de este partner',
-    };
-  }
-
-  return { allowed: true };
-}
-
-// ============================================================================
-// MIDDLEWARE HELPER
-// ============================================================================
-
-/**
- * Create an access denied response
- */
-export function accessDeniedResponse(result: AccessCheckResult): Response {
-  return new Response(
-    JSON.stringify({
-      error: 'Acceso denegado',
-      message: result.reason || 'No tienes permiso para esta acción',
-    }),
-    {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    }
-  );
-}
-
-/**
- * Require access check to pass, otherwise throw/return error
- */
-export function requireAccess(result: AccessCheckResult): void {
-  if (!result.allowed) {
-    throw new Error(result.reason || 'Access denied');
-  }
 }

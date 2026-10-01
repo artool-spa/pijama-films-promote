@@ -1,20 +1,7 @@
 export { getPartnerFromRequest, getPartnerByPijamaIdFromRequest } from './middleware';
 
 // Access control exports
-export {
-  isSpecialPartner,
-  isSpecialPartnerId,
-  canAccessFilm,
-  getAccessibleFilmIds,
-  canManageCampaign,
-  canViewCampaign,
-  canManagePartners,
-  canViewAllPartners,
-  canViewMetaCampaigns,
-  accessDeniedResponse,
-  requireAccess,
-  SPECIAL_PARTNER_ID,
-} from './access-control';
+export { canManageCampaign } from './access-control';
 
 export type { AccessCheckResult } from './access-control';
 

@@ -363,39 +363,6 @@ export async function getCampaignsByPartnerAndObjective(
 }
 
 /**
- * Get all active campaigns
- */
-export async function getActiveCampaigns() {
-  const docs = await campaignDocs(campaigns().where('status', '==', 'ACTIVE'));
-  const synced = docs.filter((doc) => doc.metaCampaignId !== null);
-
-  const hydrated = await withAds(synced);
-
-  const ActiveCampaignSchema = z.object({
-    id: DocIdSchema,
-    metaCampaignId: z.string(),
-    imageAdSetId: z.string().nullable(),
-    videoAdSetId: z.string().nullable(),
-    ads: z.array(
-      z.object({
-        id: DocIdSchema,
-        metaAdId: z.string(),
-        adSetType: AdSetTypeSchema,
-      })
-    ),
-  });
-
-  // Only ads that reached Meta are relevant here, matching the nested
-  // `where: { metaAdId: { not: null } }` of the original query.
-  return z.array(ActiveCampaignSchema).parse(
-    hydrated.map((campaign) => ({
-      ...campaign,
-      ads: (campaign.ads as Doc[]).filter((ad) => ad.metaAdId !== null),
-    }))
-  );
-}
-
-/**
  * Get draft campaigns by partner ID
  */
 export async function getDraftCampaignsByPartnerId(partnerId: string) {
