@@ -187,6 +187,8 @@ _Nuevas de esta ronda (todas de T0, dentro de su mandato de dueño de contratos)
 - 2026-08-26: JP resolvió las tres decisiones de arranque. Plan aprobado.
 - 2026-08-26: rama `feat/atlas-sso` creada desde `master` y pusheada.
 - 2026-08-26: worktree de coordinación en `/Users/jpudev2/Proyectos/pijama-t0`.
+  **Renombrado el 2026-10-01 a `/Users/jpudev2/Proyectos/pijama-films-promote-sso`**, siguiendo
+  la convención `<repo>-<frente>`: un nombre corto no dice de qué repositorio es el worktree.
 - 2026-08-26: perfil `artool-pijama-promote` entregado como PR #13 a `artool-spa/artool-devs`.
 - 2026-08-26: T1 y T2 lanzados en paralelo. Contrato A fijado por T0 e inyectado idéntico
   en ambos spawn prompts, así que ninguno espera al otro.
