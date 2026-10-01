@@ -21,7 +21,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 GCP_PROJECT="${FIREBASE_PROJECT_ID:-${GCP_PROJECT:-}}"
-GCP_REGION="${GCP_REGION:-us-west1}"
+
+# us-central1 is where everything else already lives: the App Hosting backend,
+# the four Cloud Functions, the assets bucket, and the production database
+# itself (verified 2026-10-01). Keeping them together avoids cross-region
+# traffic between the backend and Firestore, and us-central1 is in the cheapest
+# US pricing tier.
+#
+# This default used to be us-west1, which production escaped only because the
+# database was created some other way. A Firestore database's LOCATION IS
+# PERMANENT — it can only be changed by deleting the database — so a wrong
+# default here is not a mistake you get to correct later. That is why it is a
+# default and not a required variable: the safe value should be what happens
+# when nobody thinks about it.
+GCP_REGION="${GCP_REGION:-us-central1}"
 
 if [[ -z "${GCP_PROJECT}" ]]; then
   cat >&2 <<'USAGE'
