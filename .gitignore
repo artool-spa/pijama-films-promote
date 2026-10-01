@@ -23,10 +23,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
-.env*.local
-.env
-.env.prod
+# local env files — everything but the committed template.
+#
+# This was `.env*.local` + `.env` + `.env.prod`, which left anything else
+# starting with `.env` trackable: a `.env.backup-…`, a `.env.dev`, a
+# `.env.old` would all have been staged by `git add -A`, with their secrets.
+# Deny by default and allow the one file that belongs in the repo.
+.env*
+!.env.example
 
 # vercel
 .vercel
