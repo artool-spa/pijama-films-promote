@@ -7,6 +7,7 @@ import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 
 import { callBackend } from './backend.js';
+import { currentProjectId, resolveServiceAccount } from './service-account.js';
 import { becameAssetReady } from './should-enqueue.js';
 
 initializeApp();
@@ -20,10 +21,14 @@ const SYNC_CAMPAIGN_QUEUE = 'syncCampaign';
  * match CRON_INVOKER_SERVICE_ACCOUNTS in apphosting.yaml, and that value is
  * baked into an App Hosting build, so discovering a mismatch after the fact
  * costs a full rebuild to correct.
+ *
+ * Resolved per project — the default compute account carries the project
+ * number, so one literal cannot be right in two environments. See
+ * service-account.ts.
  */
 setGlobalOptions({
   region: REGION,
-  serviceAccount: '603164121416-compute@developer.gserviceaccount.com',
+  serviceAccount: resolveServiceAccount(currentProjectId()),
 });
 
 /**

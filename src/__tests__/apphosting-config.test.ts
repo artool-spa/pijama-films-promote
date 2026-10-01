@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import YAML from 'yaml';
 
@@ -20,6 +20,11 @@ import YAML from 'yaml';
  * So these assertions are not style checks. Each one stands for a way the file
  * can be wrong that only the deploy would have told us, and one of them is the
  * exact failure above.
+ *
+ * They run over EVERY `apphosting*.yaml` in the repo, not just the base file.
+ * App Hosting merges a base file with an environment-specific one
+ * (`apphosting.<environment>.yaml`, the environment named per backend), so an
+ * override file reaches a real build and can fail it in exactly the same ways.
  */
 
 type EnvEntry = {
@@ -29,22 +34,36 @@ type EnvEntry = {
   availability?: unknown;
 };
 
-const CONFIG_PATH = join(process.cwd(), 'apphosting.yaml');
+const BASE_CONFIG = 'apphosting.yaml';
 const VALID_AVAILABILITY = ['BUILD', 'RUNTIME'];
 
-function loadConfig(): { runConfig?: unknown; env?: unknown } {
-  return YAML.parse(readFileSync(CONFIG_PATH, 'utf8')) as {
+/** Every App Hosting config in the repo: the base, plus any per-environment file. */
+function configFiles(): string[] {
+  return readdirSync(process.cwd())
+    .filter((name) => /^apphosting\.(.+\.)?yaml$/.test(name))
+    .sort();
+}
+
+function loadConfig(file: string): { runConfig?: unknown; env?: unknown } {
+  return YAML.parse(readFileSync(join(process.cwd(), file), 'utf8')) as {
     runConfig?: unknown;
     env?: unknown;
   };
 }
 
-function envEntries(): EnvEntry[] {
-  const { env } = loadConfig();
+function envEntries(file: string): EnvEntry[] {
+  const { env } = loadConfig(file);
 
   // Cast is guarded by the shape tests below; they run in the same file, so a
   // malformed env surfaces as their failure and not as a crash here.
   return Array.isArray(env) ? (env as EnvEntry[]) : [];
+}
+
+/** The `value` of a variable in one file, or undefined if absent or a secret. */
+function valueOf(file: string, variable: string): string | undefined {
+  const entry = envEntries(file).find((candidate) => candidate.variable === variable);
+
+  return typeof entry?.value === 'string' ? entry.value : undefined;
 }
 
 /** `variable` for messages, or a positional label when even that is missing. */
@@ -54,21 +73,20 @@ function label(entry: EnvEntry, index: number): string {
     : `env[${index}] (no variable name)`;
 }
 
-describe('apphosting.yaml is shaped the way App Hosting requires', () => {
+describe.each(configFiles())('%s is shaped the way App Hosting requires', (file) => {
   it('parses as YAML', () => {
-    expect(() => loadConfig()).not.toThrow();
+    expect(() => loadConfig(file)).not.toThrow();
   });
 
-  it('has runConfig and a non-empty env list', () => {
-    const config = loadConfig();
+  it('has a non-empty env list', () => {
+    const config = loadConfig(file);
 
-    expect(config.runConfig, 'runConfig sets instances, cpu and memory').toBeTruthy();
     expect(Array.isArray(config.env), 'env must be a list of variable entries').toBe(true);
-    expect(envEntries().length).toBeGreaterThan(0);
+    expect(envEntries(file).length).toBeGreaterThan(0);
   });
 
   it('gives every entry a variable name', () => {
-    const nameless = envEntries()
+    const nameless = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry }) => typeof entry.variable !== 'string' || entry.variable.length === 0);
 
@@ -79,7 +97,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
   });
 
   it('gives every entry exactly one of value or secret', () => {
-    const wrong = envEntries()
+    const wrong = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry }) => ('value' in entry) === ('secret' in entry));
 
@@ -98,9 +116,12 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
    * an empty value - see the comment where ATLAS_LOGIN_ALLOWED_PARTNER_IDS used
    * to be. Code that needs that distinction must read absent and empty the same
    * way, as `getAtlasAllowedPartnerIds()` does.
+   *
+   * One caveat for override files: the merge is override-only, so an entry
+   * cannot be UNSET from one. Omitting it there leaves the base value standing.
    */
   it('never carries an empty or whitespace-only value', () => {
-    const empty = envEntries()
+    const empty = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry }) => {
         if (!('value' in entry)) return false;
@@ -121,7 +142,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
   it('never carries a value with surrounding whitespace', () => {
     // A quoted scalar keeps its padding, and the runtime receives it verbatim.
     // The symptom is silent: a URL or an id that looks right and matches nothing.
-    const padded = envEntries()
+    const padded = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(
         ({ entry }) => typeof entry.value === 'string' && entry.value !== entry.value.trim()
@@ -135,7 +156,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
   });
 
   it('names a real secret for every secret entry', () => {
-    const bad = envEntries()
+    const bad = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(
         ({ entry }) =>
@@ -150,7 +171,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
   });
 
   it('declares a valid availability on every entry', () => {
-    const bad = envEntries()
+    const bad = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry }) => {
         const availability = entry.availability;
@@ -171,7 +192,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
     const seen = new Set<string>();
     const duplicated = new Set<string>();
 
-    for (const entry of envEntries()) {
+    for (const entry of envEntries(file)) {
       if (typeof entry.variable !== 'string') continue;
       if (seen.has(entry.variable)) duplicated.add(entry.variable);
       seen.add(entry.variable);
@@ -193,7 +214,7 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
    * NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS.
    */
   it('gives every NEXT_PUBLIC_ variable BUILD availability', () => {
-    const missingBuild = envEntries()
+    const missingBuild = envEntries(file)
       .map((entry, index) => ({ entry, index }))
       .filter(
         ({ entry }) =>
@@ -208,5 +229,135 @@ describe('apphosting.yaml is shaped the way App Hosting requires', () => {
         'is built. RUNTIME alone leaves it undefined in the browser and the page reports ' +
         'the value as unconfigured instead of failing'
     ).toEqual([]);
+  });
+});
+
+describe('the base config carries what only it can', () => {
+  it('declares runConfig', () => {
+    // An override file may restate runConfig, but the base must define it:
+    // instances, cpu and memory have no platform default worth inheriting.
+    expect(loadConfig(BASE_CONFIG).runConfig, 'runConfig sets instances, cpu and memory').toBeTruthy();
+  });
+});
+
+/**
+ * Cross-file invariants. These only have teeth once a second file exists, and
+ * they guard the two ways an environment override goes wrong silently.
+ */
+describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
+  '%s overrides the base without drifting from it',
+  (file) => {
+    /**
+     * The merge is by variable name. A variable that exists ONLY in the override
+     * is therefore not overriding anything - it is a new variable, usually a
+     * typo of the one that was meant, and the one that was meant keeps its
+     * production value. Nothing reports this.
+     */
+    it('only names variables the base file also declares', () => {
+      const baseNames = new Set(
+        envEntries(BASE_CONFIG)
+          .map((entry) => entry.variable)
+          .filter((name): name is string => typeof name === 'string')
+      );
+
+      const unknown = envEntries(file)
+        .map((entry) => entry.variable)
+        .filter((name): name is string => typeof name === 'string')
+        .filter((name) => !baseNames.has(name));
+
+      expect(
+        unknown,
+        'a variable present only here overrides nothing — it adds a new one, and the ' +
+          'variable it was meant to override silently keeps the base value'
+      ).toEqual([]);
+    });
+
+    /**
+     * The failure this guards is the expensive one: an override file that still
+     * carries a production identifier points a non-production backend at the
+     * production database, the production bucket, or live payments.
+     *
+     * The forbidden literals are read from the base file rather than hardcoded,
+     * so this stays correct if production itself ever moves.
+     */
+    it('carries no production identifier', () => {
+      const forbidden = [
+        valueOf(BASE_CONFIG, 'FIREBASE_PROJECT_ID'),
+        valueOf(BASE_CONFIG, 'GCS_BUCKET_NAME'),
+      ].filter((literal): literal is string => typeof literal === 'string' && literal.length > 0);
+
+      const offending: string[] = [];
+
+      for (const entry of envEntries(file)) {
+        if (typeof entry.value !== 'string') continue;
+
+        for (const literal of forbidden) {
+          if (entry.value.includes(literal)) {
+            offending.push(`${String(entry.variable)} contains "${literal}"`);
+          }
+        }
+
+        if (entry.value.includes('pk_live_')) {
+          offending.push(`${String(entry.variable)} carries a live Stripe key`);
+        }
+      }
+
+      expect(
+        offending,
+        'this file configures a non-production backend; a production project id, ' +
+          'bucket or live key here points it at real data or real money'
+      ).toEqual([]);
+    });
+  }
+);
+
+/**
+ * The audience pairing, across two files the build never compares.
+ *
+ * Every internal route authorizes its caller by verifying a Google-signed OIDC
+ * token minted for INTERNAL_TRIGGER_AUDIENCE. The functions mint it for
+ * BACKEND_URL, which lives in `functions/.env.<projectId>` — a different file,
+ * in a different deployable, released by a different command.
+ *
+ * When they disagree every schedule and every queued task gets a 401, the
+ * function logs only the status, and the backend logs a rejected caller without
+ * saying which audience it wanted. Nothing else in the repo compares them.
+ */
+describe.each(configFiles())('%s agrees with the functions it is called by', (file) => {
+  it('matches INTERNAL_TRIGGER_AUDIENCE to that project BACKEND_URL', () => {
+    const audience = valueOf(file, 'INTERNAL_TRIGGER_AUDIENCE');
+
+    // An override file need not restate it; the base value then applies.
+    if (audience === undefined) return;
+
+    const projectId = valueOf(file, 'FIREBASE_PROJECT_ID') ?? valueOf(BASE_CONFIG, 'FIREBASE_PROJECT_ID');
+    expect(projectId, 'cannot tell which project this config is for').toBeTruthy();
+
+    const envPath = join(process.cwd(), 'functions', `.env.${projectId}`);
+    expect(
+      existsSync(envPath),
+      `functions/.env.${projectId} is missing, so the functions deployed to ${projectId} ` +
+        'have no BACKEND_URL and every trigger throws before it calls anything'
+    ).toBe(true);
+
+    const backendUrl = readFileSync(envPath, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.startsWith('BACKEND_URL='))
+      ?.slice('BACKEND_URL='.length)
+      .trim()
+      .replace(/^["']|["']$/g, '');
+
+    expect(
+      backendUrl,
+      `functions/.env.${projectId} declares no BACKEND_URL`
+    ).toBeTruthy();
+
+    expect(
+      backendUrl?.replace(/\/$/, ''),
+      'the functions mint their OIDC token for BACKEND_URL and the backend only accepts ' +
+        'INTERNAL_TRIGGER_AUDIENCE. A mismatch 401s every trigger and says nothing useful ' +
+        'in either log'
+    ).toBe(audience.replace(/\/$/, ''));
   });
 });

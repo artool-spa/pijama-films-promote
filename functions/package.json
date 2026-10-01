@@ -11,8 +11,8 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "serve": "npm run build && npx firebase-tools emulators:start --only functions,firestore",
-    "deploy": "npm run build && npx firebase-tools deploy --only functions --project=pijama-promote-firebase",
-    "logs": "npx firebase-tools functions:log --project=pijama-promote-firebase"
+    "deploy": "npm run build && node ./require-project.mjs && npx firebase-tools deploy --only functions --project=\"$FIREBASE_PROJECT_ID\"",
+    "logs": "node ./require-project.mjs && npx firebase-tools functions:log --project=\"$FIREBASE_PROJECT_ID\""
   },
   "dependencies": {
     "firebase-admin": "^14.2.0",
