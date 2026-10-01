@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeInternalRequest } from '@/lib/auth';
 import logger from '@/lib/logger';
-import { getAdsNeedingApprovalRefresh, updateAdApproval } from '@/models/ad';
+import {
+  getAdsNeedingApprovalRefresh,
+  markApprovalCheckAttempted,
+  updateAdApproval,
+} from '@/models/ad';
 import { recomputeApprovalSummary, getCampaignById } from '@/models/campaign';
 import { meta, getAdApprovalStatus, type MetaAdApprovalRaw } from '#meta';
 import { google, getAdApprovalStatuses, type GoogleAdApprovalRaw } from '#google';
@@ -127,6 +131,12 @@ export async function GET(req: NextRequest) {
         const msg = err instanceof Error ? err.message : 'Unknown Meta error';
         logger.warn({ err, adId: ad.id }, 'Meta approval refresh failed');
         errors.push({ adId: ad.id, platform: 'META', error: msg });
+        // Record the attempt so a permanently failing ad rotates to the back of
+        // the queue instead of holding one of the 50 slots on every run. See
+        // markApprovalCheckAttempted.
+        await markApprovalCheckAttempted(ad.id).catch((bumpErr) => {
+          logger.warn({ err: bumpErr, adId: ad.id }, 'Could not record the failed attempt');
+        });
       }
     }
 
@@ -145,9 +155,11 @@ export async function GET(req: NextRequest) {
       }
       try {
         const results = await getAdApprovalStatuses(google, resourceNames);
+        const answered = new Set<string>();
         for (const raw of results) {
           const info = resourceToAdId.get(raw.resourceName);
           if (!info) continue;
+          answered.add(raw.resourceName);
           const status = googleStatusToApproval(raw);
           const { reason, suggestion, details } = summarizeGoogleIssues(raw);
           await updateAdApproval(info.adId, {
@@ -159,11 +171,41 @@ export async function GET(req: NextRequest) {
           affectedCampaigns.add(info.campaignId);
           googleProcessed++;
         }
+
+        /**
+         * Google answers this as ONE query, so an id it does not recognise is
+         * not an error — it is simply a row that never comes back. The request
+         * returns 200, `results` is short, and nothing in this route noticed.
+         *
+         * That silence is exactly what an ad account change produces: the query
+         * goes to the new customer while the stored resource names still name
+         * the old one, so EVERY row is missing and the run reports success
+         * having done nothing. Warn, and record the attempt on each unanswered
+         * ad so they do not hold the batch forever.
+         */
+        const unanswered = resourceNames.filter((name) => !answered.has(name));
+        if (unanswered.length > 0) {
+          logger.warn(
+            { requested: resourceNames.length, answered: answered.size, missing: unanswered.length },
+            'Google returned no status for some ads — check that the stored resource ' +
+              'names belong to the customer the current credentials point at'
+          );
+          for (const name of unanswered) {
+            const info = resourceToAdId.get(name);
+            if (!info) continue;
+            await markApprovalCheckAttempted(info.adId).catch((bumpErr) => {
+              logger.warn({ err: bumpErr, adId: info.adId }, 'Could not record the failed attempt');
+            });
+          }
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown Google error';
         logger.warn({ err }, 'Google approval batch refresh failed');
         for (const ad of googleAds) {
           errors.push({ adId: ad.id, platform: 'GOOGLE', error: msg });
+          await markApprovalCheckAttempted(ad.id).catch((bumpErr) => {
+            logger.warn({ err: bumpErr, adId: ad.id }, 'Could not record the failed attempt');
+          });
         }
       }
     }

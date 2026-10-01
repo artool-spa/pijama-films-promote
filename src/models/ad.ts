@@ -520,6 +520,34 @@ export async function updateAdApproval(
 }
 
 /**
+ * Record that a refresh was ATTEMPTED for this ad and did not produce a status.
+ *
+ * Only `approvalCheckedAt` moves: the approval status, the rejection reason and
+ * everything else a producer sees stay exactly as they were, because a failed
+ * call tells us nothing about the ad. The field is never rendered anywhere — it
+ * exists solely to schedule this sweep — so moving it on a failure is honest.
+ *
+ * Why it has to move at all: `getAdsNeedingApprovalRefresh` orders never-checked
+ * ads first and takes the first 50. An ad whose refresh always fails — the
+ * ordinary case right after an ad account changes, when every stored id belongs
+ * to an account the new credentials cannot see — would otherwise keep a null
+ * `approvalCheckedAt` forever, sort to the front of every run, and consume the
+ * whole batch. Newly created ads behind it would never be checked at all, and
+ * the only visible symptom is that their review status never arrives.
+ */
+export async function markApprovalCheckAttempted(id: string): Promise<void> {
+  const validId = IdSchema.parse(id);
+
+  // A bare update, not `updateAndFetch`: nothing reads the result, and parsing
+  // the whole ad back through AdSchema would make a malformed stored document
+  // throw here — in the handler for a call that already failed, turning one
+  // recoverable error into two.
+  await ads()
+    .doc(validId)
+    .update({ approvalCheckedAt: new Date(), updatedAt: new Date() });
+}
+
+/**
  * Mark that the producer has opened the review details for an ad.
  */
 export async function markAdReviewSeen(id: string) {
