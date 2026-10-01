@@ -39,3 +39,20 @@ describe('resolveServiceAccount', () => {
     );
   });
 });
+
+describe('the two environments resolve to different identities', () => {
+  it('gives development its own compute account', () => {
+    expect(resolveServiceAccount('pijama-promote-dev')).toBe(
+      '541214645544-compute@developer.gserviceaccount.com'
+    );
+  });
+
+  // The address carries the PROJECT NUMBER, so sharing one between projects is
+  // not a tidy default — it is an identity that does not exist in the other
+  // project, and every trigger there 401s.
+  it('never returns the same account for both projects', () => {
+    expect(resolveServiceAccount('pijama-promote-dev')).not.toBe(
+      resolveServiceAccount('pijama-promote-firebase')
+    );
+  });
+});

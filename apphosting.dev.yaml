@@ -1,0 +1,114 @@
+# Firebase App Hosting — DEVELOPMENT overrides
+#
+# Project: pijama-promote-dev (541214645544)
+# Backend: pijama-films-promote (us-central1), environment name `dev`, branch `dev`
+#
+# App Hosting reads this file IN ADDITION to apphosting.yaml, because the
+# backend's environment name is `dev`. The merge is per variable: what is
+# declared here wins, and everything else is inherited from the base file.
+#
+# ## Two things to know before editing
+#
+# 1. THE MERGE IS OVERRIDE-ONLY. There is no way to UNSET a variable from here.
+#    Omitting an entry leaves the base value in force — it does not remove it.
+#    That is why ATLAS_LOGIN_ENABLED below is "false" rather than absent.
+#
+# 2. ONLY `value:` ENTRIES BELONG HERE. All 19 secrets resolve against the
+#    Secret Manager OF THIS BACKEND'S OWN PROJECT, so they need the same names
+#    with different values — which they already have — and no override at all.
+#
+# `src/__tests__/apphosting-config.test.ts` enforces both: every variable here
+# must also exist in the base file (a typo would ADD a variable instead of
+# overriding one, silently leaving the production value in force), and no
+# production identifier may appear here.
+
+runConfig:
+  # One instance is plenty for development, and it caps what a runaway loop can
+  # cost. Production runs up to 2.
+  minInstances: 0
+  maxInstances: 1
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  # ---------------------------------------------------------------------------
+  # Firebase — this project's own, so development writes to its own Firestore
+  # and its own bucket. This is the whole point of the split.
+  #
+  # FIREBASE_PROJECT_ID and NEXT_PUBLIC_FIREBASE_PROJECT_ID MUST match: the
+  # server publishes events to the first and the browser reads them from the
+  # second.
+  # ---------------------------------------------------------------------------
+  - variable: FIREBASE_PROJECT_ID
+    value: pijama-promote-dev
+    availability:
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: pijama-promote-dev
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: pijama-promote-dev.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # From the web app 1:541214645544:web:70e380e4c19e2aca03841d.
+  # Public by design: it ships to the browser on every page load.
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyC6HQyjdwqLsmcdgA7JLuQRahbDQKuUCiw
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # Storage — its own bucket, so a development upload can never overwrite or
+  # delete a production creative. Asset URLs are stored ABSOLUTE in Firestore
+  # (src/lib/storage/client.ts), so documents from one environment carry URLs
+  # pointing at that environment's bucket.
+  # ---------------------------------------------------------------------------
+  - variable: GCS_BUCKET_NAME
+    value: pijama-promote-dev-assets
+    availability:
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # Internal triggers — must name THIS backend, or every scheduled job and every
+  # queued task gets a 401 with nothing useful in either log.
+  #
+  # INTERNAL_TRIGGER_AUDIENCE has to equal BACKEND_URL in
+  # functions/.env.pijama-promote-dev; the config test compares the two files.
+  # CRON_INVOKER_SERVICE_ACCOUNTS is the default compute account of THIS
+  # project, which carries its project number.
+  # ---------------------------------------------------------------------------
+  - variable: INTERNAL_TRIGGER_AUDIENCE
+    value: https://pijama-films-promote--pijama-promote-dev.us-central1.hosted.app
+    availability:
+      - RUNTIME
+
+  - variable: CRON_INVOKER_SERVICE_ACCOUNTS
+    value: 541214645544-compute@developer.gserviceaccount.com
+    availability:
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # Atlas / PijamaFilms dashboard SSO — OFF in development.
+  #
+  # Crazy Cake's dashboard only knows how to hand a token to
+  # promote.pijamafilms.com, so SSO cannot be exercised against this hostname
+  # anyway. Testing it is what the local simulator at /dev/atlas-simulator is
+  # for — and note that simulator is NOT available on this backend either:
+  # NODE_ENV is `production` on any App Hosting deploy, and both the middleware
+  # and the page itself 404 it there on purpose.
+  #
+  # This stays "false" rather than being omitted because the merge cannot unset
+  # the base value, which is "true".
+  # ---------------------------------------------------------------------------
+  - variable: ATLAS_LOGIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME

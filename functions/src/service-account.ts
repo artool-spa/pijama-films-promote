@@ -24,6 +24,7 @@
  */
 const SERVICE_ACCOUNTS: Record<string, string> = {
   'pijama-promote-firebase': '603164121416-compute@developer.gserviceaccount.com',
+  'pijama-promote-dev': '541214645544-compute@developer.gserviceaccount.com',
 };
 
 /**

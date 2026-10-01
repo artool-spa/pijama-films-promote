@@ -1,5 +1,6 @@
 {
   "projects": {
-    "prod": "pijama-promote-firebase"
+    "prod": "pijama-promote-firebase",
+    "dev": "pijama-promote-dev"
   }
 }
