@@ -1,6 +1,6 @@
 # STATUS — SSO dashboard PijamaFilms → promote.pijamafilms.com
 
-_Última actualización: **2026-09-30** · Actualizado por: T0_
+_Última actualización: **2026-10-01** · Actualizado por: T0_
 
 > **Cómo leer este archivo.** Esta cabecera es el estado actual y es lo único que hay que leer
 > para saber dónde está el proyecto. Todo lo de abajo es **log histórico**: describe mundos que
@@ -18,8 +18,12 @@ _Última actualización: **2026-09-30** · Actualizado por: T0_
 scoping por partner, que es nuestro y es el bloqueante del Go Live.**
 
 ```
-master 2268df9 · next 16.3.1
-vitest  622/622 · 46 archivos
+master 21e2560 · next 16.3.1
+vitest  649/649 · 49 archivos
+
+AMBIENTES (nuevo, 2026-10-01)
+  producción   pijama-promote-firebase · backend pijama-promote · rama master
+  desarrollo   pijama-promote-dev      · backend pijama-films-promote · rama dev
 ```
 
 `ATLAS_LOGIN_ENABLED="true"` · allowlist con **una** entrada: `6984824e65c8a085b5d5a632` (JP).
@@ -1507,3 +1511,97 @@ mecanismo no es verificar el camino del usuario*.
 - Gmail muestra un hilo largo recortado cuando se abre desde una búsqueda por remitente, y
   parece una cadena distinta. Verificar por `thread-f:` antes de salir a buscar un hilo que no
   existe.
+
+---
+
+## 2026-10-01 · Separación de ambientes: fases 1 y 2 completas
+
+Promote tenía **un solo ambiente**, con un único par de cuentas publicitarias por donde pasaba
+toda la inversión, y un `.env` local que apuntaba a la Firestore y al bucket de producción — o
+sea `yarn dev` escribía sobre datos reales. Plan completo en
+`~/.claude/plans/expressive-sparking-starlight.md`.
+
+**La decisión de fondo, después de evaluar lo contrario:** producción se queda donde está y solo
+cambia de credenciales publicitarias; el proyecto nuevo es el de desarrollo. Mover producción
+habría obligado a pedirle a Crazy Cake otro cambio de DNS y otro de `marketingUrl`, y llevan seis
+semanas sin aplicar uno que ya les pedimos.
+
+### Lo que quedó montado
+
+```
+proyecto    pijama-promote-dev · 541214645544 · Blaze · facturación Artool SPA
+Firestore   us-central1 regional · reglas, índices, TTL
+bucket      pijama-promote-dev-assets · permisos idénticos a producción
+secretos    19/19 · acceso de build y de ejecución
+backend     pijama-films-promote · environment dev · rama dev
+functions   4/4 ACTIVE · cuenta de servicio del proyecto correcto
+Stripe      modo test, misma cuenta · endpoint we_1ULmKpBO3YGG9xBorddmPSbS
+auth        email/password · 5 usuarios · partner pijamafilms sembrado
+```
+
+PRs: #63 región, #64 parametrización, #65 crons, #66 limpieza, #67 ambiente, #68 recuperación,
+#69 gitignore.
+
+### Lo que se aprendió, que es lo que sirve mañana
+
+**El resultado de la fusión de App Hosting solo es observable en el servicio desplegado.** El
+override de la clave publicable de Stripe se escribió, commiteó y pusheó, y **nunca llegó a
+master**: el PR #67 se mergeó con un commit anterior. Desarrollo levantó con la `pk_live_` de
+producción. No lo encontró el diff ni la suite — lo encontró comparar
+`gcloud run services describe` contra lo que los dos yaml debían fusionar. Siete de ocho
+overrides habían aplicado.
+
+De ahí salió la invariante que faltaba: la anterior revisaba lo que el override **declara**, y la
+falla fue una **ausencia**. Como la fusión es solo por sobreescritura, omitir una entrada no la
+neutraliza: hereda el valor de producción. Ahora el test exige que todo valor base que nombre a
+producción esté sobreescrito.
+
+**Los secretos necesitan dos identidades.** La cuenta de ejecución los lee en runtime; el agente
+`service-<número>@gcp-sa-firebaseapphosting…` los resuelve en **build**. Conceder solo la primera
+hace fallar el build entero con un mensaje que habla de "access". Usar
+`apphosting:secrets:grantaccess`, que conoce las dos. Y como App Hosting resuelve **todos** los
+secretos en build, uno faltante tumba el build completo.
+
+**Firebase Authentication no viene inicializada** en un proyecto nuevo. Las semillas fallan con
+`CONFIGURATION_NOT_FOUND`. Se habilita por API con `identityPlatform:initializeAuth` más el
+proveedor de email, pasando `x-goog-user-project` porque las credenciales por defecto no traen
+proyecto de cuota.
+
+**El primer `deploy:functions` falla el trigger de Firestore** por una carrera del agente de
+Eventarc recién habilitado. La propia CLI lo diagnostica; al reintentar queda.
+
+**zsh no divide variables sin comillas — otra vez.** Un bucle `for s in $LISTA` trató quince
+nombres de secreto como uno solo. Peor: mi verificación comparó SHA-256 de origen y destino y los
+dio por iguales, porque **ambos eran el hash de la cadena vacía**, `e3b0c442…`. Nada se había
+copiado. Desde entonces toda verificación de hash rechaza explícitamente ese valor.
+
+**`.gitignore` enumeraba en vez de negar por defecto.** `.env*.local`, `.env`, `.env.prod` dejaba
+rastreable cualquier otra variante; el respaldo que hice del `.env` apareció como no rastreado.
+Ahora es `.env*` con `!.env.example`.
+
+### Verificado contra infraestructura real, no supuesto
+
+- Las ocho variables del override, en el servicio corriendo, sin ningún identificador de
+  producción filtrado.
+- Las cuatro functions corriendo con la cuenta de servicio de **desarrollo** — antes era un
+  literal con el número de proyecto de producción adentro.
+- El cron disparado a mano llegó al backend y respondió **200**, no 401: el `audience` y la
+  cuenta invocadora están bien emparejados.
+- Historial de git completo (275 commits, todas las ramas): el `.env` **nunca** estuvo
+  commiteado, y los únicos secretos en el historial son marcadores de posición. Las dos
+  `AIzaSy` son las claves web de Firebase, públicas por diseño.
+
+### Lo que sigue
+
+**Fase 3**, mañana: recrear las audiencias en las cuentas publicitarias nuevas. Es el ítem más
+largo y no es código — veinte géneros más la base y LGBT, en Meta y en Google, con los nombres
+literales que el código resuelve en cada sincronización.
+
+**Fase 4**: el corte en producción, que tiene un orden no negociable. Pausar las campañas viejas
+en las plataformas **antes** de tocar Firestore, y neutralizar los registros heredados **antes**
+de cambiar las credenciales — si no, `sync-pending-campaigns` puede crear una campaña real en la
+cuenta nueva, con el presupuesto viejo y sin que nadie lo pida.
+
+**Pendiente menor, decidido posponer:** las claves de Firebase Web no tienen restricción por
+sitio en ninguno de los dos proyectos. Son públicas por diseño, así que no es una filtración;
+restringirlas es endurecimiento. Se aborda después de la fase 3.
