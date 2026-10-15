@@ -72,32 +72,64 @@ only mean the window opened the site root, which the middleware bounces. Asked 2
 The `_blank` change was never applied either: the handoff still opens a fixed 1200×800 popup.
 Cosmetic, and it does not affect the handshake.
 
-### 2. The assigned films cannot be read from MUVI
+### 2. The assigned films and MUVI: geoblocking, and duplicate records
 
-Crazy Cake assigned two Fábula films (Fuga, Tony Manero) to the partner on 2026-09-23. The
-dashboard shows both as published and returns their `muviContentUuid`. MUVI, queried with our
-credentials, will not serve either — measured 2026-09-23:
+Crazy Cake assigned Fuga and Tony Manero to the partner on 2026-09-23 in production, and Neruda
+and Ema on 2026-09-30 in testing. Queried with our credentials from a Chilean IP, measured
+2026-10-02:
 
-| uuid | MUVI's answer |
-|---|---|
-| a known live title | found, and present in the catalogue listing |
-| `35cf6b4d…` (Fuga) | `This content is not available in your region` |
-| `bd71229b…` (Tony Manero) | `This content is not available in your region` |
-| `ffffffff…` (invented) | `The content you're looking for is no longer available` |
+| title | `muviContentUuid` from the dashboard | MUVI's answer |
+|---|---|---|
+| Neruda | `a939ac9caba041fd8f598139820d45be` | found, **same uuid**, full details |
+| Ema | `e248bd4803b740a68deb2241c9670076` | code 400 — not available in your region |
+| Tony Manero | `35cf6b4d385c44fdb625d747af8ca1a3` | code 400 — not available in your region |
+| Fuga | `bd71229bb0df4499a7e8649a867d2e47` | code 400 — not available in your region |
+| `ffffffff…` (invented, the control) | — | code 1317 — no longer available |
 
-**The invented uuid produces a different message from the two real ones**, which is what proves
-`muviContentUuid` carries a genuine MUVI content uuid rather than an identifier internal to the
-dashboard. Neither film appears in the 98-title catalogue, and the region message repeats from
-Chilean, US and other IPs, so it is not our address.
+An earlier revision of this table had Fuga's and Tony Manero's uuids swapped. The values above
+are what the lab dashboard returns; the production dashboard was never re-checked after the
+correction, so confirm there before relying on it.
 
-It is not a credentials problem: the catalogue we read is Pijama's, and other Fábula titles are
-in it — Ema, Neruda, No, Post Mortem, Gloria, A Fantastic Woman. From outside we cannot tell
-whether these two were never published to the store, are territory-restricted, or live in a
-different store. Asked 2026-09-28, together with a request to assign a title that is live.
+**Neruda settles the mapping.** The uuid the dashboard hands us is byte-for-byte the uuid MUVI
+serves, and the record hydrates completely — title, description, 107 min, 2016, Pablo Larraín,
+poster, banner, trailer. This is the first time both halves have been visible at once; until
+2026-10-02 the mapping rested on format and on the error-message control alone.
 
-**Nothing has yet been observed where both halves are visible at once** — a film whose
-`muviContentUuid` from the dashboard matches a `content_uuid` we can read from MUVI. Until that
-happens the mapping is supported by format and by the error-message control, not by a match.
+**The 400 is geoblocking**, not a broken uuid. Crazy Cake confirmed it on 2026-09-30: the store
+has geoblocking on, and a request from a blocked country gets exactly that message. The control
+still matters — a real-but-blocked uuid answers 400, an invented one answers 1317 — so the two
+failures remain distinguishable. Note what this costs us: a producer promoting a film has no
+reason to sit in a country where that film is licensed, so **querying MUVI from the user's IP
+can never be the way to build a producer's film list**.
+
+**There are two "Ema" records in the store, and that is by design.** The uuid the dashboard
+returns (`e248bd48…`) is geoblocked; a *different* Ema (`c009c426…`, created 2026-07-16) sits in
+the catalogue we can read. Same store, same `content_created_by` (`2cfaa272…`), two records.
+
+Josefina Valdivia (Fábula) explained it on 2026-10-05: producers and distributors holding rights
+in different territories may share a film's assets, and when they choose not to, each uploads
+their own version. For Ema they did not share — the second upload carries its own logos. In
+other cases (Asako I&II) the video assets *are* shared and only the geoblocking parameters
+differ.
+
+Three consequences, and they are the reason this section matters more than the 400s:
+
+1. **Matching by title is unusable**, permanently and by the business's own design — not as a
+   data-quality problem someone will eventually clean up.
+2. **The catalogue contains other rights holders' copies of a producer's own film.** Combined
+   with §3 below, a producer browsing the 98-title list can reach the wrong record of their own
+   film. Ema is that case, in the catalogue, today.
+3. **Asset URLs cannot be used to tell two records apart either**, because Asako I&II shows two
+   records legitimately sharing them.
+
+Only the `muviContentUuid` the dashboard returns for that producer is authoritative.
+
+**Director and cast come from MUVI**, not from the dashboard: `cast_details` on the same
+`contentList` call carries typed entries (Actor, Writer, Producer, Director) and is what the
+Pijama dashboard itself displays. Measured on Neruda, 2026-10-06. The catch is that it only
+works for records MUVI will serve us — a geoblocked uuid returns nothing at all, so sourcing the
+film list from the dashboard and then enriching it from MUVI comes up empty for precisely the
+films that need it.
 
 ### 3. `getFilms()` is not scoped by partner
 
@@ -110,6 +142,17 @@ genre, duration, price, trailer and assets, sourcing the producer's film list fr
 of MUVI would close both this and the reading problem. It remains a decision, not a plan: the
 film still has to be live in MUVI for the ads to have a destination, because campaigns point at
 `https://pijamafilms.com/watch/{content_uuid}` (`src/models/film.ts:438`).
+
+What §2 added on 2026-10-05 raises the stakes of leaving this open. The catalogue does not just
+contain *other producers'* films — it contains other rights holders' copies of **this**
+producer's film, indistinguishable by title and sometimes even by assets. The failure mode is no
+longer "sees too much"; it is "promotes the wrong record of their own film, to the wrong
+territory". The dashboard-sourced list is the only version of this that is correct by
+construction rather than by containment.
+
+The open ask to Crazy Cake, unanswered as of 2026-10-07, is to expose that same
+producer-to-films relation to our server with our own credentials, without the browser session
+token — today the list only exists for us while the producer is inside Promote.
 
 ## The `movies[]` contract changed in production
 
