@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { google, getAdInsights, GoogleAdsApiError } from '#google';
 import { getAdById } from '@/models/ad';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 
 interface AdInsightsResponse {
   impressions: number;
@@ -41,12 +42,18 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const partner = await getPartnerFromRequest(request);
+  if (!partner) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { id } = await params;
 
   try {
     const ad = await getAdById(id);
 
-    if (!ad) {
+    // 404 (not 403) for someone else's ad: do not reveal that it exists.
+    if (!ad || !canManageCampaign(partner, ad.campaign.partnerId).allowed) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
 
