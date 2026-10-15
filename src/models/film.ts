@@ -500,6 +500,10 @@ export async function resolveCatalogueSource(): Promise<CatalogueSource> {
     throw new Error('A session is required to read the film catalogue');
   }
 
+  // TODO(T0): any non-Atlas session gets the GLOBAL MUVI catalogue, including a
+  // Firebase user whose partnerId is not 'pijamafilms' (`user:provision` allows
+  // one). Restricting the global catalogue to 'pijamafilms' is a decision for JP:
+  // it could leave real production users without a catalogue. Not changed here.
   if (!session.uid.startsWith(ATLAS_UID_PREFIX)) {
     return { kind: 'muvi' };
   }

@@ -54,7 +54,8 @@ Verified: all 65 real partner responses (45 films) captured on 2026-10-15 parse 
 1. `muviContentUuid` is the film id used by campaigns and every film route.
 2. A film may be duplicated in MUVI (one record per rights holder) and some uuids are blocked by
    region at MUVI. The API does not say so; the consumer checks MUVI when a campaign is created.
-3. Open question for Crazy Cake: is an `assets[type=short]` promotional material or the film itself?
+3. A film duplicated in MUVI (one record per rights holder) appears as separate entries; the consumer does NOT deduplicate.
+4. Open question for Crazy Cake: is an `assets[type=short]` promotional material or the film itself?
    Until answered the consumer does NOT map `short` into promotable assets.
 
 ## Not covered
