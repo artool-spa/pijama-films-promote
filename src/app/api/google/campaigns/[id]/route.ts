@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
-import { getCampaignById, updateCampaign, deleteCampaign } from '@/models/campaign';
-import { getPartnerFromRequest } from '@/lib/auth';
+import {
+  getCampaignById,
+  updateCampaign,
+  deleteCampaign,
+  CampaignUpdateSchema,
+} from '@/models/campaign';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 
 /**
  * GET /api/google/campaigns/[id]
@@ -11,11 +16,17 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const partner = await getPartnerFromRequest(request);
+  if (!partner) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
   const { id } = await params;
 
   try {
     const campaign = await getCampaignById(id);
-    if (!campaign) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
       return NextResponse.json({ error: 'Campana no encontrada' }, { status: 404 });
     }
 
@@ -49,8 +60,20 @@ export async function PATCH(
   const { id } = await params;
 
   try {
-    const body = await request.json();
-    const campaign = await updateCampaign(id, body);
+    const existing = await getCampaignById(id);
+    if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
+      return NextResponse.json({ error: 'Campana no encontrada' }, { status: 404 });
+    }
+
+    const parsed = CampaignUpdateSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Datos invalidos', details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const campaign = await updateCampaign(id, parsed.data);
 
     return NextResponse.json({ success: true, campaign });
   } catch (error) {
@@ -78,6 +101,11 @@ export async function DELETE(
   const { id } = await params;
 
   try {
+    const existing = await getCampaignById(id);
+    if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
+      return NextResponse.json({ error: 'Campana no encontrada' }, { status: 404 });
+    }
+
     const campaign = await deleteCampaign(id);
     return NextResponse.json({ success: true, campaign });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getCampaignById, markGoogleCampaignSynced, markGoogleCampaignError } from '@/models/campaign';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import {
   google,
   createYouTubeCampaignWithAdGroup,
@@ -26,7 +26,8 @@ export async function POST(
 
   try {
     const campaign = await getCampaignById(id);
-    if (!campaign) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
       return NextResponse.json({ error: 'Campana no encontrada' }, { status: 404 });
     }
 
