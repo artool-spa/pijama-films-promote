@@ -205,9 +205,11 @@ describe('an Atlas session sees only its own partner catalogue', () => {
     const { createCampaign } = await import('../campaign');
     const base = { objective: 'LANDING_PAGE_VIEW', budget: 10, filmMuviUuid: 'uuid-a1', startDate: now, endDate: new Date('2026-12-31') };
     const mine = await createCampaign({ ...base, name: 'mine', partnerId: 'doc-a' } as never);
-    await createCampaign({ ...base, name: 'theirs', partnerId: 'doc-b' } as never);
-    // Drafts are filtered out by the model; publish ours so it is listed.
+    const theirs = await createCampaign({ ...base, name: 'theirs', partnerId: 'doc-b' } as never);
+    // Drafts are filtered out by the model, so publish BOTH: otherwise the other
+    // partner's campaign would be hidden by that filter and not by the one under test.
     db.write(`campaigns/${mine.id}`, { status: 'ACTIVE' }, true);
+    db.write(`campaigns/${theirs.id}`, { status: 'ACTIVE' }, true);
     getSession.mockResolvedValue(atlasSession(PARTNER_A_ID));
 
     const film = await getFilmById('uuid-a1', true);
