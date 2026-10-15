@@ -13,9 +13,11 @@
 #    Omitting an entry leaves the base value in force — it does not remove it.
 #    That is why ATLAS_LOGIN_ENABLED below is "false" rather than absent.
 #
-# 2. ONLY `value:` ENTRIES BELONG HERE. All 19 secrets resolve against the
-#    Secret Manager OF THIS BACKEND'S OWN PROJECT, so they need the same names
-#    with different values — which they already have — and no override at all.
+# 2. ONLY `value:` ENTRIES BELONG HERE, with one exception. The 19 base secrets
+#    resolve against the Secret Manager OF THIS BACKEND'S OWN PROJECT, so they
+#    need the same names with different values — which they already have — and
+#    no override at all. The exception is ATLAS_SERVER_API_KEY, a secret that
+#    exists ONLY in this project (see its entry at the bottom).
 #
 # `src/__tests__/apphosting-config.test.ts` enforces both: every variable here
 # must also exist in the base file (a typo would ADD a variable instead of
@@ -133,5 +135,28 @@ env:
   # ---------------------------------------------------------------------------
   - variable: ATLAS_LOGIN_ENABLED
     value: "false"
+    availability:
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # External partner API (Console) - per-partner catalogue. DEVELOPMENT ONLY.
+  #
+  # These two exist ONLY in this file, and that is deliberate: the secret does
+  # not exist in production's Secret Manager, and App Hosting resolves every
+  # secret at build time, so declaring it in the base file would fail the
+  # production build outright. Without the variables, production's code answers
+  # an Atlas session with a clear "not configured" error - never the global
+  # catalogue (see src/lib/atlas/external-api.ts).
+  #
+  # The base URL is Crazy Cake's testing host. Contract:
+  # docs/contracts/C2-external-partner-api.md.
+  # ---------------------------------------------------------------------------
+  - variable: ATLAS_SERVER_API_KEY
+    secret: ATLAS_SERVER_API_KEY
+    availability:
+      - RUNTIME
+
+  - variable: ATLAS_SERVER_API_BASE_URL
+    value: "https://dashboard-lab.pijamafilms.com"
     availability:
       - RUNTIME

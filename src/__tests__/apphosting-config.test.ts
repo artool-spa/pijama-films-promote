@@ -37,6 +37,19 @@ type EnvEntry = {
 const BASE_CONFIG = 'apphosting.yaml';
 const VALID_AVAILABILITY = ['BUILD', 'RUNTIME'];
 
+/**
+ * Variables that may exist in an override file WITHOUT being in the base file.
+ *
+ * This is the exception to "only names variables the base declares", and each
+ * entry has to earn it: the base cannot declare it because it would break
+ * production. The only case so far is a `secret:` that exists in the
+ * development project's Secret Manager and not in production's - App Hosting
+ * resolves every secret at build time, so a base-file reference to a missing
+ * secret fails the PRODUCTION build. The code reads these at call time and
+ * fails closed when they are absent.
+ */
+const DEV_ONLY_VARIABLES = ['ATLAS_SERVER_API_KEY', 'ATLAS_SERVER_API_BASE_URL'];
+
 /** Every App Hosting config in the repo: the base, plus any per-environment file. */
 function configFiles(): string[] {
   return readdirSync(process.cwd())
@@ -282,7 +295,8 @@ describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
       const unknown = envEntries(file)
         .map((entry) => entry.variable)
         .filter((name): name is string => typeof name === 'string')
-        .filter((name) => !baseNames.has(name));
+        .filter((name) => !baseNames.has(name))
+        .filter((name) => !DEV_ONLY_VARIABLES.includes(name));
 
       expect(
         unknown,
@@ -299,6 +313,14 @@ describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
      * The forbidden literals are read from the base file rather than hardcoded,
      * so this stays correct if production itself ever moves.
      */
+    it('keeps the dev-only variables out of the base file', () => {
+      // The reason they are exempt above. If one reaches the base, the production
+      // build resolves a secret that production does not have, and fails.
+      const baseNames = envEntries(BASE_CONFIG).map((entry) => entry.variable);
+
+      expect(baseNames.filter((name) => DEV_ONLY_VARIABLES.includes(name as string))).toEqual([]);
+    });
+
     it('carries no production identifier', () => {
       const offending: string[] = [];
 
