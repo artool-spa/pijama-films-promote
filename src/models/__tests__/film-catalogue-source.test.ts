@@ -92,7 +92,10 @@ function externalApi(url: string): Response {
     : new Response(JSON.stringify({ status: 'error', code: 'PARTNER_NOT_FOUND' }), { status: 404 });
 }
 
+const ORIGINAL_CATALOGUES = { ...CATALOGUES };
+
 beforeEach(() => {
+  Object.assign(CATALOGUES, ORIGINAL_CATALOGUES);
   db.reset();
   getSession.mockReset();
   getMovies.mockReset();
@@ -202,6 +205,8 @@ describe('an Atlas session sees only its own partner catalogue', () => {
     db.write('partners/doc-a', { partnerId: PARTNER_A_ID, name: 'A', createdAt: now, updatedAt: now }, false);
     db.write('partners/doc-b', { partnerId: PARTNER_B_ID, name: 'B', createdAt: now, updatedAt: now }, false);
     // Built through the real model so the documents are shaped exactly as production writes them.
+    // Fixture setup only: the campaign is allowed to be created.
+    getMovieDetails.mockResolvedValue({ content_uuid: 'uuid-a1' });
     const { createCampaign } = await import('../campaign');
     const base = { objective: 'LANDING_PAGE_VIEW', budget: 10, filmMuviUuid: 'uuid-a1', startDate: now, endDate: new Date('2026-12-31') };
     const mine = await createCampaign({ ...base, name: 'mine', partnerId: 'doc-a' } as never);
@@ -215,6 +220,31 @@ describe('an Atlas session sees only its own partner catalogue', () => {
     const film = await getFilmById('uuid-a1', true);
 
     expect(film?.campaigns?.map((c) => c.name)).toEqual(['mine']);
+  });
+
+  it('two partners holding the SAME film uuid each see only their own campaigns on it', async () => {
+    const shared = movieFixture({ muviContentUuid: 'uuid-shared', internationalTitle: 'Shared', originalTitle: 'Shared' });
+    CATALOGUES[PARTNER_A_ID] = catalogueFixture(PARTNER_A_ID, [shared]);
+    CATALOGUES[PARTNER_B_ID] = catalogueFixture(PARTNER_B_ID, [shared]);
+
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    db.write('partners/doc-a', { partnerId: PARTNER_A_ID, name: 'A', createdAt: now, updatedAt: now }, false);
+    db.write('partners/doc-b', { partnerId: PARTNER_B_ID, name: 'B', createdAt: now, updatedAt: now }, false);
+    getMovieDetails.mockResolvedValue({ content_uuid: 'uuid-shared' });
+    const { createCampaign } = await import('../campaign');
+    const base = { objective: 'LANDING_PAGE_VIEW', budget: 10, filmMuviUuid: 'uuid-shared', startDate: now, endDate: new Date('2026-12-31') };
+    for (const [name, partnerId] of [['a-camp', 'doc-a'], ['b-camp', 'doc-b']] as const) {
+      const c = await createCampaign({ ...base, name, partnerId } as never);
+      db.write(`campaigns/${c.id}`, { status: 'ACTIVE' }, true);
+    }
+
+    getSession.mockResolvedValue(atlasSession(PARTNER_A_ID));
+    const asA = await getFilms(1, 12, {}, true);
+    getSession.mockResolvedValue(atlasSession(PARTNER_B_ID));
+    const asB = await getFilmById('uuid-shared', true);
+
+    expect(asA.films[0].campaigns?.map((c) => c.name)).toEqual(['a-camp']);
+    expect(asB?.campaigns?.map((c) => c.name)).toEqual(['b-camp']);
   });
 
   it('maps the film for the existing views: trailer from assets, short never promoted', async () => {

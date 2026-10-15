@@ -1025,3 +1025,24 @@ describe('stage config', () => {
     expect(getOrCreatePartner).not.toHaveBeenCalled();
   });
 });
+
+// ============================================================================
+// the uid format is a SECURITY CONTRACT
+// ============================================================================
+
+describe('session uid contract', () => {
+  it('mints `atlas:<partnerId>` as the uid, because the catalogue source depends on it', async () => {
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    expect(res.status).toBe(200);
+
+    const payload = createSessionToken.mock.calls[0][0] as { uid: string; partnerId: string };
+
+    expect(
+      payload.uid,
+      'getFilms()/getFilmById() (src/models/film.ts resolveCatalogueSource) decide between the ' +
+        "partner's own catalogue and the GLOBAL MUVI catalogue by `uid.startsWith(\"atlas:\")`. " +
+        'Changing this format silently hands every Atlas session the whole catalogue. ' +
+        'Change both sides together, and update the film-catalogue-source tests'
+    ).toBe(`atlas:${payload.partnerId}`);
+  });
+});

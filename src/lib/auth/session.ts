@@ -29,6 +29,18 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+/**
+ * SECURITY CONTRACT - the `uid` prefix.
+ *
+ * A session minted by the Atlas SSO route (`/api/auth/atlas/session`) has
+ * `uid === "atlas:<partnerId>"`; in-house Firebase users have a Firebase uid
+ * (no colon). `resolveCatalogueSource()` in `src/models/film.ts` reads this
+ * prefix to choose between the partner's OWN catalogue and the GLOBAL MUVI one.
+ * Changing the format on either side without the other gives every Atlas
+ * session the whole catalogue. It is pinned by
+ * `src/lib/atlas/__tests__/session-route.test.ts` and
+ * `src/models/__tests__/film-catalogue-source.test.ts`.
+ */
 export interface SessionPayload {
   uid: string;
   email: string;

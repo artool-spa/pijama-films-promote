@@ -3,6 +3,10 @@ import { FakeFirestore } from '@/test/firestore-fake';
 
 const db = new FakeFirestore();
 
+// These tests are about campaign storage, not MUVI: availability is covered in
+// campaign-region-guard.test.ts. Left unmocked, createCampaign would call MUVI.
+vi.mock('@/lib/muvi/availability', () => ({ assertFilmPromotable: async () => undefined }));
+
 vi.mock('@/lib/firebase/admin', () => ({
   adminDb: () => db,
 }));

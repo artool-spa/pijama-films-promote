@@ -1,3 +1,4 @@
+import { assertFilmPromotable, describeAvailabilityFailure } from '@/lib/muvi/availability';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { IdSchema } from '@/lib/firestore';
@@ -129,6 +130,10 @@ export async function POST(req: NextRequest) {
       if (!existing || existing.partnerId !== partner.id) {
         return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
       }
+      // A draft becomes a real campaign here without passing through createCampaign,
+      // so the same availability check applies. The film comes from the stored
+      // draft, not from the request body.
+      await assertFilmPromotable(existing.filmMuviUuid);
       await updateCampaign(draftId, {
         name: campaignData.name,
         budget: campaignData.budget,
@@ -260,6 +265,14 @@ export async function POST(req: NextRequest) {
       syncErrorDetails: syncResult.syncErrorDetails,
     }, { status: 201 });
   } catch (error) {
+    const unavailable = describeAvailabilityFailure(error);
+    if (unavailable) {
+      return NextResponse.json(
+        { error: unavailable.message, code: unavailable.code },
+        { status: unavailable.status }
+      );
+    }
+
     logger.error({ err: error }, 'Error creating Google campaign');
 
     if (error instanceof GoogleAdsApiError) {

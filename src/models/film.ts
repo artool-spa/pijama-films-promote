@@ -9,7 +9,7 @@
  */
 
 import { createLogger } from '@/lib/logger';
-import { muvi, getMovies, getMovieDetails, MuviApiError } from '#muvi';
+import { muvi, getMovies, getMovieDetails } from '#muvi';
 import type {
   MuviMovie,
   MuviMovieDetails,
@@ -693,75 +693,15 @@ async function getAtlasFilmById(
   return film;
 }
 
-// ============================================================================
-// PROMOTABILITY - can viewers actually watch this film?
-// ============================================================================
-
-/** What a producer reads when MUVI will not serve the film. Plain language, no jargon. */
-export const FILM_NOT_AVAILABLE_MESSAGE =
-  "This film isn't available to viewers yet, so we can't advertise it. Contact Pijama Films to fix it.";
-
-/** What a producer reads when we could not find out. Different problem, different advice. */
-export const FILM_CHECK_FAILED_MESSAGE =
-  "We couldn't check that this film is available right now. Please try again in a few minutes.";
-
-/** MUVI will not serve the film (blocked in our region, or no longer exists). */
-export class FilmNotAvailableError extends Error {
-  readonly reason: 'region' | 'gone';
-
-  constructor(reason: 'region' | 'gone') {
-    super(FILM_NOT_AVAILABLE_MESSAGE);
-    this.name = 'FilmNotAvailableError';
-    this.reason = reason;
-  }
-}
-
-/** We could not tell: MUVI down, timing out, rejecting our credentials. NOT "blocked". */
-export class FilmAvailabilityUnknownError extends Error {
-  constructor() {
-    super(FILM_CHECK_FAILED_MESSAGE);
-    this.name = 'FilmAvailabilityUnknownError';
-  }
-}
-
-/**
- * MUVI answers a region-blocked uuid with an API-level failure whose message
- * says so. Kept as one small matcher so it is the only thing to adjust if
- * MUVI rewords it. Matches the message only: an HTTP failure, a timeout or a
- * credential rejection carries no such text and must stay "unknown".
- */
-function isRegionBlock(error: unknown): boolean {
-  return (
-    error instanceof MuviApiError && /not available in your region/i.test(error.message)
-  );
-}
-
-/**
- * Throws unless MUVI will serve this film from the server's region.
- * Called when a campaign is created, so no ad money goes to a film that
- * viewers who click it cannot open.
- *
- * - served                          -> returns
- * - blocked by region / not found   -> FilmNotAvailableError
- * - anything else (outage, auth...) -> FilmAvailabilityUnknownError (fail-closed)
- */
-export async function assertFilmPromotable(filmMuviUuid: string): Promise<void> {
-  let movie: MuviMovieDetails | null;
-
-  try {
-    movie = await getMovieDetails(muvi, filmMuviUuid);
-  } catch (error) {
-    if (isRegionBlock(error)) {
-      throw new FilmNotAvailableError('region');
-    }
-    log.error({ err: error, filmMuviUuid }, 'Could not verify film availability with MUVI');
-    throw new FilmAvailabilityUnknownError();
-  }
-
-  if (!movie) {
-    throw new FilmNotAvailableError('gone');
-  }
-}
+// Promotability (region block / content gone) lives in src/lib/muvi/availability.ts
+// so createCampaign can call it without a circular import with this model.
+export {
+  assertFilmPromotable,
+  FilmNotAvailableError,
+  FilmAvailabilityUnknownError,
+  FILM_NOT_AVAILABLE_MESSAGE,
+  FILM_CHECK_FAILED_MESSAGE,
+} from '@/lib/muvi/availability';
 
 // Results type for getFilms
 export interface GetFilmsResult {
