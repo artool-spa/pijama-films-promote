@@ -1,3 +1,4 @@
+import { describeAvailabilityFailure } from '@/lib/muvi/availability';
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { createCampaign } from '@/models/campaign';
@@ -34,6 +35,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, campaign }, { status: 201 });
   } catch (error) {
+    const unavailable = describeAvailabilityFailure(error);
+    if (unavailable) {
+      return NextResponse.json(
+        { error: unavailable.message, code: unavailable.code },
+        { status: unavailable.status }
+      );
+    }
+
     logger.error({ err: error }, 'Error creating Google campaign');
     return NextResponse.json(
       { error: 'Error al crear la campana' },

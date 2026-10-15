@@ -11,11 +11,13 @@
 #
 # 1. THE MERGE IS OVERRIDE-ONLY. There is no way to UNSET a variable from here.
 #    Omitting an entry leaves the base value in force — it does not remove it.
-#    That is why ATLAS_LOGIN_ENABLED below is "false" rather than absent.
+#    That is why a value that must differ is restated here even when it looks the same.
 #
-# 2. ONLY `value:` ENTRIES BELONG HERE. All 19 secrets resolve against the
-#    Secret Manager OF THIS BACKEND'S OWN PROJECT, so they need the same names
-#    with different values — which they already have — and no override at all.
+# 2. ONLY `value:` ENTRIES BELONG HERE, with one exception. The 19 base secrets
+#    resolve against the Secret Manager OF THIS BACKEND'S OWN PROJECT, so they
+#    need the same names with different values — which they already have — and
+#    no override at all. The exception is ATLAS_SERVER_API_KEY, a secret that
+#    exists ONLY in this project (see its entry at the bottom).
 #
 # `src/__tests__/apphosting-config.test.ts` enforces both: every variable here
 # must also exist in the base file (a typo would ADD a variable instead of
@@ -119,19 +121,67 @@ env:
       - RUNTIME
 
   # ---------------------------------------------------------------------------
-  # Atlas / PijamaFilms dashboard SSO — OFF in development.
+  # Atlas / PijamaFilms dashboard SSO — ON in development (JP, 2026-10-15).
   #
-  # Crazy Cake's dashboard only knows how to hand a token to
-  # promote.pijamafilms.com, so SSO cannot be exercised against this hostname
-  # anyway. Testing it is what the local simulator at /dev/atlas-simulator is
-  # for — and note that simulator is NOT available on this backend either:
-  # NODE_ENV is `production` on any App Hosting deploy, and both the middleware
-  # and the page itself 404 it there on purpose.
+  # Dev talks to Crazy Cake's LAB Console for BOTH the SSO token exchange
+  # (ATLAS_API_BASE_URL) and the per-partner catalogue
+  # (ATLAS_SERVER_API_BASE_URL), so the environment is coherent. The two
+  # Consoles are isolated for authentication: a production token is rejected
+  # here and a lab token is rejected by production. The sign-in therefore needs
+  # a producer account in the LAB dashboard.
   #
-  # This stays "false" rather than being omitted because the merge cannot unset
-  # the base value, which is "true".
+  # Only the lab origin may postMessage into /auth on this backend: the
+  # production Console has no business signing anyone into development.
+  # NEXT_PUBLIC_* is baked at BUILD time, so changing it needs a rollout.
+  #
+  # Console opens its configured `marketingUrl`, not this hostname. For a real
+  # click to land here, Crazy Cake must point the LAB Console's marketingUrl at
+  # <this backend's URL>/auth (see the PR).
+  #
+  # The allowlist is stated explicitly rather than inherited, so a future change
+  # to the production list cannot widen who may sign in here. Only JP's
+  # partner (same id in lab and production).
   # ---------------------------------------------------------------------------
   - variable: ATLAS_LOGIN_ENABLED
-    value: "false"
+    value: "true"
     availability:
+      - RUNTIME
+
+  - variable: ATLAS_LOGIN_ALLOWED_PARTNER_IDS
+    value: 6984824e65c8a085b5d5a632
+    availability:
+      - RUNTIME
+
+  # ---------------------------------------------------------------------------
+  # External partner API (Console) - per-partner catalogue. DEVELOPMENT ONLY.
+  #
+  # These two exist ONLY in this file, and that is deliberate: the secret does
+  # not exist in production's Secret Manager, and App Hosting resolves every
+  # secret at build time, so declaring it in the base file would fail the
+  # production build outright. Without the variables, production's code answers
+  # an Atlas session with a clear "not configured" error - never the global
+  # catalogue (see src/lib/atlas/external-api.ts).
+  #
+  # The base URL is Crazy Cake's testing host. Contract:
+  # docs/contracts/C2-external-partner-api.md.
+  # ---------------------------------------------------------------------------
+  - variable: ATLAS_SERVER_API_KEY
+    secret: ATLAS_SERVER_API_KEY
+    availability:
+      - RUNTIME
+
+  - variable: ATLAS_SERVER_API_BASE_URL
+    value: "https://dashboard-lab.pijamafilms.com"
+    availability:
+      - RUNTIME
+
+  - variable: ATLAS_API_BASE_URL
+    value: https://dashboard-lab.pijamafilms.com
+    availability:
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS
+    value: https://dashboard-lab.pijamafilms.com
+    availability:
+      - BUILD
       - RUNTIME

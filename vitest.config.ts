@@ -22,6 +22,9 @@ export default defineConfig({
       // src/models/film.ts imports from '#muvi'; tests that drive it need the
       // same subpath alias tsconfig.json defines for the app build.
       '#muvi': path.resolve(__dirname, './src/lib/muvi/index.ts'),
+      // The campaign routes import these; their tests mock them.
+      '#meta': path.resolve(__dirname, './src/lib/meta/index.ts'),
+      '#google': path.resolve(__dirname, './src/lib/google/index.ts'),
     },
   },
 });

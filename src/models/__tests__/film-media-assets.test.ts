@@ -27,6 +27,18 @@ vi.mock('#muvi', () => ({
   getMovieDetails: (...args: unknown[]) => getMovieDetails(...args),
 }));
 
+// `getFilmById` now picks its catalogue from the session. An internal (Firebase)
+// session reads the global MUVI catalogue, which is the path these tests cover.
+vi.mock('@/lib/auth/session', () => ({
+  getSession: async () => ({
+    uid: 'firebase-uid',
+    email: 'staff@example.com',
+    name: 'Staff',
+    partnerId: 'pijamafilms',
+    expiresAt: Date.now() + 1e6,
+  }),
+}));
+
 // Every URL below belongs to the feature film. None of them may reach an asset.
 const FEATURE_FILM_URLS = {
   mpeg_path: 'https://muvi.example/feature/full-movie.mpd',

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { COLLECTIONS, IdSchema as DocIdSchema, docData, sanitize } from '@/lib/firestore';
+import { assertFilmPromotable } from '@/lib/muvi/availability';
 import { withAds, withPartner, adsForCampaign, createdAtMillis } from './hydrate';
 
 // ============================================================================
@@ -451,6 +452,13 @@ async function insertCampaign(data: CampaignCreateInput) {
  * Create a new campaign
  */
 export async function createCampaign(data: CampaignCreateInput) {
+  // Every creation path funnels through here, so no route can forget this.
+  // Throws FilmNotAvailableError (blocked / gone) or FilmAvailabilityUnknownError
+  // (could not check) BEFORE anything is written. Validate first so a malformed
+  // payload is reported as such and not as a MUVI problem.
+  const { filmMuviUuid } = CampaignCreateSchema.parse(data);
+  await assertFilmPromotable(filmMuviUuid);
+
   return insertCampaign(data);
 }
 
