@@ -220,6 +220,25 @@ describe('stage allowlist', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('refuses the reserved internal partner id even when it is on the allowlist', async () => {
+    process.env.ATLAS_LOGIN_ALLOWED_PARTNER_IDS = `${ALLOWED_PARTNER},pijamafilms`;
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ...documentedSuccess,
+        data: { ...documentedSuccess.data, partner: { ...documentedSuccess.data.partner, partnerId: 'pijamafilms' } },
+      })
+    );
+
+    const res = await POST(request({ token: TOKEN, mode: 'login' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.stage).toBe('allowlist');
+    expect(getOrCreatePartner).not.toHaveBeenCalled();
+    expect(createSessionToken).not.toHaveBeenCalled();
+    expect(setSessionCookie).not.toHaveBeenCalled();
+  });
+
   it('keeps disabled and allowlist as distinct stages', async () => {
     process.env.ATLAS_LOGIN_ENABLED = 'false';
     const disabled = await (await POST(request({ token: TOKEN, mode: 'login' }))).json();

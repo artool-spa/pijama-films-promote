@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSessionToken, setSessionCookie } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { getOrCreatePartner } from '@/models/partner';
+import { SPECIAL_PARTNER_ID } from '@/lib/auth/access-control';
 import {
   AtlasSessionRequestSchema,
   AtlasMoviesResponseSchema,
@@ -305,6 +306,23 @@ export async function POST(req: NextRequest) {
   // --------------------------------------------------------------------------
   // stage: allowlist (identity)
   // --------------------------------------------------------------------------
+  // The internal admin partner is never an SSO identity: it carries the admin
+  // bypass in canManageCampaign. Refused even if someone put it on the
+  // allowlist, so containment does not depend on configuration.
+  if (partner.partnerId.trim().toLowerCase() === SPECIAL_PARTNER_ID) {
+    log.warn(
+      { mode },
+      'Atlas login rejected: Console returned the reserved internal partner id'
+    );
+
+    return errorResponse(
+      403,
+      'allowlist',
+      'This partner id is reserved and cannot sign in through Atlas',
+      diagnostics
+    );
+  }
+
   if (!isPartnerAllowed(partner.partnerId)) {
     log.warn(
       { mode, partnerId: partner.partnerId },
