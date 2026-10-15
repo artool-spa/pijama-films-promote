@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import logger from '@/lib/logger';
 import { getCampaignById, updateCampaignBudgetAndEndDate } from '@/models/campaign';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { meta, updateCampaign as metaUpdateCampaign, updateAdSet as metaUpdateAdSet } from '#meta';
 import { google, updateCampaignBudget as googleUpdateCampaignBudget, updateCampaignEndDate as googleUpdateCampaignEndDate } from '#google';
 
@@ -44,7 +44,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const before = await getCampaignById(id);
-    if (!before) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!before || !canManageCampaign(partner, before.partnerId).allowed) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 

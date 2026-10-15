@@ -6,7 +6,7 @@ import {
   deleteCampaign,
   CampaignUpdateSchema,
 } from '@/models/campaign';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -24,7 +24,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const campaign = await getCampaignById(id);
 
-    if (!campaign) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
       return NextResponse.json(
         { error: 'Campaña no encontrada' },
         { status: 404 }
@@ -63,6 +64,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const existing = await getCampaignById(id);
+    if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
+      return NextResponse.json(
+        { error: 'Campaña no encontrada' },
+        { status: 404 }
+      );
+    }
+
     const campaign = await updateCampaign(id, result.data);
 
     return NextResponse.json(campaign);
@@ -87,6 +96,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { id } = await params;
+    const existing = await getCampaignById(id);
+    if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
+      return NextResponse.json(
+        { error: 'Campaña no encontrada' },
+        { status: 404 }
+      );
+    }
+
     await deleteCampaign(id);
 
     return NextResponse.json({ success: true });

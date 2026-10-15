@@ -21,8 +21,9 @@ import { getPartnerRecordByPartnerId, type Partner } from '@/models/partner';
  * The consequence was total: anyone could name any partner and become it for
  * the whole request — including `pijamafilms`, which every seeded user shares
  * and which the access-control module of the time granted unrestricted access
- * by design (that module has since been deleted; it could only ever return
- * "allowed"). The victim ids are not even secret; `GET /api/partners` hands
+ * by design (that module has since been reduced to the single check that is
+ * actually wired up, `canManageCampaign`; the helpers it lost could only ever
+ * return "allowed"). The victim ids are not even secret; `GET /api/partners` hands
  * them to any caller. Every correctly written ownership check in the codebase
  * was bypassable with one header, which is why this was fixed before any of
  * them were added.

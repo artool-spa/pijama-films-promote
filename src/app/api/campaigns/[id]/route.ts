@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { getCampaignById, deleteCampaign } from '@/models/campaign';
 
 /**
@@ -21,11 +21,9 @@ export async function DELETE(
 
     // Verify campaign belongs to this partner
     const campaign = await getCampaignById(id);
-    if (!campaign) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
-    }
-    if (campaign.partnerId !== partner.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     await deleteCampaign(id);
