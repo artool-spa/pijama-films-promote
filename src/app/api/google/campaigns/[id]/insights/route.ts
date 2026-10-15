@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { google, getYouTubeInsights, getDisplayInsights, GoogleAdsApiError } from '#google';
 import { getCampaignById } from '@/models/campaign';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 
 // In-memory cache for insights
 interface CachedInsights {
@@ -86,12 +87,18 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const partner = await getPartnerFromRequest(request);
+  if (!partner) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { id } = await params;
 
   try {
     const campaign = await getCampaignById(id);
 
-    if (!campaign) {
+    // 404 (not 403) for someone else's campaign: do not reveal that it exists.
+    if (!campaign || !canManageCampaign(partner, campaign.partnerId).allowed) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getAdById, updateAdApproval, type AdApprovalStatusValue } from '@/models/ad';
 import { recomputeApprovalSummary } from '@/models/campaign';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { google, getAdApprovalStatuses, type GoogleAdApprovalRaw } from '#google';
 import { describeGooglePolicyTopic } from '@/lib/campaigns/error-messages';
 
@@ -31,7 +31,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const ad = await getAdById(id);
-    if (!ad || !ad.googleAdId) {
+    // 404 (not 403) for someone else's ad: do not reveal that it exists.
+    if (!ad || !canManageCampaign(partner, ad.campaign.partnerId).allowed || !ad.googleAdId) {
       return NextResponse.json({ error: 'Ad is not synced to Google' }, { status: 404 });
     }
 
