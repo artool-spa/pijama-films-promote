@@ -42,6 +42,7 @@ describe('API paths with a dot in a segment still require a session', () => {
     ['/api/google/campaigns/x.y/sync'],
     ['/api/partners/a.b'],
     ['/api/anything.json'],
+    ['/api/meta/campaigns/logo.png'], // looks like a static asset, is a dynamic segment
   ])('%s without a cookie answers 401 and never reaches the handler', async (path) => {
     const response = await run(path);
 
