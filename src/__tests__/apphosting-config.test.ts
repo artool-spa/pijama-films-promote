@@ -313,6 +313,15 @@ describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
      * The forbidden literals are read from the base file rather than hardcoded,
      * so this stays correct if production itself ever moves.
      */
+    it('states the Atlas login gate and allowlist itself instead of inheriting them', () => {
+      // Inheriting would tie who may sign in to development to whatever
+      // production's list becomes. The values are checked, not just present.
+      if (!envEntries(file).some((e) => e.variable === 'ATLAS_LOGIN_ENABLED')) return;
+
+      expect(valueOf(file, 'ATLAS_LOGIN_ENABLED')).toBe('true');
+      expect(valueOf(file, 'ATLAS_LOGIN_ALLOWED_PARTNER_IDS')).toBe('6984824e65c8a085b5d5a632');
+    });
+
     it('keeps the dev-only variables out of the base file', () => {
       // The reason they are exempt above. If one reaches the base, the production
       // build resolves a secret that production does not have, and fails.

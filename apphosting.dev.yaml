@@ -11,7 +11,7 @@
 #
 # 1. THE MERGE IS OVERRIDE-ONLY. There is no way to UNSET a variable from here.
 #    Omitting an entry leaves the base value in force — it does not remove it.
-#    That is why ATLAS_LOGIN_ENABLED below is "false" rather than absent.
+#    That is why a value that must differ is restated here even when it looks the same.
 #
 # 2. ONLY `value:` ENTRIES BELONG HERE, with one exception. The 19 base secrets
 #    resolve against the Secret Manager OF THIS BACKEND'S OWN PROJECT, so they
@@ -121,20 +121,30 @@ env:
       - RUNTIME
 
   # ---------------------------------------------------------------------------
-  # Atlas / PijamaFilms dashboard SSO — OFF in development.
+  # Atlas / PijamaFilms dashboard SSO — ON in development (JP, 2026-10-15).
   #
-  # Crazy Cake's dashboard only knows how to hand a token to
-  # promote.pijamafilms.com, so SSO cannot be exercised against this hostname
-  # anyway. Testing it is what the local simulator at /dev/atlas-simulator is
-  # for — and note that simulator is NOT available on this backend either:
-  # NODE_ENV is `production` on any App Hosting deploy, and both the middleware
-  # and the page itself 404 it there on purpose.
+  # What dev INHERITS from the base file, on purpose and worth knowing:
+  #   - ATLAS_API_BASE_URL = https://dashboard.pijamafilms.com (PRODUCTION
+  #     Console). The token the handoff delivers is exchanged against it, so a
+  #     token from the lab Console is rejected (the two are isolated for auth).
+  #     Re-pointing dev at the lab is a separate decision and is not made here.
+  #   - NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS = production + lab Console origins.
   #
-  # This stays "false" rather than being omitted because the merge cannot unset
-  # the base value, which is "true".
+  # Console opens a FIXED promote URL for the handoff (its `marketingUrl`), not
+  # this hostname, so whether a real click can reach this backend depends on
+  # Crazy Cake's configuration. See the PR for how to try it.
+  #
+  # The allowlist is stated explicitly rather than inherited, so a future change
+  # to the production list cannot widen who may sign in here. Only JP's
+  # partner (same id in lab and production).
   # ---------------------------------------------------------------------------
   - variable: ATLAS_LOGIN_ENABLED
-    value: "false"
+    value: "true"
+    availability:
+      - RUNTIME
+
+  - variable: ATLAS_LOGIN_ALLOWED_PARTNER_IDS
+    value: 6984824e65c8a085b5d5a632
     availability:
       - RUNTIME
 
