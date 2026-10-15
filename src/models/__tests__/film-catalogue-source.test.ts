@@ -231,7 +231,7 @@ describe('an Atlas session sees only its own partner catalogue', () => {
       posterUrl: 'https://cdn.example/a1/poster.jpg',
       trailerUrl: 'https://cdn.example/a1/trailer.mp4',
     });
-    expect(film?.mediaAssets.map((a) => a.name)).toEqual(['Poster Oficial', 'Banner', 'Trailer']);
+    expect(film?.mediaAssets?.map((a) => a.name)).toEqual(['Poster Oficial', 'Banner', 'Trailer']);
     expect(JSON.stringify(film)).not.toContain('short.mp4');
   });
 
