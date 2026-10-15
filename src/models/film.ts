@@ -9,7 +9,7 @@
  */
 
 import { createLogger } from '@/lib/logger';
-import { muvi, getMovies, getMovieDetails } from '#muvi';
+import { muvi, getMovies, getMovieDetails, MuviApiError } from '#muvi';
 import type {
   MuviMovie,
   MuviMovieDetails,
@@ -21,7 +21,14 @@ import type {
 import { AggregateField } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { COLLECTIONS, IdSchema as PartnerDocIdSchema, docData } from '@/lib/firestore';
+import { getSession } from '@/lib/auth/session';
+import {
+  AtlasCatalogError,
+  fetchPartnerCatalogue,
+  type ExternalMovie,
+} from '@/lib/atlas/external-api';
 import { withAds } from './hydrate';
+import { getPartnerRecordByPartnerId } from './partner';
 import { getCampaignsByFilmMuviUuid, type CampaignWithAds } from './campaign';
 
 const log = createLogger('film');
@@ -464,6 +471,298 @@ async function fetchAndCacheMovies(): Promise<MuviMovie[]> {
   }
 }
 
+// ============================================================================
+// CATALOGUE SOURCE - decided by the verified session, never by the request
+// ============================================================================
+
+/** Prefix the Atlas login route puts on `session.uid` (`atlas:<partnerId>`). */
+const ATLAS_UID_PREFIX = 'atlas:';
+
+export type CatalogueSource =
+  | { kind: 'atlas'; partnerId: string }
+  | { kind: 'muvi' };
+
+/**
+ * Which catalogue this session may see.
+ *
+ * - Atlas SSO session (`uid` = `atlas:<partnerId>`) -> that partner's own
+ *   catalogue, from the external API, keyed by the SESSION's partnerId.
+ * - Any other session (the in-house Firebase users) -> the global MUVI catalogue.
+ *
+ * Fail-closed: no session throws, and an Atlas uid whose partnerId disagrees
+ * with the session's partnerId throws. The external API key sees every
+ * partner, so a mismatch must never fall through to "some catalogue".
+ */
+export async function resolveCatalogueSource(): Promise<CatalogueSource> {
+  const session = await getSession();
+
+  if (!session) {
+    throw new Error('A session is required to read the film catalogue');
+  }
+
+  if (!session.uid.startsWith(ATLAS_UID_PREFIX)) {
+    return { kind: 'muvi' };
+  }
+
+  if (session.uid !== `${ATLAS_UID_PREFIX}${session.partnerId}`) {
+    throw new Error('Atlas session identity is inconsistent');
+  }
+
+  return { kind: 'atlas', partnerId: session.partnerId };
+}
+
+function pickAssetUrl(movie: ExternalMovie, type: string): string {
+  return movie.assets.find((asset) => asset.type === type && asset.url)?.url ?? '';
+}
+
+/**
+ * Map a film from the external partner API to the Film the views already use.
+ *
+ * - `id` is the MUVI uuid: campaigns and every film route key on it.
+ * - The trailer comes from `assets[type=trailer]`; `trailerUrl` is always "".
+ * - `short` assets are NOT mapped. Whether a `short` is promotional material or
+ *   the film itself is unconfirmed, and the full feature must never become a
+ *   promotable asset (see the note in mapMediaAssets).
+ */
+export function mapExternalToFilm(movie: ExternalMovie): Film {
+  const posterUrl = pickAssetUrl(movie, 'poster');
+  const bannerUrl = pickAssetUrl(movie, 'banner');
+  const trailerUrl = pickAssetUrl(movie, 'trailer');
+  const mediaAssets: MediaAsset[] = [];
+
+  if (posterUrl) {
+    mediaAssets.push({
+      id: `${movie.muviContentUuid}-poster`,
+      type: 'image',
+      name: 'Poster Oficial',
+      url: posterUrl,
+      thumbnailUrl: posterUrl,
+    });
+  }
+  if (bannerUrl) {
+    mediaAssets.push({
+      id: `${movie.muviContentUuid}-banner`,
+      type: 'image',
+      name: 'Banner',
+      url: bannerUrl,
+      thumbnailUrl: bannerUrl,
+    });
+  }
+  if (trailerUrl) {
+    mediaAssets.push({
+      id: `${movie.muviContentUuid}-trailer`,
+      type: 'video',
+      name: 'Trailer',
+      url: trailerUrl,
+      thumbnailUrl: posterUrl,
+      downloadUrl: trailerUrl,
+    });
+  }
+
+  return {
+    id: movie.muviContentUuid,
+    title: movie.internationalTitle || movie.originalTitle || 'Sin título',
+    description: movie.description ?? '',
+    duration: movie.duration ?? 0,
+    year: movie.year ?? (movie.publishedAt ? new Date(movie.publishedAt).getFullYear() : new Date().getFullYear()),
+    genre: movie.genre,
+    director: movie.directors[0] ?? '',
+    posterUrl,
+    trailerUrl,
+    rentalUrl: `https://pijamafilms.com/watch/${movie.muviContentUuid}`,
+    // The API only lists published titles (each carries publishedAt).
+    isPublished: true,
+    campaigns: [],
+    campaignCount: 0,
+    mediaAssets,
+  };
+}
+
+/**
+ * The partner's catalogue. A partner Console does not know is an EMPTY list,
+ * never the global catalogue; every other failure propagates.
+ */
+async function loadAtlasMovies(partnerId: string): Promise<ExternalMovie[]> {
+  try {
+    return (await fetchPartnerCatalogue(partnerId)).movies;
+  } catch (error) {
+    if (error instanceof AtlasCatalogError && error.code === 'partner_not_found') {
+      log.warn({ partnerId }, 'Partner is unknown to the external API; empty catalogue');
+      return [];
+    }
+    throw error;
+  }
+}
+
+/** Campaigns on this film that belong to the given partner (document id). */
+async function fetchCampaignsForPartnerFilm(
+  filmMuviUuid: string,
+  partnerDocId: string | null
+): Promise<CampaignSummary[]> {
+  if (!partnerDocId) return [];
+  try {
+    const campaigns = await getCampaignsByFilmMuviUuid(filmMuviUuid);
+    return campaigns.filter((c) => c.partnerId === partnerDocId).map(mapCampaignToSummary);
+  } catch (error) {
+    log.error({ err: error, filmMuviUuid }, 'Failed to fetch campaigns for film');
+    return [];
+  }
+}
+
+async function partnerDocIdFor(partnerId: string): Promise<string | null> {
+  const record = await getPartnerRecordByPartnerId(partnerId);
+  return record?.id ?? null;
+}
+
+function titleOf(movie: ExternalMovie): string {
+  return movie.internationalTitle || movie.originalTitle || '';
+}
+
+function sortAtlasMovies(movies: ExternalMovie[], sort?: FilmSortOption): ExternalMovie[] {
+  const sorted = [...movies];
+  const byDate = (m: ExternalMovie) => Date.parse(m.publishedAt ?? '') || 0;
+
+  switch (sort) {
+    case 'atoz':
+      return sorted.sort((a, b) => titleOf(a).localeCompare(titleOf(b)));
+    case 'ztoa':
+      return sorted.sort((a, b) => titleOf(b).localeCompare(titleOf(a)));
+    case 'otn':
+      return sorted.sort((a, b) => byDate(a) - byDate(b));
+    case 'nto':
+    default:
+      return sorted.sort((a, b) => byDate(b) - byDate(a));
+  }
+}
+
+async function getAtlasFilms(
+  partnerId: string,
+  page: number,
+  limit: number,
+  options: GetFilmsOptions,
+  includeCampaigns: boolean
+): Promise<GetFilmsResult> {
+  let movies = await loadAtlasMovies(partnerId);
+
+  const needle = options.search?.trim().toLowerCase();
+  if (needle) {
+    movies = movies.filter((m) =>
+      [m.internationalTitle, m.originalTitle].some((t) => t?.toLowerCase().includes(needle))
+    );
+  }
+
+  movies = sortAtlasMovies(movies, options.sort);
+
+  const slice = movies.slice((page - 1) * limit, page * limit);
+  const films = slice.map(mapExternalToFilm);
+
+  if (includeCampaigns && films.length > 0) {
+    const partnerDocId = await partnerDocIdFor(partnerId);
+    await Promise.all(
+      films.map(async (film) => {
+        film.campaigns = await fetchCampaignsForPartnerFilm(film.id, partnerDocId);
+        film.campaignCount = film.campaigns.length;
+      })
+    );
+  }
+
+  return {
+    films,
+    total: movies.length,
+    pages: Math.ceil(movies.length / limit),
+    currentPage: page,
+  };
+}
+
+async function getAtlasFilmById(
+  partnerId: string,
+  id: string,
+  includeCampaigns: boolean
+): Promise<Film | undefined> {
+  const movie = (await loadAtlasMovies(partnerId)).find((m) => m.muviContentUuid === id);
+
+  if (!movie) return undefined;
+
+  const film = mapExternalToFilm(movie);
+
+  if (includeCampaigns) {
+    film.campaigns = await fetchCampaignsForPartnerFilm(film.id, await partnerDocIdFor(partnerId));
+    film.campaignCount = film.campaigns.length;
+  }
+
+  return film;
+}
+
+// ============================================================================
+// PROMOTABILITY - can viewers actually watch this film?
+// ============================================================================
+
+/** What a producer reads when MUVI will not serve the film. Plain language, no jargon. */
+export const FILM_NOT_AVAILABLE_MESSAGE =
+  "This film isn't available to viewers yet, so we can't advertise it. Contact Pijama Films to fix it.";
+
+/** What a producer reads when we could not find out. Different problem, different advice. */
+export const FILM_CHECK_FAILED_MESSAGE =
+  "We couldn't check that this film is available right now. Please try again in a few minutes.";
+
+/** MUVI will not serve the film (blocked in our region, or no longer exists). */
+export class FilmNotAvailableError extends Error {
+  readonly reason: 'region' | 'gone';
+
+  constructor(reason: 'region' | 'gone') {
+    super(FILM_NOT_AVAILABLE_MESSAGE);
+    this.name = 'FilmNotAvailableError';
+    this.reason = reason;
+  }
+}
+
+/** We could not tell: MUVI down, timing out, rejecting our credentials. NOT "blocked". */
+export class FilmAvailabilityUnknownError extends Error {
+  constructor() {
+    super(FILM_CHECK_FAILED_MESSAGE);
+    this.name = 'FilmAvailabilityUnknownError';
+  }
+}
+
+/**
+ * MUVI answers a region-blocked uuid with an API-level failure whose message
+ * says so. Kept as one small matcher so it is the only thing to adjust if
+ * MUVI rewords it. Matches the message only: an HTTP failure, a timeout or a
+ * credential rejection carries no such text and must stay "unknown".
+ */
+function isRegionBlock(error: unknown): boolean {
+  return (
+    error instanceof MuviApiError && /not available in your region/i.test(error.message)
+  );
+}
+
+/**
+ * Throws unless MUVI will serve this film from the server's region.
+ * Called when a campaign is created, so no ad money goes to a film that
+ * viewers who click it cannot open.
+ *
+ * - served                          -> returns
+ * - blocked by region / not found   -> FilmNotAvailableError
+ * - anything else (outage, auth...) -> FilmAvailabilityUnknownError (fail-closed)
+ */
+export async function assertFilmPromotable(filmMuviUuid: string): Promise<void> {
+  let movie: MuviMovieDetails | null;
+
+  try {
+    movie = await getMovieDetails(muvi, filmMuviUuid);
+  } catch (error) {
+    if (isRegionBlock(error)) {
+      throw new FilmNotAvailableError('region');
+    }
+    log.error({ err: error, filmMuviUuid }, 'Could not verify film availability with MUVI');
+    throw new FilmAvailabilityUnknownError();
+  }
+
+  if (!movie) {
+    throw new FilmNotAvailableError('gone');
+  }
+}
+
 // Results type for getFilms
 export interface GetFilmsResult {
   films: Film[];
@@ -491,6 +790,13 @@ export async function getFilms(
   options: GetFilmsOptions = {},
   includeCampaigns: boolean = true
 ): Promise<GetFilmsResult> {
+  // Outside the try: an identity or configuration failure must surface as such.
+  const source = await resolveCatalogueSource();
+
+  if (source.kind === 'atlas') {
+    return getAtlasFilms(source.partnerId, page, limit, options, includeCampaigns);
+  }
+
   try {
     const { search, sort } = options;
     const result = await getMovies(muvi, {
@@ -539,6 +845,12 @@ export async function getFilmById(
   id: string,
   includeCampaigns: boolean = true
 ): Promise<Film | undefined> {
+  const source = await resolveCatalogueSource();
+
+  if (source.kind === 'atlas') {
+    return getAtlasFilmById(source.partnerId, id, includeCampaigns);
+  }
+
   try {
     const movie = await getMovieDetails(muvi, id);
 
