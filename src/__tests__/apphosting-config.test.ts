@@ -322,6 +322,16 @@ describe.each(configFiles().filter((file) => file !== BASE_CONFIG))(
       expect(valueOf(file, 'ATLAS_LOGIN_ALLOWED_PARTNER_IDS')).toBe('6984824e65c8a085b5d5a632');
     });
 
+    it('points dev at the LAB Console only: base URL and the origin allowed to open /auth', () => {
+      // Production keeps the production Console (base file); dev is coherent
+      // with the lab. The origins list is a build-time value, so it is pinned too.
+      if (!envEntries(file).some((e) => e.variable === 'ATLAS_API_BASE_URL')) return;
+
+      expect(valueOf(file, 'ATLAS_API_BASE_URL')).toBe('https://dashboard-lab.pijamafilms.com');
+      expect(valueOf(file, 'NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS')).toBe('https://dashboard-lab.pijamafilms.com');
+      expect(valueOf(file, 'ATLAS_SERVER_API_BASE_URL')).toBe('https://dashboard-lab.pijamafilms.com');
+    });
+
     it('keeps the dev-only variables out of the base file', () => {
       // The reason they are exempt above. If one reaches the base, the production
       // build resolves a secret that production does not have, and fails.

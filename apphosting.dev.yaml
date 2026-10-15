@@ -123,16 +123,20 @@ env:
   # ---------------------------------------------------------------------------
   # Atlas / PijamaFilms dashboard SSO — ON in development (JP, 2026-10-15).
   #
-  # What dev INHERITS from the base file, on purpose and worth knowing:
-  #   - ATLAS_API_BASE_URL = https://dashboard.pijamafilms.com (PRODUCTION
-  #     Console). The token the handoff delivers is exchanged against it, so a
-  #     token from the lab Console is rejected (the two are isolated for auth).
-  #     Re-pointing dev at the lab is a separate decision and is not made here.
-  #   - NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS = production + lab Console origins.
+  # Dev talks to Crazy Cake's LAB Console for BOTH the SSO token exchange
+  # (ATLAS_API_BASE_URL) and the per-partner catalogue
+  # (ATLAS_SERVER_API_BASE_URL), so the environment is coherent. The two
+  # Consoles are isolated for authentication: a production token is rejected
+  # here and a lab token is rejected by production. The sign-in therefore needs
+  # a producer account in the LAB dashboard.
   #
-  # Console opens a FIXED promote URL for the handoff (its `marketingUrl`), not
-  # this hostname, so whether a real click can reach this backend depends on
-  # Crazy Cake's configuration. See the PR for how to try it.
+  # Only the lab origin may postMessage into /auth on this backend: the
+  # production Console has no business signing anyone into development.
+  # NEXT_PUBLIC_* is baked at BUILD time, so changing it needs a rollout.
+  #
+  # Console opens its configured `marketingUrl`, not this hostname. For a real
+  # click to land here, Crazy Cake must point the LAB Console's marketingUrl at
+  # <this backend's URL>/auth (see the PR).
   #
   # The allowlist is stated explicitly rather than inherited, so a future change
   # to the production list cannot widen who may sign in here. Only JP's
@@ -169,4 +173,15 @@ env:
   - variable: ATLAS_SERVER_API_BASE_URL
     value: "https://dashboard-lab.pijamafilms.com"
     availability:
+      - RUNTIME
+
+  - variable: ATLAS_API_BASE_URL
+    value: https://dashboard-lab.pijamafilms.com
+    availability:
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_ATLAS_ALLOWED_ORIGINS
+    value: https://dashboard-lab.pijamafilms.com
+    availability:
+      - BUILD
       - RUNTIME
