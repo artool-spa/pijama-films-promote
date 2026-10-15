@@ -2,7 +2,6 @@ import { describeAvailabilityFailure } from '@/lib/muvi/availability';
 import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { createCampaign, CampaignCreateSchema } from '@/models/campaign';
-import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest } from '@/lib/auth';
 
 /**
@@ -18,21 +17,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // If no partnerId provided, use the authenticated partner
-    if (!body.partnerId) {
-      body.partnerId = partner.id;
-    }
-
-    // Verify the partner exists
-    const targetPartner = await getPartnerById(body.partnerId);
-    if (!targetPartner) {
-      return NextResponse.json(
-        { error: 'Partner no encontrado' },
-        { status: 404 }
-      );
-    }
-
-    const result = CampaignCreateSchema.safeParse(body);
+    const result = CampaignCreateSchema.safeParse({
+      ...body,
+      // The owner is ALWAYS the authenticated partner. A partnerId sent by the
+      // client is overwritten, never trusted (IDOR) and never probed, so the
+      // response cannot reveal whether another partner exists.
+      partnerId: partner.id,
+    });
     if (!result.success) {
       return NextResponse.json(
         { error: 'Datos inválidos', details: result.error.flatten() },
