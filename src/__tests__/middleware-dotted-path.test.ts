@@ -21,6 +21,7 @@ const FORGED = {
   'x-pijama-partner-id': 'pijamafilms',
   'x-partner-id': 'victim-doc-id',
   'x-user-name': 'Forged',
+  'x-pijama-session-origin': 'internal',
 };
 
 function run(path: string): Promise<Response> {
