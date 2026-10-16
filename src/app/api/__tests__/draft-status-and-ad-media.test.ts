@@ -173,6 +173,12 @@ describe.each(MEDIA_CASES)('$name', ({ run, creates }) => {
     void creates;
   });
 
+  it("leaves B's draft campaign untouched when the media is foreign", async () => {
+    const before = JSON.stringify(db.store.get(`campaigns/${campaignB}`));
+    await run([imgA], []);
+    expect(JSON.stringify(db.store.get(`campaigns/${campaignB}`))).toBe(before);
+  });
+
   it("answers 400 when B attaches A's video", async () => {
     expect((await run([], [vidA])).status).toBe(400);
     expect(adDocs()).toEqual([]);
@@ -242,5 +248,25 @@ describe('google create-and-sync with campaignId', () => {
   it('lets B reuse its own campaign', async () => {
     const res = await googleSync.POST(req(body(campaignB)));
     expect(res.status).not.toBe(404);
+  });
+});
+
+// The model is the last line: callers other than the routes above get it too.
+describe('the ad model refuses foreign media on its own', () => {
+  it('createAdsForCampaign: AdMediaError and no ad written', async () => {
+    const { createAdsForCampaign, AdMediaError } = await import('@/models/ad');
+    await expect(
+      createAdsForCampaign(campaignB, [
+        { name: 'Ad', headlines: ['h'], bodies: ['b'], linkUrl: 'https://example.com/w', imageIds: [imgA], videoIds: [] } as never,
+      ])
+    ).rejects.toBeInstanceOf(AdMediaError);
+    expect(adDocs()).toEqual([]);
+  });
+
+  it('updateAd: AdMediaError and the ad is unchanged', async () => {
+    const { createAd, updateAd, AdMediaError } = await import('@/models/ad');
+    const ad = await createAd(AD(campaignB, [imgB]) as never);
+    await expect(updateAd(ad.id, { imageIds: [imgA] } as never)).rejects.toBeInstanceOf(AdMediaError);
+    expect(db.store.get(`ads/${ad.id}`)?.imageIds).toEqual([imgB]);
   });
 });
