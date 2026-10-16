@@ -3,7 +3,7 @@ export { getPartnerFromRequest, getPartnerByPijamaIdFromRequest } from './middle
 // Access control exports
 export { canManageCampaign } from './access-control';
 
-export type { AccessCheckResult } from './access-control';
+export type { AccessCheckResult, SessionOrigin, SessionPartner } from './access-control';
 
 // Session management exports
 export {

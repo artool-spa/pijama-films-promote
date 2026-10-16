@@ -18,11 +18,13 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => ({}) }));
 
 const OWNER = { id: 'docA', partnerId: 'ext-a', name: 'A' };
 const OTHER = { id: 'docB', partnerId: 'ext-b', name: 'B' };
-const ADMIN = { id: 'docAdmin', partnerId: 'pijamafilms', name: 'Pijama' };
+const ADMIN = { id: 'docAdmin', partnerId: 'pijamafilms', name: 'Pijama', sessionOrigin: 'internal' };
 // An SSO session: `atlas:<id>` uid, Console partnerId, its own partner document.
+// Console returning the reserved id must still not be admin.
+const SSO_RESERVED = { id: 'docSsoAdmin', partnerId: 'pijamafilms', name: 'SSO', sessionOrigin: 'sso' };
 const SSO = { id: 'docSso', partnerId: 'console-42', name: 'SSO' };
 
-let session: typeof OWNER | null = OWNER;
+let session: { id: string; partnerId: string; name: string; sessionOrigin?: string } | null = OWNER;
 vi.mock('@/lib/auth', async () => {
   const actual = await vi.importActual<typeof import('@/lib/auth/access-control')>('@/lib/auth/access-control');
   return { canManageCampaign: actual.canManageCampaign, getPartnerFromRequest: async () => session };
@@ -142,6 +144,13 @@ describe.each(CASES)('$name', (c) => {
 
   it('404s for an SSO partner: the Console partnerId earns no admin bypass', async () => {
     session = SSO;
+    const res = await call(c);
+    expect(res.status).toBe(404);
+    expect(nothingWritten()).toBe(true);
+  });
+
+  it('404s for a session of SSO origin even when its partnerId is pijamafilms', async () => {
+    session = SSO_RESERVED;
     const res = await call(c);
     expect(res.status).toBe(404);
     expect(nothingWritten()).toBe(true);

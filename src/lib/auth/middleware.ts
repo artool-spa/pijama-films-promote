@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getPartnerRecordByPartnerId, type Partner } from '@/models/partner';
+import { getPartnerRecordByPartnerId } from '@/models/partner';
+import type { SessionOrigin, SessionPartner } from './access-control';
 
 /**
  * Extract and validate the partner from request headers.
@@ -37,7 +38,7 @@ import { getPartnerRecordByPartnerId, type Partner } from '@/models/partner';
  */
 export async function getPartnerFromRequest(
   req: NextRequest
-): Promise<Partner | null> {
+): Promise<SessionPartner | null> {
   return getPartnerByPijamaIdFromRequest(req);
 }
 
@@ -49,7 +50,7 @@ export async function getPartnerFromRequest(
  */
 export async function getPartnerByPijamaIdFromRequest(
   req: NextRequest
-): Promise<Partner | null> {
+): Promise<SessionPartner | null> {
   const pijamaPartnerId = req.headers.get('x-pijama-partner-id');
 
   if (!pijamaPartnerId) {
@@ -57,7 +58,15 @@ export async function getPartnerByPijamaIdFromRequest(
   }
 
   try {
-    return await getPartnerRecordByPartnerId(pijamaPartnerId);
+    const partner = await getPartnerRecordByPartnerId(pijamaPartnerId);
+    if (!partner) return null;
+
+    // Set by the Edge middleware from the verified cookie. Anything but the
+    // exact value 'internal' (absent, garbled) is SSO: fail closed.
+    const sessionOrigin: SessionOrigin =
+      req.headers.get('x-pijama-session-origin') === 'internal' ? 'internal' : 'sso';
+
+    return { ...partner, sessionOrigin };
   } catch {
     return null;
   }

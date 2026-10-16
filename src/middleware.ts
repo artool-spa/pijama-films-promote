@@ -90,6 +90,7 @@ const PROTECTED_API_PREFIX = '/api/';
 const CALLER_FORBIDDEN_HEADERS = [
   'x-partner-id',
   'x-pijama-partner-id',
+  'x-pijama-session-origin',
   'x-user-name',
 ] as const;
 
@@ -165,6 +166,12 @@ export async function middleware(request: NextRequest) {
 
     requestHeaders.set('x-pijama-partner-id', payload.partnerId as string);
     requestHeaders.set('x-user-name', payload.name as string);
+    // SSO sessions have uid `atlas:<partnerId>` (see src/lib/auth/session.ts).
+    // Derived from the signed payload only; the admin bypass requires 'internal'.
+    requestHeaders.set(
+      'x-pijama-session-origin',
+      typeof payload.uid === 'string' && !payload.uid.startsWith('atlas:') ? 'internal' : 'sso'
+    );
     requestHeaders.set('x-request-path', pathname);
     requestHeaders.set('x-request-method', request.method);
 

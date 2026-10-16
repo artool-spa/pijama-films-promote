@@ -14,6 +14,16 @@
 
 import type { Partner } from '@/models/partner';
 
+/**
+ * Where the session came from. Derived by the Edge middleware from the SIGNED
+ * session cookie (uid `atlas:<id>` = SSO), never from anything the caller sends.
+ * `internal` is the only origin allowed the admin bypass; a missing value is
+ * treated as not internal, so a Partner built anywhere else fails closed.
+ */
+export type SessionOrigin = 'internal' | 'sso';
+
+export type SessionPartner = Partner & { sessionOrigin?: SessionOrigin };
+
 export interface AccessCheckResult {
   allowed: boolean;
   reason?: string;
@@ -22,6 +32,10 @@ export interface AccessCheckResult {
 /**
  * Partner id that bypasses the ownership check below.
  *
+ * The bypass needs BOTH the partner id and an internal (non-SSO) session. The
+ * id alone is a value Console could in principle return; the session origin
+ * is something only this app mints (see `SessionOrigin`).
+ *
  * ⚠️ Every seeded user currently carries this as their `partnerId`
  * (`scripts/provision-seed-users.ts`), so in practice the check below passes
  * for everyone today. That is not an accident of this module — it is the
@@ -29,7 +43,7 @@ export interface AccessCheckResult {
  * without the rest of that work would deny access without granting it
  * correctly anywhere else. Change it there, deliberately, not here.
  */
-const SPECIAL_PARTNER_ID = 'pijamafilms';
+export const SPECIAL_PARTNER_ID = 'pijamafilms';
 
 /**
  * Can this partner act on a campaign owned by `campaignPartnerId`?
@@ -39,10 +53,10 @@ const SPECIAL_PARTNER_ID = 'pijamafilms';
  * document id, while the bypass above compares the external `partnerId`.
  */
 export function canManageCampaign(
-  partner: Partner,
+  partner: SessionPartner,
   campaignPartnerId: string
 ): AccessCheckResult {
-  if (partner.partnerId === SPECIAL_PARTNER_ID) {
+  if (partner.partnerId === SPECIAL_PARTNER_ID && partner.sessionOrigin === 'internal') {
     return { allowed: true };
   }
 
