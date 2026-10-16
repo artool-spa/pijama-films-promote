@@ -25,6 +25,7 @@ export default defineConfig({
       // The campaign routes import these; their tests mock them.
       '#meta': path.resolve(__dirname, './src/lib/meta/index.ts'),
       '#google': path.resolve(__dirname, './src/lib/google/index.ts'),
+      '#gemini': path.resolve(__dirname, './src/lib/gemini/index.ts'),
     },
   },
 });
