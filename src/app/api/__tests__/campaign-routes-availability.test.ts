@@ -30,7 +30,7 @@ vi.mock('#muvi', () => ({ muvi: {}, MuviApiError, getMovieDetails: (...a: unknow
 
 vi.mock('@/lib/auth', () => ({ getPartnerFromRequest: async () => ({ id: 'doc-1', partnerId: 'p-1' }) }));
 vi.mock('@/models/partner', () => ({ getPartnerById: async () => ({ id: 'doc-1' }) }));
-vi.mock('@/models/ad', () => ({ createAdsForCampaign: vi.fn(), getAdsByCampaignId: vi.fn() }));
+vi.mock('@/models/ad', () => ({ assertMediaBelongsToFilm: vi.fn(async () => undefined), AdMediaError: class extends Error {}, createAdsForCampaign: vi.fn(), getAdsByCampaignId: vi.fn() }));
 vi.mock('@/lib/events', () => ({ publish: vi.fn() }));
 vi.mock('#meta', () => ({ MetaApiError: class extends Error {} }));
 vi.mock('#google', () => ({ GoogleAdsApiError: class extends Error {} }));

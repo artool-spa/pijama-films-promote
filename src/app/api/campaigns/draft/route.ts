@@ -58,6 +58,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
       }
       await assertFilmAccessible(existing.filmMuviUuid);
+      // Only a DRAFT is edited here. Once a campaign is synced, its budget,
+      // dates and audience live on the ad platforms too, and changing them in
+      // Firestore alone would make the two disagree: that is what
+      // meta/campaigns/[id]/edit is for. The UI only ever sends the id of a
+      // draft (the page loads a draft only when status === 'DRAFT'). 409, not
+      // 404: the caller owns this campaign, so nothing is revealed, and the
+      // answer tells them why.
+      if (existing.status !== 'DRAFT') {
+        return NextResponse.json(
+          { error: 'This campaign is no longer a draft and can’t be changed here.' },
+          { status: 409 }
+        );
+      }
       const updated = await updateCampaign(draftId, {
         name: campaignData.name,
         budget: campaignData.budget || undefined,

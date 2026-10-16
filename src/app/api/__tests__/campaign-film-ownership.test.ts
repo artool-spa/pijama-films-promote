@@ -56,7 +56,7 @@ vi.mock('@/models/partner', () => ({
   getPartnerById: async () => ({ id: 'x' }),
   getPartnerRecordByPartnerId: async () => null,
 }));
-vi.mock('@/models/ad', () => ({ createAdsForCampaign: vi.fn(async () => []), getAdsByCampaignId: vi.fn() }));
+vi.mock('@/models/ad', () => ({ assertMediaBelongsToFilm: vi.fn(async () => undefined), AdMediaError: class extends Error {}, createAdsForCampaign: vi.fn(async () => []), getAdsByCampaignId: vi.fn() }));
 vi.mock('@/lib/events', () => ({ publish: vi.fn() }));
 vi.mock('#meta', () => ({ MetaApiError: class extends Error {} }));
 vi.mock('#google', () => ({ GoogleAdsApiError: class extends Error {} }));
@@ -203,7 +203,7 @@ describe('promoting or updating a draft uses the film STORED on the draft', () =
   });
 
   it('campaigns/draft update: the owner can update their own draft', async () => {
-    getCampaignById.mockResolvedValue({ id: DRAFT_ID, partnerId: 'doc-partner-a', filmMuviUuid: FILM_A });
+    getCampaignById.mockResolvedValue({ id: DRAFT_ID, partnerId: 'doc-partner-a', filmMuviUuid: FILM_A, status: 'DRAFT' });
     updateCampaign.mockResolvedValue({ id: DRAFT_ID });
     const res = await draft.POST(req({ ...DRAFT_BODY(FILM_A), draftId: DRAFT_ID }));
     expect(res.status).toBe(200);
