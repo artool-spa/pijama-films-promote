@@ -93,6 +93,38 @@ const CALLER_FORBIDDEN_HEADERS = [
   'x-user-name',
 ] as const;
 
+// Static assets this app serves from /public. Matched by extension, and never
+// under /api: a dynamic API segment may legitimately contain a dot
+// (/api/meta/campaigns/x.y), and a dot must not be what skips authentication.
+const STATIC_FILE_PATTERN = /\.(?:ico|png|jpe?g|gif|svg|webp|avif|css|js|map|woff2?|ttf|otf|txt)$/i;
+
+function isStaticAsset(pathname: string): boolean {
+  if (pathname.startsWith(PROTECTED_API_PREFIX)) return false;
+
+  return (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    STATIC_FILE_PATTERN.test(pathname)
+  );
+}
+
+/**
+ * Pass a request on WITHOUT authenticating it (public routes, static assets).
+ *
+ * The caller's internal-authority headers are still deleted: the clone carries
+ * them verbatim, and a route that reads `x-pijama-partner-id` would otherwise
+ * trust a forged one whenever the request skipped the session branch below.
+ */
+function passThrough(request: NextRequest): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+
+  for (const header of CALLER_FORBIDDEN_HEADERS) {
+    requestHeaders.delete(header);
+  }
+
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const start = Date.now();
@@ -102,16 +134,12 @@ export async function middleware(request: NextRequest) {
     PUBLIC_ROUTES.some((route) => pathname.startsWith(route)) ||
     isPublicExactRoute(pathname)
   ) {
-    return withRequestLog(request, NextResponse.next(), start);
+    return withRequestLog(request, passThrough(request), start);
   }
 
   // Allow static files and Next.js internals
-  if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon') ||
-    pathname.includes('.')
-  ) {
-    return NextResponse.next();
+  if (isStaticAsset(pathname)) {
+    return passThrough(request);
   }
 
   // Check for session cookie
