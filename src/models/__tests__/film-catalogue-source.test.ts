@@ -16,6 +16,12 @@ import {
 } from '@/lib/atlas/__tests__/external-fixtures';
 
 const db = new FakeFirestore();
+// Film ownership has its own tests (film-assets-ownership / campaign-film-ownership);
+// here it must not depend on a session.
+vi.mock('@/lib/assets/film-access', async (orig) => ({
+  ...(await orig<typeof import('@/lib/assets/film-access')>()),
+  assertFilmAccessible: async () => undefined,
+}));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => db }));
 
 vi.mock('@/lib/logger', () => ({

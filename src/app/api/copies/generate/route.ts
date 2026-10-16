@@ -9,6 +9,8 @@ import {
 } from '#gemini';
 import { muvi, getMovieDetails } from '#muvi';
 import type { FilmDataForPrompt } from '#gemini';
+import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 
 /**
  * POST /api/copies/generate
@@ -31,6 +33,11 @@ import type { FilmDataForPrompt } from '#gemini';
  * }
  */
 export async function POST(req: NextRequest) {
+  const partner = await getPartnerFromRequest(req);
+  if (!partner) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -44,6 +51,9 @@ export async function POST(req: NextRequest) {
     }
 
     const { filmId, languages } = result.data;
+
+    // Before MUVI and before Gemini (which costs money).
+    await assertFilmAccessible(filmId);
 
     // Fetch film data from MUVI API
     const movie = await getMovieDetails(muvi, filmId);
@@ -89,6 +99,9 @@ export async function POST(req: NextRequest) {
       cached: false,
     });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error generating copies');
 
     if (error instanceof GeminiApiError) {

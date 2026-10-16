@@ -7,6 +7,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FakeFirestore } from '@/test/firestore-fake';
 
 const db = new FakeFirestore();
+// Film ownership has its own tests (film-assets-ownership / campaign-film-ownership);
+// here it must not depend on a session.
+vi.mock('@/lib/assets/film-access', async (orig) => ({
+  ...(await orig<typeof import('@/lib/assets/film-access')>()),
+  assertFilmAccessible: async () => undefined,
+}));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: () => db }));
 vi.mock('@/lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),

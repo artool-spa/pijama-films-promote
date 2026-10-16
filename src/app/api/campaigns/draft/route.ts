@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
-import { getPartnerFromRequest } from '@/lib/auth';
-import { saveDraftCampaign, updateCampaign } from '@/models/campaign';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
+import { getCampaignById, saveDraftCampaign, updateCampaign } from '@/models/campaign';
 
 const DraftSaveSchema = z.object({
   draftId: IdSchema.optional(),
@@ -50,7 +51,13 @@ export async function POST(req: NextRequest) {
     const { draftId, campaignData, formState } = result.data;
 
     if (draftId) {
-      // Update existing draft
+      // Update existing draft. The draft must be the session partner's: until
+      // now any partner could overwrite any campaign by id here.
+      const existing = await getCampaignById(draftId);
+      if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
+        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+      }
+      await assertFilmAccessible(existing.filmMuviUuid);
       const updated = await updateCampaign(draftId, {
         name: campaignData.name,
         budget: campaignData.budget || undefined,
@@ -69,7 +76,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ campaign: { id: updated.id } });
     }
 
-    // Create new draft
+    // Create new draft (saveDraftCampaign verifies the film is the session's)
     const campaign = await saveDraftCampaign({
       name: campaignData.name,
       objective: 'LANDING_PAGE_VIEW',
@@ -94,6 +101,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ campaign: { id: campaign.id } }, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error saving draft campaign');
     return NextResponse.json(
       { error: 'Error saving draft' },

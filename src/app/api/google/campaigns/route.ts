@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { createCampaign } from '@/models/campaign';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { CampaignCreateSchema } from '@/models/campaign';
 
 /**
@@ -35,6 +36,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, campaign }, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     const unavailable = describeAvailabilityFailure(error);
     if (unavailable) {
       return NextResponse.json(
