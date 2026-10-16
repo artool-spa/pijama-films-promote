@@ -6,6 +6,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+// Film ownership has its own tests (film-assets-ownership / campaign-film-ownership);
+// here it must not depend on a session.
+vi.mock('@/lib/assets/film-access', async (orig) => ({
+  ...(await orig<typeof import('@/lib/assets/film-access')>()),
+  assertFilmAccessible: async () => undefined,
+}));
 vi.mock('@/lib/logger', () => {
   const l = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   return { default: l, createLogger: () => l };

@@ -51,12 +51,6 @@ const ALLOWED_WITHOUT_AUTHORIZATION: Record<string, string> = {
     'Clears the session cookie. Requiring a valid session to log out would ' +
     'strand a user holding a broken one, and the only effect is on the ' +
     'caller’s own browser.',
-
-  'copies/generate/route.ts':
-    'KNOWN GAP, not an exemption. Any caller can generate ad copy for any ' +
-    'film id, which reaches Muvi and Gemini and spends quota. It is listed ' +
-    'here so this guard can protect the rest of the tree rather than being ' +
-    'deleted wholesale; remove the entry when the route is fixed.',
 };
 
 function routeFiles(dir: string, found: string[] = []): string[] {

@@ -5,6 +5,12 @@ const db = new FakeFirestore();
 
 // These tests are about campaign storage, not MUVI: availability is covered in
 // campaign-region-guard.test.ts. Left unmocked, createCampaign would call MUVI.
+// Film ownership has its own tests (film-assets-ownership / campaign-film-ownership);
+// here it must not depend on a session.
+vi.mock('@/lib/assets/film-access', async (orig) => ({
+  ...(await orig<typeof import('@/lib/assets/film-access')>()),
+  assertFilmAccessible: async () => undefined,
+}));
 vi.mock('@/lib/muvi/availability', () => ({ assertFilmPromotable: async () => undefined }));
 
 vi.mock('@/lib/firebase/admin', () => ({
