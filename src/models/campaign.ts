@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { COLLECTIONS, IdSchema as DocIdSchema, docData, sanitize } from '@/lib/firestore';
 import { assertFilmPromotable } from '@/lib/muvi/availability';
+import { assertFilmAccessible } from '@/lib/assets/film-access';
 import { withAds, withPartner, adsForCampaign, createdAtMillis } from './hydrate';
 
 // ============================================================================
@@ -457,6 +458,9 @@ export async function createCampaign(data: CampaignCreateInput) {
   // (could not check) BEFORE anything is written. Validate first so a malformed
   // payload is reported as such and not as a MUVI problem.
   const { filmMuviUuid } = CampaignCreateSchema.parse(data);
+  // Ownership first: a film outside the session's catalogue is "not found",
+  // and MUVI is not even asked about it.
+  await assertFilmAccessible(filmMuviUuid);
   await assertFilmPromotable(filmMuviUuid);
 
   return insertCampaign(data);
@@ -466,6 +470,9 @@ export async function createCampaign(data: CampaignCreateInput) {
  * Save a draft campaign with form state
  */
 export async function saveDraftCampaign(data: CampaignCreateInput) {
+  // Same gate as createCampaign: a draft must not be created on a foreign film.
+  await assertFilmAccessible(CampaignCreateSchema.parse(data).filmMuviUuid);
+
   return insertCampaign(data);
 }
 

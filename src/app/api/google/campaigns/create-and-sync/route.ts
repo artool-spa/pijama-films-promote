@@ -1,4 +1,5 @@
 import { assertFilmPromotable, describeAvailabilityFailure } from '@/lib/muvi/availability';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { IdSchema } from '@/lib/firestore';
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
       // A draft becomes a real campaign here without passing through createCampaign,
       // so the same availability check applies. The film comes from the stored
       // draft, not from the request body.
+      await assertFilmAccessible(existing.filmMuviUuid);
       await assertFilmPromotable(existing.filmMuviUuid);
       await updateCampaign(draftId, {
         name: campaignData.name,
@@ -265,6 +267,9 @@ export async function POST(req: NextRequest) {
       syncErrorDetails: syncResult.syncErrorDetails,
     }, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     const unavailable = describeAvailabilityFailure(error);
     if (unavailable) {
       return NextResponse.json(
