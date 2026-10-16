@@ -195,7 +195,8 @@ describe('promoting or updating a draft uses the film STORED on the draft', () =
 
   it('campaigns/draft update: 404 when the draft belongs to ANOTHER partner (campaign IDOR)', async () => {
     session = { uid: 'atlas:partner-b', partnerId: 'partner-b' };
-    getCampaignById.mockResolvedValue({ id: DRAFT_ID, partnerId: 'doc-partner-a', filmMuviUuid: FILM_A });
+    // The stored film IS in B's catalogue, so only the partner check can refuse this.
+    getCampaignById.mockResolvedValue({ id: DRAFT_ID, partnerId: 'doc-partner-a', filmMuviUuid: FILM_B });
     const res = await draft.POST(req({ ...DRAFT_BODY(FILM_B), draftId: DRAFT_ID }));
     expect(res.status).toBe(404);
     expect(updateCampaign).not.toHaveBeenCalled();
