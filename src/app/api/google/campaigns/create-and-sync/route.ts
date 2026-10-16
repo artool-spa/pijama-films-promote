@@ -7,7 +7,7 @@ import logger from '@/lib/logger';
 import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
 import { createAdsForCampaign, getAdsByCampaignId } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
-import { getPartnerFromRequest } from '@/lib/auth';
+import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { publish } from '@/lib/events';
 import { GoogleAdsApiError } from '#google';
 import { areGoogleImageAssetsReady, syncCampaignToGoogle } from '@/lib/campaigns/sync';
@@ -172,9 +172,12 @@ export async function POST(req: NextRequest) {
     } else if (existingCampaignId) {
       // Reuse existing campaign (multi-platform: Meta campaign already created)
       const existing = await getCampaignById(existingCampaignId);
-      if (!existing) {
+      // The campaign must be the session partner's: this path syncs it to
+      // Google Ads (real spend) and reads its ads.
+      if (!existing || !canManageCampaign(partner, existing.partnerId).allowed) {
         return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
       }
+      await assertFilmAccessible(existing.filmMuviUuid);
       campaign = existing;
       ads = await getAdsByCampaignId(existingCampaignId);
       await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Using existing campaign for Google Ads');
