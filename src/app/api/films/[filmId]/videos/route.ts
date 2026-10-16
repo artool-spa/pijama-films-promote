@@ -3,6 +3,7 @@ import type { AssetStatus } from '@/lib/assets/status';
 import logger from '@/lib/logger';
 import { getVideosByFilmMuviUuid, getVideosByFilmMuviUuidWithStatus } from '@/models/video';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 
 type RouteParams = { params: Promise<{ filmId: string }> };
 
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId } = await params;
+    await assertFilmAccessible(filmId);
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get('status');
 
@@ -32,6 +34,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(videos);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error fetching videos');
     return NextResponse.json(
       { error: 'Error fetching videos' },

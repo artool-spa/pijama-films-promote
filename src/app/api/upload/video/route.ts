@@ -8,6 +8,7 @@ import {
 } from '@/lib/storage';
 import { createVideo } from '@/models/video';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { validateVideoInBackground } from '@/lib/assets';
 
 const VideoUploadQuerySchema = z.object({
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
 
     const { filmMuviUuid, name: customName } = queryResult.data;
 
+    // Before the body is read and before anything reaches storage.
+    await assertFilmAccessible(filmMuviUuid);
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
 
@@ -98,6 +102,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(video, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error uploading video');
 
     if (error instanceof StorageValidationError) {

@@ -8,6 +8,7 @@ import {
 } from '@/lib/storage';
 import { createImage } from '@/models/image';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { validateImageInBackground } from '@/lib/assets';
 
 const ImageUploadQuerySchema = z.object({
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
 
     const { filmMuviUuid, name: customName } = queryResult.data;
 
+    // Before the body is read and before anything reaches storage.
+    await assertFilmAccessible(filmMuviUuid);
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
 
@@ -97,6 +101,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(image, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error uploading image');
 
     if (error instanceof StorageValidationError) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVideoById, setVideoArchived } from '@/models/video';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 
 type RouteParams = { params: Promise<{ filmId: string; id: string }> };
 
@@ -16,6 +17,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const video = await getVideoById(id);
 
     if (!video || video.filmMuviUuid !== filmId) {
@@ -25,6 +27,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const updated = await setVideoArchived(id, true);
     return NextResponse.json(updated);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     console.error('Error archiving video:', error);
     return NextResponse.json({ error: 'Error al archivar video' }, { status: 500 });
   }
@@ -42,6 +47,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const video = await getVideoById(id);
 
     if (!video || video.filmMuviUuid !== filmId) {
@@ -51,6 +57,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const updated = await setVideoArchived(id, false);
     return NextResponse.json(updated);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     console.error('Error unarchiving video:', error);
     return NextResponse.json({ error: 'Error al desarchivar video' }, { status: 500 });
   }

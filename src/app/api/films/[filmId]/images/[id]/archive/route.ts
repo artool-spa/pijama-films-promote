@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getImageById, setImageArchived } from '@/models/image';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 
 type RouteParams = { params: Promise<{ filmId: string; id: string }> };
 
@@ -16,6 +17,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const image = await getImageById(id);
 
     if (!image || image.filmMuviUuid !== filmId) {
@@ -25,6 +27,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const updated = await setImageArchived(id, true);
     return NextResponse.json(updated);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     console.error('Error archiving image:', error);
     return NextResponse.json({ error: 'Error al archivar imagen' }, { status: 500 });
   }
@@ -42,6 +47,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const image = await getImageById(id);
 
     if (!image || image.filmMuviUuid !== filmId) {
@@ -51,6 +57,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const updated = await setImageArchived(id, false);
     return NextResponse.json(updated);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     console.error('Error unarchiving image:', error);
     return NextResponse.json({ error: 'Error al desarchivar imagen' }, { status: 500 });
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { revalidateAsset } from '@/lib/assets';
 import { getImageById } from '@/models/image';
 import { getVideoById } from '@/models/video';
@@ -35,16 +36,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: 'Image not found' }, { status: 404 });
       }
       if (image.filmMuviUuid !== filmMuviUuid) {
-        return NextResponse.json({ error: 'Asset does not belong to this film' }, { status: 403 });
+        return NextResponse.json({ error: 'Image not found' }, { status: 404 });
       }
+      // Ownership comes from the STORED film, not from the client's claim.
+      await assertFilmAccessible(image.filmMuviUuid);
     } else {
       const video = await getVideoById(id);
       if (!video) {
         return NextResponse.json({ error: 'Video not found' }, { status: 404 });
       }
       if (video.filmMuviUuid !== filmMuviUuid) {
-        return NextResponse.json({ error: 'Asset does not belong to this film' }, { status: 403 });
+        return NextResponse.json({ error: 'Video not found' }, { status: 404 });
       }
+      await assertFilmAccessible(video.filmMuviUuid);
     }
 
     // Trigger revalidation in background
@@ -55,6 +59,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       message: 'Revalidation started',
     });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error triggering revalidation');
 
     if (error instanceof z.ZodError) {

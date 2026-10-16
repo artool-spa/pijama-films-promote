@@ -4,6 +4,7 @@ import { IdSchema } from '@/lib/firestore';
 import sharp from 'sharp';
 import logger from '@/lib/logger';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { getImageById, createImage } from '@/models/image';
 import { uploadImage } from '@/lib/storage';
 import { validateImageInBackground } from '@/lib/assets';
@@ -51,8 +52,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (originalImage.filmMuviUuid !== filmMuviUuid) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
+
+    // Ownership comes from the STORED film, before any download or upload.
+    await assertFilmAccessible(originalImage.filmMuviUuid);
 
     // Validate minimum dimensions before doing any work
     if (crop.width < META_IMAGE_REQUIREMENTS.minWidth || crop.height < META_IMAGE_REQUIREMENTS.minHeight) {
@@ -127,6 +131,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(newImage, { status: 201 });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error cropping image');
     return NextResponse.json(
       { error: 'Internal server error' },

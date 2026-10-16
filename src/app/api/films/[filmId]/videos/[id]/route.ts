@@ -4,6 +4,7 @@ import logger from '@/lib/logger';
 import { getVideoById, updateVideo, deleteVideo } from '@/models/video';
 import { deleteFile } from '@/lib/storage';
 import { getPartnerFromRequest } from '@/lib/auth';
+import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 
 const RenameSchema = z.object({ name: z.string().min(1).max(255) }).strict();
 
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const video = await getVideoById(id);
 
     if (!video) {
@@ -34,6 +36,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(video);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error fetching video');
     return NextResponse.json(
       { error: 'Error al obtener video' },
@@ -54,6 +59,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const video = await getVideoById(id);
 
     if (!video) {
@@ -80,6 +86,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     logger.error({ err: error }, 'Error deleting video');
 
     const message =
@@ -101,6 +110,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { filmId, id } = await params;
+    await assertFilmAccessible(filmId);
     const body = await req.json();
     const { name } = RenameSchema.parse(body);
 
@@ -116,6 +126,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const updated = await updateVideo(id, { name });
     return NextResponse.json(updated);
   } catch (error) {
+    const denied = filmAccessResponse(error);
+    if (denied) return denied;
+
     console.error('Error renaming video:', error);
 
     if (error instanceof z.ZodError) {
