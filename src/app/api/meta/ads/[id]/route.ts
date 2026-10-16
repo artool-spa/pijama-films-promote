@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import logger from '@/lib/logger';
 import { getAdById, updateAd, deleteAd, AdUpdateSchema } from '@/models/ad';
 import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
+import { adMediaResponse } from '@/lib/assets/ad-media-response';
+import { AdMediaError } from '@/models/ad';
 import { getCampaignById } from '@/models/campaign';
 import { getImagesByIds } from '@/models/image';
 import { getVideosByIds } from '@/models/video';
 import { markAdSynced, markGoogleAdSynced, updateAdApproval } from '@/models/ad';
 import { resyncAdCreativeToMeta, resyncAdCreativeToGoogle } from '@/lib/campaigns/sync';
+
+// One message for unknown and foreign media (see AdMediaError).
+const MEDIA_UNAVAILABLE = new AdMediaError().message;
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -123,17 +128,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     ]);
 
     if (nextImages.length !== nextImageIds.length || nextVideos.length !== nextVideoIds.length) {
-      return NextResponse.json({ error: 'Unknown media asset.' }, { status: 400 });
+      return NextResponse.json({ error: MEDIA_UNAVAILABLE }, { status: 400 });
     }
 
     const foreignMedia =
       nextImages.some((image) => image.filmMuviUuid !== campaign.filmMuviUuid) ||
       nextVideos.some((video) => video.filmMuviUuid !== campaign.filmMuviUuid);
     if (foreignMedia) {
-      return NextResponse.json(
-        { error: 'Media does not belong to this film.' },
-        { status: 403 }
-      );
+      // Same answer as "unknown": an id cannot be probed for existence.
+      return NextResponse.json({ error: MEDIA_UNAVAILABLE }, { status: 400 });
     }
 
     // A video without a `metaVideoId` is filtered out of the resync payload and
@@ -223,6 +226,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ ad: updated, warnings });
   } catch (error) {
+    const mediaDenied = adMediaResponse(error);
+    if (mediaDenied) return mediaDenied;
+
     logger.error({ err: error }, 'Error updating ad');
     return NextResponse.json({ error: 'Error updating ad' }, { status: 500 });
   }

@@ -277,6 +277,63 @@ async function campaignDoc(campaignId: string): Promise<Doc | undefined> {
 }
 
 // ============================================================================
+// MEDIA OWNERSHIP
+// ============================================================================
+
+/**
+ * An image or video an ad names is not usable for that campaign's film: it does
+ * not exist, or it belongs to another film (and so possibly another producer).
+ * The message is the same in both cases, so an id cannot be probed for
+ * existence.
+ */
+export class AdMediaError extends Error {
+  constructor() {
+    super('One or more of the selected images or videos are not available for this film.');
+    this.name = 'AdMediaError';
+  }
+}
+
+/**
+ * Throws AdMediaError unless every image and video exists AND carries
+ * `filmMuviUuid`. Assets are keyed by film, and the film was already verified
+ * against the session's catalogue, so this is what keeps a producer from
+ * attaching someone else's assets (the sync would upload them to the ad
+ * platform from their stored URL).
+ */
+export async function assertMediaBelongsToFilm(
+  filmMuviUuid: string,
+  imageIds: readonly string[],
+  videoIds: readonly string[]
+): Promise<void> {
+  const uniqueImages = [...new Set(imageIds)];
+  const uniqueVideos = [...new Set(videoIds)];
+
+  const [images, videos] = await Promise.all([
+    loadByIds(COLLECTIONS.images, uniqueImages),
+    loadByIds(COLLECTIONS.videos, uniqueVideos),
+  ]);
+
+  const ok =
+    uniqueImages.every((id) => images.get(id)?.filmMuviUuid === filmMuviUuid) &&
+    uniqueVideos.every((id) => videos.get(id)?.filmMuviUuid === filmMuviUuid);
+
+  if (!ok) throw new AdMediaError();
+}
+
+async function assertMediaBelongsToCampaign(
+  campaignId: string,
+  imageIds: readonly string[],
+  videoIds: readonly string[]
+): Promise<void> {
+  if (imageIds.length === 0 && videoIds.length === 0) return;
+
+  const campaign = await campaignDoc(campaignId);
+  if (!campaign) throw new AdMediaError();
+
+  await assertMediaBelongsToFilm(campaign.filmMuviUuid as string, imageIds, videoIds);
+}
+
+// ============================================================================
 // QUERY FUNCTIONS
 // ============================================================================
 
@@ -327,6 +384,8 @@ export async function getAdsByCampaignId(campaignId: string) {
 export async function createAd(data: AdCreateInput) {
   const validated = AdCreateSchema.parse(data);
 
+  await assertMediaBelongsToCampaign(validated.campaignId, validated.imageIds, validated.videoIds);
+
   const ref = ads().doc();
   const now = new Date();
   // The join table became `imageIds` / `videoIds` on the document itself, so
@@ -352,6 +411,17 @@ export async function createAd(data: AdCreateInput) {
 export async function updateAd(id: string, data: AdUpdateInput) {
   const validId = IdSchema.parse(id);
   const validated = AdUpdateSchema.parse(data);
+
+  // Only the lists being replaced are checked, against the ad's own campaign.
+  if (validated.imageIds || validated.videoIds) {
+    const current = docData(await ads().doc(validId).get());
+    if (!current) throw new AdMediaError();
+    await assertMediaBelongsToCampaign(
+      current.campaignId as string,
+      validated.imageIds ?? [],
+      validated.videoIds ?? []
+    );
+  }
 
   // Passing `imageIds` replaces the whole list, matching the `set` semantics of
   // the previous relation update.
@@ -388,6 +458,13 @@ export async function deleteAd(id: string) {
 export async function createAdsForCampaign(campaignId: string, adsData: AdBulkCreateInput[]) {
   const validCampaignId = IdSchema.parse(campaignId);
   const validatedAds = z.array(AdBulkCreateSchema).parse(adsData);
+
+  // Before the batch: a foreign asset must leave nothing behind.
+  await assertMediaBelongsToCampaign(
+    validCampaignId,
+    validatedAds.flatMap((ad) => ad.imageIds),
+    validatedAds.flatMap((ad) => ad.videoIds)
+  );
 
   // One batch keeps the insert atomic, as the Prisma transaction did.
   const batch = adminDb().batch();

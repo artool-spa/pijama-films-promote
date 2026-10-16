@@ -1,3 +1,4 @@
+import { adMediaResponse } from '@/lib/assets/ad-media-response';
 import { assertFilmPromotable, describeAvailabilityFailure } from '@/lib/muvi/availability';
 import { assertFilmAccessible, filmAccessResponse } from '@/lib/assets/film-access';
 import { NextRequest, NextResponse } from 'next/server';
@@ -5,7 +6,7 @@ import { z } from 'zod';
 import { IdSchema } from '@/lib/firestore';
 import logger from '@/lib/logger';
 import { createCampaign, updateCampaign, getCampaignById, markCampaignPendingAssets } from '@/models/campaign';
-import { createAdsForCampaign, getAdsByCampaignId } from '@/models/ad';
+import { assertMediaBelongsToFilm, createAdsForCampaign, getAdsByCampaignId } from '@/models/ad';
 import { getPartnerById } from '@/models/partner';
 import { getPartnerFromRequest, canManageCampaign } from '@/lib/auth';
 import { publish } from '@/lib/events';
@@ -122,6 +123,15 @@ export async function POST(req: NextRequest) {
     // Step 1: Create or reuse campaign
     const { ads: adsData, autoSync, targetCpvMicros, campaignId: existingCampaignId, draftId, ...campaignData } = data;
 
+    // Media first, before the campaign (or the draft) is touched: a foreign or
+    // unknown asset must leave nothing behind. Exact film, not the body's claim.
+    const mediaIds = (film: string) =>
+      assertMediaBelongsToFilm(
+        film,
+        adsData.flatMap((ad) => ad.imageIds),
+        adsData.flatMap((ad) => ad.videoIds)
+      );
+
     let campaign;
     let ads;
 
@@ -136,6 +146,7 @@ export async function POST(req: NextRequest) {
       // draft, not from the request body.
       await assertFilmAccessible(existing.filmMuviUuid);
       await assertFilmPromotable(existing.filmMuviUuid);
+      await mediaIds(existing.filmMuviUuid);
       await updateCampaign(draftId, {
         name: campaignData.name,
         budget: campaignData.budget,
@@ -183,6 +194,7 @@ export async function POST(req: NextRequest) {
       await emitProgress(data.filmMuviUuid, campaign.id, 'campaign', 10, 'Using existing campaign for Google Ads');
     } else {
       // Create new campaign locally (DRAFT, platforms=[GOOGLE])
+      await mediaIds(campaignData.filmMuviUuid);
       campaign = await createCampaign({
         ...campaignData,
         platforms: ['GOOGLE'],
@@ -272,6 +284,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const denied = filmAccessResponse(error);
     if (denied) return denied;
+
+    const mediaDenied = adMediaResponse(error);
+    if (mediaDenied) return mediaDenied;
 
     const unavailable = describeAvailabilityFailure(error);
     if (unavailable) {
