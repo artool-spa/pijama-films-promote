@@ -25,13 +25,14 @@ en ambas direcciones. Es incorrecto por diseño y NO debe llegar a producción t
 **Reemplazo:** países de la campaña ⊆ países donde está disponible el `muviContentUuid`, con datos por país
 que deben venir de Crazy Cake (pedidos en el correo). **No implementar hasta tener el formato de esos datos.**
 
-## 2b. BURNLIST — próximos dos turnos (decidido por JP el 2026-10-20)
+## 2b. BURNLIST — próximos tres turnos (decidido por JP el 2026-10-20)
 
 | Turno | Frente | Issue | Notas |
 |---|---|---|---|
 | 1 | Endurecer `create-and-sync` (409 fuera de DRAFT/ERROR/PENDING_ASSETS con ids de plataforma nulos) + idempotencia del cargo por `campaignId` | #82 | Duplica campañas gastando y cobros. Verificar antes el rollback de fallo parcial (`sync.ts:361`, `:550`). Mutación obligatoria. |
 | 1 (si no comparte archivos con #82) | Usuarios Firebase de otro partner dejan de ver el catálogo global | #83 | JP dijo SÍ a la decisión (b). Resuelve el `TODO(T0)` en `film.ts`. |
 | 2 | Fase 3: recrear audiencias en cuentas nuevas de Meta y Google; rotar las 15 credenciales | #84 | Va DESPUÉS de #82 (orden de JP). Crear audiencias exige accesos de JP: T0 solo prepara la lista. |
+| 3 | Auditoría completa de rutas antes del Go Live: matriz ruta × sesión/propiedad/Zod/tests; primero reportar, luego corregir | #85 | Preguntar "¿qué caminos NO pasan por el chequeo?". Verificador distinto del autor. |
 | después | Fase 4 renombrada "migración de cuentas publicitarias" (no confundir con el DNS, ya cortado) | #84 | Depende de la 3 y de dev promovido. Orden no negociable en HANDOFF:59-75. |
 
 Fuera del burnlist (JP lo ve con otro agente): alerta de presupuesto GCP, ver §4.
@@ -60,7 +61,7 @@ Fuera del burnlist (JP lo ve con otro agente): alerta de presupuesto GCP, ver §
   (016970-330514-356989, ~50 proyectos). Verificado: Promote no la explica a simple vista (Cloud Run minScale=0,
   4 funciones, 2 jobs de Scheduler). No verificado: costo por proyecto; no hay export a BigQuery y la API de
   presupuestos no está habilitada en artool-hiroshima. Vía rápida: Billing > Reports, agrupar por Project y
-  Service. Hipótesis sin evidencia: otro proyecto con Gemini API (`gen-lang-client-*`, `studio-*`).
+  Service. Hipótesis: otro proyecto con Gemini API.
 - Fuera de ciclo: analytics para Jorge León; rotar las 15 credenciales del transcript del 10-01; evento de
   prueba de Stripe; sacar `dashboard-lab` de los orígenes de producción; restringir claves Firebase Web.
 
@@ -87,8 +88,7 @@ Fuera del burnlist (JP lo ve con otro agente): alerta de presupuesto GCP, ver §
 - Un chequeo de disponibilidad hecho desde la IP del servidor mide al servidor, no al usuario ni al país
   objetivo. Lo detectó JP al redactar el correo, no la verificación. Preguntar: ¿desde dónde se mide, y es el
   mismo sujeto que importa?
-- Cada PR de propiedad halló otro hueco al lado: #72 → 14 rutas, #75 → middleware, #80 → draft update,
-  #81 → google sync. Antes del Go Live, auditoría completa de rutas, no parches.
+- Cada PR de propiedad halló otro hueco al lado (#72, #75, #80, #81): auditoría completa de rutas (#85), no parches.
 - Un subagente con "no edites el repo" dejó un cambio sin commitear en la copia de JP. Revisar `git status`
   de esa copia al cerrar cada ciclo.
 - Los reportes T0↔agente se cruzan: verificar contra la rama antes de repetirlos. Nunca `git add -A` con
