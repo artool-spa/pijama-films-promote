@@ -1,10 +1,10 @@
 # STATUS — SSO dashboard PijamaFilms → promote.pijamafilms.com
 
-_Última actualización: **2026-10-16 (cierre del turno)** · Actualizado por: T0 · Tope: 8 KB._
+_Última actualización: **2026-10-20 (cierre del turno)** · Actualizado por: T0 · Tope: 8 KB._
 _Historial completo hasta el 2026-10-01: `historico/STATUS-hasta-2026-10-01.md` (no editar)._
 _"Atlas" es el nombre viejo: sobrevive en variables y rutas; no usarlo con Crazy Cake ni Pijama._
 
-## 1. Estado actual (2026-10-16)
+## 1. Estado actual (2026-10-20)
 
 ```
 producción  pijama-promote-firebase · master (aa67989) · mergear DESPLIEGA
@@ -14,7 +14,7 @@ desarrollo  pijama-promote-dev      · dev (f1b5318)    · 1040 tests
 - En producción: SSO, Stripe propio, DNS directo y el hotfix del middleware (#76).
 - En dev, sin promover: catálogo por partner (#71), propiedad de rutas (#72-#75, #78-#81). Dev corre contra lab.
 - **BLOQUEANTE: promover dev → master queda detenido** por el guard de región (ver §2) y por la falta de la
-  API de producción de Console.
+  API de producción de Console. Al 2026-10-20 Mathias no ha respondido (correo y búsqueda fuera del hilo).
 
 ## 2. DECISIÓN DE JP (2026-10-16): el guard de región es incorrecto
 
@@ -25,19 +25,24 @@ en ambas direcciones. Es incorrecto por diseño y NO debe llegar a producción t
 **Reemplazo:** países de la campaña ⊆ países donde está disponible el `muviContentUuid`, con datos por país
 que deben venir de Crazy Cake (pedidos en el correo). **No implementar hasta tener el formato de esos datos.**
 
+## 2b. BURNLIST — próximos dos turnos (decidido por JP el 2026-10-20)
+
+| Turno | Frente | Issue | Notas |
+|---|---|---|---|
+| 1 | Endurecer `create-and-sync` (409 fuera de DRAFT/ERROR/PENDING_ASSETS con ids de plataforma nulos) + idempotencia del cargo por `campaignId` | #82 | Duplica campañas gastando y cobros. Verificar antes el rollback de fallo parcial (`sync.ts:361`, `:550`). Mutación obligatoria. |
+| 1 (si no comparte archivos con #82) | Usuarios Firebase de otro partner dejan de ver el catálogo global | #83 | JP dijo SÍ a la decisión (b). Resuelve el `TODO(T0)` en `film.ts`. |
+| 2 | Fase 3: recrear audiencias en cuentas nuevas de Meta y Google; rotar las 15 credenciales | #84 | Va DESPUÉS de #82 (orden de JP). Crear audiencias exige accesos de JP: T0 solo prepara la lista. |
+| después | Fase 4 renombrada "migración de cuentas publicitarias" (no confundir con el DNS, ya cortado) | #84 | Depende de la 3 y de dev promovido. Orden no negociable en HANDOFF:59-75. |
+
+Fuera del burnlist (JP lo ve con otro agente): alerta de presupuesto GCP, ver §4.
+
 ## 3. Ciclo cerrado (2026-10-15/16)
 
-- **#71-#76 (resumen):** catálogo por partner para sesiones Atlas; IDOR en campañas Meta; propiedad con 404
-  idéntico; bypass `pijamafilms` solo con sesión `internal`; #76 hotfix del middleware (paths con '.') a master.
-- **#78 → dev:** se borraron las rutas `/api/partners`. Sin uso en `src/models/partner.ts`: `getAllPartners`,
-  `createPartner`, `updatePartner`, `deletePartner` (limpieza no urgente).
-- **#79 → dev:** propiedad de assets por película (imágenes, videos, archive, upload, revalidate, crop) con
-  `assertFilmAccessible`: 404 si es ajeno, 503 si no se puede verificar. Internos sin chequeo (catálogo global).
-- **#80 → dev:** propiedad de la película en createCampaign, saveDraftCampaign, draft de create-and-sync y
-  copies/generate. Corrige IDOR en campaigns/draft update (draftId ajeno).
-- **#81 → dev:** draft update solo acepta DRAFT (409); medios de un anuncio de la misma película; meta/ads y
-  google/ads POST, y google create-and-sync con campaignId verifican propiedad (este permitía sincronizar
-  campañas ajenas a Google Ads).
+- **#71-#76:** catálogo por partner (SSO), IDOR en campañas Meta, 404 idéntico, bypass `pijamafilms` solo con sesión
+  `internal`, hotfix de middleware a master (#76).
+- **#78-#81 → dev:** sin `/api/partners` (quedan sin uso `getAllPartners`, `createPartner`, `updatePartner`,
+  `deletePartner` en `src/models/partner.ts`: limpieza no urgente); propiedad de assets, de película en campañas y
+  drafts, draft solo en DRAFT (409), medios de la misma película, google sync con campaignId verificado.
 - Todas verificadas por un agente independiente, con mutación.
 
 ## 4. Pendientes
@@ -51,17 +56,22 @@ que deben venir de Crazy Cake (pedidos en el correo). **No implementar hasta ten
 - Click-through SSO en dev: depende de Crazy Cake.
 - Rotar el bearer de la API externa cuando todo funcione (decisión de JP: no antes).
 - Carrera de `getOrCreatePartner` sin transacción en el primer login SSO concurrente: anotada.
+- **Alerta de presupuesto GCP** (JP la ve con otro agente): 100% de US$50 el 2026-10-14 en la cuenta Artool SPA
+  (016970-330514-356989, ~50 proyectos). Verificado: Promote no la explica a simple vista (Cloud Run minScale=0,
+  4 funciones, 2 jobs de Scheduler). No verificado: costo por proyecto; no hay export a BigQuery y la API de
+  presupuestos no está habilitada en artool-hiroshima. Vía rápida: Billing > Reports, agrupar por Project y
+  Service. Hipótesis sin evidencia: otro proyecto con Gemini API (`gen-lang-client-*`, `studio-*`).
 - Fuera de ciclo: analytics para Jorge León; rotar las 15 credenciales del transcript del 10-01; evento de
   prueba de Stripe; sacar `dashboard-lab` de los orígenes de producción; restringir claves Firebase Web.
 
-## 5. Decisiones abiertas de JP
+## 5. Decisiones de JP (2026-10-20)
 
-| # | Tema |
-|---|---|
-| a | create-and-sync con draftId no exige DRAFT (así funciona el reintento tras un sync fallido): ¿se deja? |
-| b | Usuarios Firebase con partnerId ≠ pijamafilms ven el catálogo global (`TODO(T0)` en film.ts) |
-| c | Cambio suelto sin commitear en la copia de JP: `apphosting.yaml` + `ATLAS_SERVER_API_KEY`; rompería el build de producción si llega a master. Descartar con `git checkout -- apphosting.yaml`. La copia sigue en 21e2560: `git pull`; el diff de docs/atlas-sso-integration.md lo absorbe #70 |
-| d | Orden y fecha de las fases 3-4 (audiencias, corte), si sigue abierto |
+| # | Tema | Resolución |
+|---|---|---|
+| a | `create-and-sync` con draftId sin exigir DRAFT | Issue #82, primer frente del turno siguiente |
+| b | Usuarios Firebase de otro partner ven el catálogo global | SÍ, se restringe: issue #83 |
+| c | Cambio suelto en `apphosting.yaml` de la copia de JP | Cerrada: la copia está limpia en master (verificado 10-19) |
+| d | Orden de las fases 3-4 | Fase 3 después de #82; la 4 se renombra y va tras la 3 (#84) |
 
 ## 6. Contratos
 
@@ -93,8 +103,9 @@ que deben venir de Crazy Cake (pedidos en el correo). **No implementar hasta ten
 
 ## 8. Cómo retomar
 
-1. Leer la respuesta de Mathias.
-2. Diseñar el chequeo por país con sus datos (no antes de tener el formato).
-3. Promover dev → master con OK de JP (y API de producción de Console).
-Antes: leer `HANDOFF-2026-10-02.md`, revisar `git status` de la copia de JP (decisión c) y verificar contra la
-rama con build propio (`tsc`, `lint`, `test`). Nunca poner el Bearer en archivos, commits ni argumentos.
+1. Leer la respuesta de Mathias, si llegó (buscar también fuera del hilo "Pruebas de integración de marketing").
+2. Ejecutar el turno 1 del burnlist (§2b): #82, y #83 si no comparte archivos. Agente fresco por issue, con
+   mutación y verificación independiente contra la rama.
+3. Diseñar el chequeo por país solo cuando lleguen los datos; promover dev → master con OK de JP y API de producción.
+Antes: leer `HANDOFF-2026-10-02.md`, revisar `git status` de la copia de JP y verificar contra la rama con build
+propio (`tsc`, `lint`, `test`). Nunca poner el Bearer en archivos, commits ni argumentos.
